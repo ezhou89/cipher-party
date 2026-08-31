@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import type { SeatStore } from "../../lib/seat-store";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
+import { GameView } from "../game/GameView";
 import { LobbyView } from "./LobbyView";
 import { useRoom, type RoomSocketClient } from "./useRoom";
 
@@ -215,17 +216,23 @@ export function RoomPage({ seatStore, createRoomSocket }: RoomPageProps) {
   }
 
   return (
-    <main className="app-shell room-shell game-route-placeholder">
-      <p className="eyebrow">Room {room.projection.code}</p>
-      <h1>
-        {room.projection.roomPhase === "complete"
-          ? "Board complete"
-          : "Game in progress"}
-      </h1>
-      <ConnectionBadge connection={room.connection} />
-      <section aria-label="Game table status">
-        <p>The authoritative game table is synchronized for this seat.</p>
-      </section>
-    </main>
+    <>
+      {room.error === null ? null : (
+        <div
+          className="floating-error error-summary"
+          role="alert"
+          ref={errorRef}
+          tabIndex={-1}
+        >
+          {room.error}
+        </div>
+      )}
+      <GameView
+        projection={room.projection}
+        connection={room.connection}
+        pending={room.pending}
+        send={room.send}
+      />
+    </>
   );
 }
