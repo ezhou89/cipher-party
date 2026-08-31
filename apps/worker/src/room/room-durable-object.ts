@@ -6,6 +6,8 @@ import type {
 } from "@cipher-party/protocol";
 import { DurableObject } from "cloudflare:workers";
 
+import { createConnectionTicket } from "../auth/ticket";
+import { verifyToken } from "../auth/token";
 import type { Env } from "../env";
 import { RoomSession } from "./room-session";
 import {
@@ -13,12 +15,56 @@ import {
   RoomStorage,
   type RoomSnapshotStore,
 } from "./room-storage";
-import type { RoomActor, RoomState } from "./room-state";
+import { createLobbyState, type RoomActor, type RoomState } from "./room-state";
 
 export type { RoomSnapshotStore } from "./room-storage";
 
 type InitializeResult =
   { ok: true } | { ok: false; code: "already_initialized" };
+
+export interface InitializeRoomInput {
+  code: string;
+  hostPlayerId: string;
+  hostDisplayName: string;
+  inviteUrl: string;
+  seatTokenHash: string;
+  hostTokenHash: string;
+  boardSeed: string;
+}
+
+export interface JoinRoomInput {
+  playerId: string;
+  displayName: string;
+  seatTokenHash: string;
+  asSpectator: boolean;
+}
+
+type JoinResult =
+  | { ok: true; revision: number }
+  | {
+      ok: false;
+      code:
+        "room_unavailable" | "room_locked" | "room_in_progress" | "room_full";
+    };
+
+export interface IssueTicketInput {
+  seatToken: string;
+  hostToken: string | null;
+  now: number;
+}
+
+type IssueTicketResult =
+  | { ok: true; ticket: string; expiresAt: number }
+  | { ok: false; code: "room_unavailable" | "unauthorized" };
+
+export interface ConsumeTicketInput {
+  ticket: string;
+  now: number;
+}
+
+type ConsumeTicketResult =
+  | { ok: true; playerId: string; hostAuthority: boolean }
+  | { ok: false; code: "unauthorized" };
 
 type PostPersistHook = (state: RoomState) => void | Promise<void>;
 
@@ -50,17 +96,158 @@ export class PersistentRoomController {
     });
   }
 
-  initialize(input: RoomState): Promise<InitializeResult> {
+  initialize(
+    input: RoomState | InitializeRoomInput,
+  ): Promise<InitializeResult> {
     return this.#serialize(async () => {
       if (this.#state !== undefined) {
         return { ok: false, code: "already_initialized" };
       }
 
-      const next = clone(input);
-      next.lastActivity = this.#now().toISOString();
+      const now = this.#now().toISOString();
+      const next =
+        "schemaVersion" in input
+          ? clone(input)
+          : createLobbyState({
+              code: input.code,
+              inviteUrl: input.inviteUrl,
+              boardSeed: input.boardSeed,
+              hostPlayerId: input.hostPlayerId,
+              displayName: input.hostDisplayName,
+              seatTokenHash: input.seatTokenHash,
+              hostTokenHash: input.hostTokenHash,
+              createdAt: now,
+            });
+      next.lastActivity = now;
       await this.#storage.write(next);
       this.#state = clone(next);
       return { ok: true };
+    });
+  }
+
+  join(input: JoinRoomInput): Promise<JoinResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false, code: "room_unavailable" };
+      }
+      if (current.locked) {
+        return { ok: false, code: "room_locked" };
+      }
+      if (!input.asSpectator && current.phase !== "lobby") {
+        return { ok: false, code: "room_in_progress" };
+      }
+      const seatClass = input.asSpectator ? "spectator" : "active";
+      const seatsInClass = current.seats.filter(
+        (seat) => seat.seatClass === seatClass,
+      ).length;
+      if (seatsInClass >= 16) {
+        return { ok: false, code: "room_full" };
+      }
+
+      const next = clone(current);
+      next.seats.push({
+        playerId: input.playerId,
+        displayName: input.displayName,
+        seatClass,
+        teamId: null,
+        role: input.asSpectator ? "spectator" : "unassigned",
+        connected: false,
+        seatTokenHash: input.seatTokenHash,
+      });
+      next.revision = current.revision + 1;
+      next.lastActivity = this.#now().toISOString();
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      await this.#postPersist?.(clone(next));
+      return { ok: true, revision: next.revision };
+    });
+  }
+
+  issueTicket(input: IssueTicketInput): Promise<IssueTicketResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false, code: "room_unavailable" };
+      }
+      const next = clone(current);
+      next.connectionTickets = next.connectionTickets.filter(
+        (ticket) => ticket.expiresAt > input.now,
+      );
+      const verification = await Promise.all(
+        next.seats.map(async (seat) => ({
+          seat,
+          valid: await verifyToken(input.seatToken, seat.seatTokenHash),
+        })),
+      );
+      const seat = verification.find(({ valid }) => valid)?.seat;
+      if (seat === undefined) {
+        if (
+          next.connectionTickets.length !== current.connectionTickets.length
+        ) {
+          await this.#storage.write(next);
+          this.#state = clone(next);
+        }
+        return { ok: false, code: "unauthorized" };
+      }
+
+      const hostAuthority =
+        seat.playerId === current.hostPlayerId &&
+        input.hostToken !== null &&
+        (await verifyToken(input.hostToken, current.hostTokenHash));
+      const issued = await createConnectionTicket(input.now);
+      next.connectionTickets.push({
+        ticketHash: issued.ticketHash,
+        playerId: seat.playerId,
+        hostAuthority,
+        expiresAt: issued.expiresAt,
+      });
+      next.lastActivity = new Date(input.now).toISOString();
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      return {
+        ok: true,
+        ticket: issued.ticket,
+        expiresAt: issued.expiresAt,
+      };
+    });
+  }
+
+  consumeTicket(input: ConsumeTicketInput): Promise<ConsumeTicketResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false, code: "unauthorized" };
+      }
+      const unexpired = current.connectionTickets.filter(
+        (ticket) => ticket.expiresAt > input.now,
+      );
+      const verification = await Promise.all(
+        unexpired.map(async (ticket) => ({
+          ticket,
+          valid: await verifyToken(input.ticket, ticket.ticketHash),
+        })),
+      );
+      const accepted = verification.find(({ valid }) => valid)?.ticket;
+      const next = clone(current);
+      next.connectionTickets =
+        accepted === undefined
+          ? clone(unexpired)
+          : unexpired.filter((ticket) => ticket !== accepted);
+      const changed =
+        next.connectionTickets.length !== current.connectionTickets.length;
+      if (changed) {
+        await this.#storage.write(next);
+        this.#state = clone(next);
+      }
+      if (accepted === undefined) {
+        return { ok: false, code: "unauthorized" };
+      }
+      return {
+        ok: true,
+        playerId: accepted.playerId,
+        hostAuthority: accepted.hostAuthority,
+      };
     });
   }
 
@@ -155,8 +342,22 @@ export class RoomDurableObject extends DurableObject<Env> {
     ctx.blockConcurrencyWhile(() => this.#controller.load());
   }
 
-  initialize(input: RoomState): Promise<InitializeResult> {
+  initialize(
+    input: RoomState | InitializeRoomInput,
+  ): Promise<InitializeResult> {
     return this.#controller.initialize(input);
+  }
+
+  join(input: JoinRoomInput): Promise<JoinResult> {
+    return this.#controller.join(input);
+  }
+
+  issueTicket(input: IssueTicketInput): Promise<IssueTicketResult> {
+    return this.#controller.issueTicket(input);
+  }
+
+  consumeTicket(input: ConsumeTicketInput): Promise<ConsumeTicketResult> {
+    return this.#controller.consumeTicket(input);
   }
 
   getSnapshot(): RoomState | undefined {
