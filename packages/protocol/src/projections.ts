@@ -72,12 +72,14 @@ export interface RoomProjectionSource {
   game: ClassicGameState | null;
 }
 
-export interface PublicCard {
+interface PublicCardBase {
   id: CardId;
   label: string;
-  revealed: boolean;
-  owner?: Ownership;
 }
+
+export type PublicCard =
+  | (PublicCardBase & { revealed: false; owner?: never })
+  | (PublicCardBase & { revealed: true; owner: Ownership });
 
 export interface ViewerContext {
   playerId: PlayerId;
@@ -515,15 +517,15 @@ function publicBoard(game: ClassicGameState | null): PublicBoard | null {
       throw new Error(`Board order contains unknown card ID: ${cardId}`);
     }
     const card = game.board.cards[cardId]!;
-    const projected: PublicCard = {
-      id: card.id,
-      label: card.label,
-      revealed: card.revealed,
-    };
     if (card.revealed) {
-      projected.owner = card.owner;
+      return {
+        id: card.id,
+        label: card.label,
+        revealed: true,
+        owner: card.owner,
+      };
     }
-    return projected;
+    return { id: card.id, label: card.label, revealed: false };
   });
 
   return {
