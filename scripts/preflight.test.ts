@@ -37,7 +37,11 @@ const requiredExpiryTests = [
   "RoomDurableObject inactivity alarm expires after the deadline and is empty on an idempotent repeat",
   "RoomDurableObject inactivity alarm closes every accepted socket with the room-expired close frame",
   "RoomDurableObject inactivity alarm uses the approved 24-hour inactivity duration",
+  "RoomDurableObject inactivity alarm keeps the integration anchor safely ahead of real process time",
 ];
+
+const futureAnchorExpiryTest =
+  "RoomDurableObject inactivity alarm keeps the integration anchor safely ahead of real process time";
 
 function expiryReport(
   assertionResults = requiredExpiryTests.map((fullName) => ({
@@ -202,7 +206,7 @@ describe("runPreflight", () => {
       expect.objectContaining({ check: "Room expiry", status: "PASS" }),
     ]);
     expect(result.at(-1)?.detail).toBe(
-      "6 required RoomDurableObject expiry tests passed",
+      "7 required RoomDurableObject expiry tests passed",
     );
     expect(runExpiryTestProcess).toHaveBeenCalledOnce();
     expect(runExpiryTestProcess).toHaveBeenCalledWith(root);
@@ -280,6 +284,64 @@ describe("runPreflight", () => {
     async (_label, options, expectedMessage) => {
       const root = await createPreflightFixture(options);
       const { run } = fixturePreflight();
+
+      await expect(run(root, "v22.0.0")).rejects.toThrow(expectedMessage);
+    },
+  );
+
+  it.each([
+    [
+      "missing with an unrelated same-count pass",
+      [
+        ...requiredExpiryTests
+          .filter((fullName) => fullName !== futureAnchorExpiryTest)
+          .map((fullName) => ({ fullName, status: "passed" })),
+        {
+          fullName:
+            "RoomDurableObject inactivity alarm unrelated replacement behavior",
+          status: "passed",
+        },
+      ],
+      "Missing required expiry test",
+    ],
+    [
+      "skipped",
+      [
+        ...requiredExpiryTests
+          .filter((fullName) => fullName !== futureAnchorExpiryTest)
+          .map((fullName) => ({ fullName, status: "passed" })),
+        { fullName: futureAnchorExpiryTest, status: "skipped" },
+      ],
+      "Required expiry test did not pass",
+    ],
+    [
+      "failed",
+      [
+        ...requiredExpiryTests
+          .filter((fullName) => fullName !== futureAnchorExpiryTest)
+          .map((fullName) => ({ fullName, status: "passed" })),
+        { fullName: futureAnchorExpiryTest, status: "failed" },
+      ],
+      "Required expiry test did not pass",
+    ],
+    [
+      "duplicated",
+      [
+        ...requiredExpiryTests
+          .filter((fullName) => fullName !== futureAnchorExpiryTest)
+          .map((fullName) => ({ fullName, status: "passed" })),
+        { fullName: futureAnchorExpiryTest, status: "passed" },
+        { fullName: futureAnchorExpiryTest, status: "passed" },
+      ],
+      "Duplicate required expiry test",
+    ],
+  ])(
+    "rejects the future-anchor identity when it is %s",
+    async (_label, assertionResults, expectedMessage) => {
+      const root = await createPreflightFixture();
+      const { run } = fixturePreflight(
+        vi.fn().mockResolvedValue(expiryReport(assertionResults)),
+      );
 
       await expect(run(root, "v22.0.0")).rejects.toThrow(expectedMessage);
     },

@@ -23,6 +23,7 @@ const requiredExpiryTests = [
   "RoomDurableObject inactivity alarm expires after the deadline and is empty on an idempotent repeat",
   "RoomDurableObject inactivity alarm closes every accepted socket with the room-expired close frame",
   "RoomDurableObject inactivity alarm uses the approved 24-hour inactivity duration",
+  "RoomDurableObject inactivity alarm keeps the integration anchor safely ahead of real process time",
 ];
 
 class PreflightError extends Error {
