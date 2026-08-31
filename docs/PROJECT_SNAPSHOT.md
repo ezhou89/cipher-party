@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 4
+**Snapshot revision:** 5
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–2 are accepted. The scaffold is executable, and shared two-team domain IDs plus the strict versioned client-command/result protocol are implemented; Task 3 is ready.
+**Project state:** Tasks 1–3 are accepted. The scaffold and strict command protocol are executable, and game-core now creates deterministic immutable 5×5 Classic boards with safe string card IDs; Task 4 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 2 — domain IDs and validated command protocol at `f42a84e`.
-- **Current task:** Task 3 — deterministic Classic board generator.
-- **Next task after review:** Task 4 — pure two-team Classic reducer.
+- **Last accepted implementation task:** Task 3 — deterministic Classic board generator at accepted head `bd49324` (`6dd73d7` generator plus `bd49324` review fix).
+- **Current task:** Task 4 — pure two-team Classic reducer.
+- **Next task after review:** Task 5 — role-safe client projections.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -65,6 +65,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Design commit: `ba2c612`; planning/drift-control commit: `628e11a`.
 - Task 1 commits: `b9b0cd9` and review fix `9b7bc9a`.
 - Task 2 commit: `f42a84e`.
+- Task 3 commits: `6dd73d7` and review fix `bd49324`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -76,6 +77,8 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - `npm run test -w @cipher-party/protocol`: 1 file, 37 tests passed.
 - `npm run typecheck -w @cipher-party/protocol`: passed.
 - Task 2 `npm run check`: passed; root and workspace suites reported 42 tests total with no failures.
+- `npm run test -w @cipher-party/game-core -- board.test.ts`: 1 file, 11 tests passed after review fix.
+- Task 3 `npm run check`: passed; game-core 13, protocol 37, and root 3 tests passed (53 total).
 
 ## Decisions agents must preserve
 
