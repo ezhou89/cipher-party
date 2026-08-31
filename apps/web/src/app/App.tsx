@@ -1,9 +1,9 @@
-export function App() {
-  return (
-    <main>
-      <p className="eyebrow">Private multiplayer</p>
-      <h1>Cipher Party</h1>
-      <p>Connected Classic is being assembled.</p>
-    </main>
-  );
+import { RouterProvider, type DataRouter } from "react-router-dom";
+
+interface AppProps {
+  router: DataRouter;
+}
+
+export function App({ router }: AppProps) {
+  return <RouterProvider router={router} />;
 }
