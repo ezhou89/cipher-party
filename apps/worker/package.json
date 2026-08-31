@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --config wrangler.dev.jsonc",
     "build": "wrangler deploy --dry-run --config wrangler.jsonc",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
