@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 2
+**Snapshot revision:** 3
 
 **Last updated:** 2026-08-30
 
-**Project state:** Approved design, master roadmap, and detailed Milestone 1 plan are written; implementation has not started and execution strategy is awaiting selection.
+**Project state:** Task 1 is accepted. The npm workspace, React and Worker shells, locked dependencies, canonical-document gate, and executable quality commands are in place; Task 2 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,24 +55,29 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** None; implementation has not started.
-- **Current task:** Select an execution strategy for the reviewed Milestone 1 plan.
-- **Next task after selection:** Task 1 — repository scaffold and executable quality gate.
+- **Last accepted implementation task:** Task 1 — repository scaffold and executable quality gate at accepted head `9b7bc9a` (`b9b0cd9` scaffold plus `9b7bc9a` review fix).
+- **Current task:** Task 2 — domain IDs and validated command protocol.
+- **Next task after review:** Task 3 — deterministic Classic board generator.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
 
-- Design commit: ba2c612.
-- Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps.
-- Planning-artifact whitespace and unresolved-marker checks pass; ellipses found by the broad scan are TypeScript spread syntax only.
-- Application test/build commands do not exist yet.
+- Design commit: `ba2c612`; planning/drift-control commit: `628e11a`.
+- Task 1 commits: `b9b0cd9` and review fix `9b7bc9a`.
+- `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
+- `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
+- `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
+- `npm run build`: passed package typechecks, the web production build, and Worker dry-run build.
+- `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying.
+- `npm test`: passed; empty workspace suites use their planned temporary `--passWithNoTests` flags until their first test tasks.
+- `git diff --check`: passed with no output before the accepted commits.
 
 ## Decisions agents must preserve
 
 - Working title and directory: Cipher Party / cipher-party.
 - Cloudflare-native hosting and realtime architecture.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
+- The shared TypeScript library is ES2022-only; only apps/web adds DOM and DOM.Iterable libraries.
 - Responsive website first, PWA-ready structure, no offline match behavior.
 - External voice chat.
 - Host-owned local/exported packs; temporary server copies expire after 24 hours.
