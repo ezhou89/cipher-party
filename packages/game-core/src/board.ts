@@ -39,7 +39,7 @@ export function createClassicBoard(input: {
     ],
     createSeededRandom(`${input.seed}/ownership`),
   );
-  const boardCards: Record<CardId, BoardCard> = {};
+  const boardCards: Record<CardId, BoardCard> = Object.create(null);
   const order: CardId[] = [];
 
   for (const [index, card] of selectedCards.entries()) {

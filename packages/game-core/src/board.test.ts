@@ -152,6 +152,34 @@ describe("createClassicBoard", () => {
     ).toThrow("Classic board requires unique card IDs");
   });
 
+  it("keeps prototype-like card IDs as own board-card properties", () => {
+    const prototypeCardPool: TextCard[] = [
+      { id: "__proto__", label: "Prototype" },
+      ...Array.from({ length: 24 }, (_, index) => ({
+        id: `ordinary-${index}`,
+        label: `Ordinary ${index}`,
+      })),
+    ];
+
+    const board = createClassicBoard({
+      cards: prototypeCardPool,
+      seed: "prototype-card",
+      startingTeam: "red",
+    });
+
+    expect(board.order).toContain("__proto__");
+    expect(
+      board.order.every((cardId) => Object.hasOwn(board.cards, cardId)),
+    ).toBe(true);
+    expect(Object.keys(board.cards)).toHaveLength(25);
+    expect(countOwnership(board)).toEqual({
+      red: 9,
+      blue: 8,
+      neutral: 7,
+      hazard: 1,
+    });
+  });
+
   it("preserves exact ownership and immutability invariants for generated seeds", () => {
     fc.assert(
       fc.property(
