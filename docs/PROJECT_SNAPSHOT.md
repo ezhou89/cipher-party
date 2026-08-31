@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 9
+**Snapshot revision:** 10
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–7 are accepted. The Worker now persists rooms in a SQLite-backed Durable Object with failure-atomic snapshot writes, forced-eviction reload coverage, role-safe projection RPCs, and 24-hour inactivity cleanup; Task 8 is ready.
+**Project state:** Tasks 1–8 are accepted. The Worker now supports account-free room creation and joining, hash-only durable credentials, canonical invite URLs, and persistence-atomic one-use 60-second connection tickets; Task 9 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 7 — SQLite-backed Durable Object persistence at accepted head `de27e83`.
-- **Current task:** Task 8 — account-free room, seat-token, and ticket HTTP APIs.
-- **Next task after review:** Task 9 — hibernating WebSockets and browser reconnect client.
+- **Last accepted implementation task:** Task 8 — account-free room, seat-token, and ticket HTTP APIs at accepted head `fc49865` (`f0ac58c` implementation plus `fc49865` review fix).
+- **Current task:** Task 9 — hibernating WebSockets and browser reconnect client.
+- **Next task after review:** Task 10 — landing, join, and authoritative lobby UI.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -70,6 +70,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 5 commits: `c6a7d18` and review fix `1e8b7af`.
 - Task 6 commits: `143e8a7` and review fix `2562415`.
 - Task 7 commit: `de27e83`.
+- Task 8 commits: `f0ac58c` and review fix `fc49865`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -97,6 +98,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 7 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 224 tests with no failures.
 - Task 7 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and recognized `ROOMS` as `RoomDurableObject`.
 - Task 7 `git diff --check`: passed with no output.
+- `npm run test -w @cipher-party/worker -- auth.test.ts rooms-api.test.ts`: 2 files, 40 tests passed after review fixes.
+- Task 8 Worker suite: 4 files, 104 tests passed.
+- Task 8 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 264 tests with no failures.
+- Task 8 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and recognized `ROOMS` as `RoomDurableObject`.
+- Task 8 `git diff --check`: passed with no output.
 
 ## Decisions agents must preserve
 
@@ -111,7 +117,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Clue-givers rotate only between campaign boards.
 - Multi-team hazard behavior eliminates the team that revealed it.
 - Canonical invite URLs come from validated server configuration, never the incoming Host header.
-- Task 7's complete-`RoomState` initializer is a temporary trusted internal seam; Task 8 must replace or overload it with the approved bootstrap DTO and must never expose replacement-state input to browsers.
+- The complete-`RoomState` initializer remains a trusted internal/test-only overload; browser routes accept only the strict Task 8 bootstrap DTO and never replacement state.
+- Room-code input must be six original ASCII alphanumeric characters before Crockford uppercasing and O/I/L alias mapping; Unicode case expansion is never accepted.
+- Connection tickets are hash-only, one-use, and exact-60-second credentials; issue and consume writes are public-revision-neutral but must persist before returning success.
 
 ## Known risks
 

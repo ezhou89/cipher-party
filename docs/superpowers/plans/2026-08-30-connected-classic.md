@@ -1486,7 +1486,7 @@ Update the snapshot to Task 8.
 - Consumes: ROOM binding and room initialization/join methods.
 - Produces: POST /api/rooms, POST /api/rooms/:code/join, POST /api/rooms/:code/tickets, randomToken(), hashToken(), verifyToken(), and one-use 60-second WebSocket tickets.
 
-- [ ] **Step 1: Write failing token tests**
+- [x] **Step 1: Write failing token tests**
 
 ~~~ts
 it("hashes without retaining the durable token", async () => {
@@ -1501,7 +1501,7 @@ it("hashes without retaining the durable token", async () => {
 
 Verify randomToken produces 32 bytes encoded as base64url without padding and compare digest bytes in constant time.
 
-- [ ] **Step 2: Write failing room API tests**
+- [x] **Step 2: Write failing room API tests**
 
 Cover:
 
@@ -1518,7 +1518,7 @@ Cover:
 - Host authority requires X-Cipher-Host-Token in addition to the seat token.
 - A ticket expires after 60 seconds and succeeds only once.
 
-- [ ] **Step 3: Run auth/API tests and observe route failures**
+- [x] **Step 3: Run auth/API tests and observe route failures**
 
 ~~~bash
 npm run test -w @cipher-party/worker -- auth.test.ts rooms-api.test.ts
@@ -1526,7 +1526,7 @@ npm run test -w @cipher-party/worker -- auth.test.ts rooms-api.test.ts
 
 Expected: FAIL because the API routes do not exist.
 
-- [ ] **Step 4: Implement token and display-name validation**
+- [x] **Step 4: Implement token and display-name validation**
 
 Use crypto.getRandomValues for token bytes and SHA-256 for hashes. Validate display names with:
 
@@ -1550,7 +1550,7 @@ export const DisplayNameSchema = z
 
 Generate room codes from the 32-character Crockford alphabet 0123456789ABCDEFGHJKMNPQRSTVWXYZ. Normalize input to uppercase, map O to 0 and I/L to 1, and reject every other character. Retry a claimed code without returning whether another private room exists.
 
-- [ ] **Step 5: Extend the Durable Object with seat methods**
+- [x] **Step 5: Extend the Durable Object with seat methods**
 
 Add trusted RPC methods:
 
@@ -1584,7 +1584,7 @@ issueTicket(input: {
 
 Store only ticket hashes, playerId, hostAuthority, and expiresAt in RoomState.connectionTickets. A ticket receives hostAuthority true only when both the seat token and host token verify for hostPlayerId. Prune expired tickets when issuing or consuming. Issuing a ticket is reconnect activity: update lastActivity and persist it with the ticket. Consuming a ticket deletes it in the same Durable Object transaction before the socket is accepted.
 
-- [ ] **Step 6: Implement the HTTP routes**
+- [x] **Step 6: Implement the HTTP routes**
 
 Return JSON with stable shape:
 
@@ -1618,7 +1618,7 @@ interface ApiErrorResponse {
 
 Build inviteUrl as new URL(`/room/${code}`, env.CANONICAL_ORIGIN).toString(); never derive it from an untrusted Host header. CANONICAL_ORIGIN is a validated absolute http(s) origin, uses http://127.0.0.1:5173 for local development, and is configured to the selected neutral domain before deployment. Strictly validate JSON content type and cap bootstrap request bodies at 4 KiB. Set Cache-Control: no-store on every token-bearing response. Never log bodies or authorization headers.
 
-- [ ] **Step 7: Run API, security, and dry-run gates**
+- [x] **Step 7: Run API, security, and dry-run gates**
 
 ~~~bash
 npm run test -w @cipher-party/worker -- auth.test.ts rooms-api.test.ts
@@ -1628,7 +1628,7 @@ npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc
 
 Expected: all creation, join, capacity, token, and ticket cases pass.
 
-- [ ] **Step 8: Commit Task 8**
+- [x] **Step 8: Commit Task 8**
 
 ~~~bash
 git add apps/worker
