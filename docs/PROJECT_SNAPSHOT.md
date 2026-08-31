@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 10
+**Snapshot revision:** 11
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–8 are accepted. The Worker now supports account-free room creation and joining, hash-only durable credentials, canonical invite URLs, and persistence-atomic one-use 60-second connection tickets; Task 9 is ready.
+**Project state:** Tasks 1–9 are accepted. Ticket-authenticated hibernating WebSockets now deliver per-seat role-safe projections, authoritative command results, race-safe presence/reconnect behavior, IndexedDB credentials, and a generation-guarded browser reconnect client; Task 10 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 8 — account-free room, seat-token, and ticket HTTP APIs at accepted head `fc49865` (`f0ac58c` implementation plus `fc49865` review fix).
-- **Current task:** Task 9 — hibernating WebSockets and browser reconnect client.
-- **Next task after review:** Task 10 — landing, join, and authoritative lobby UI.
+- **Last accepted implementation task:** Task 9 — hibernating WebSockets and browser reconnect client at accepted head `4f4ea4f` (`29e1255` implementation plus `4f4ea4f` review fix).
+- **Current task:** Task 10 — landing, join, and authoritative lobby UI.
+- **Next task after review:** Task 11 — role-aware Classic game board UI.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -71,6 +71,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 6 commits: `143e8a7` and review fix `2562415`.
 - Task 7 commit: `de27e83`.
 - Task 8 commits: `f0ac58c` and review fix `fc49865`.
+- Task 9 commits: `29e1255` and review fix `4f4ea4f`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -103,6 +104,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 8 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 264 tests with no failures.
 - Task 8 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and recognized `ROOMS` as `RoomDurableObject`.
 - Task 8 `git diff --check`: passed with no output.
+- Task 9 focused suites: protocol transport 5 tests, Worker WebSocket 14 tests, and web credential/reconnect 16 tests passed after review fixes.
+- Task 9 full suites: protocol 95 tests, Worker 118 tests, and web 16 tests passed.
+- Task 9 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 299 tests with no failures.
+- Task 9 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
+- Task 9 `git diff --check`: passed with no output.
 
 ## Decisions agents must preserve
 
@@ -120,6 +126,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - The complete-`RoomState` initializer remains a trusted internal/test-only overload; browser routes accept only the strict Task 8 bootstrap DTO and never replacement state.
 - Room-code input must be six original ASCII alphanumeric characters before Crockford uppercasing and O/I/L alias mapping; Unicode case expansion is never accepted.
 - Connection tickets are hash-only, one-use, and exact-60-second credentials; issue and consume writes are public-revision-neutral but must persist before returning success.
+- WebSocket admission orders persisted ticket consumption before accept/attach, then persists `markConnected` before the first projection and 101 response; attachments contain only connectionId, playerId, and hostAuthority.
+- Every accepted socket receives a separately derived current-seat projection; disconnect marks a seat offline only after its last open socket and never extends lastActivity.
+- Durable credentials live only in IndexedDB and HTTP headers; reconnect attempts and callbacks are generation-guarded and retain the same idempotent in-flight envelope until authoritative resync.
 
 ## Known risks
 
