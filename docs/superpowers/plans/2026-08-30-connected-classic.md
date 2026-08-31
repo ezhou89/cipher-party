@@ -1108,7 +1108,7 @@ Update the snapshot to Task 6.
 - Consumes: game-core board/reducer, protocol commands/results/projections.
 - Produces: RoomState, RoomActor, createLobbyState(input), RoomSession.from(state), session.dispatch(actor, envelope, now), session.project(viewer), and session.snapshot().
 
-- [ ] **Step 1: Add a failing lobby-start test**
+- [x] **Step 1: Add a failing lobby-start test**
 
 Use four seats and the neutral fixture:
 
@@ -1128,7 +1128,7 @@ it("starts only when both teams have one clue-giver and one operative", async ()
 
 Add rejection tests for a missing or duplicate clue-giver, missing operative, any disconnected/unassigned active seat, uneven teams by more than one, fewer than 25 fixture words, non-host start, assignment after play has started, and assigning an active role without a team. The host can move a disconnected lobby seat to spectator before starting.
 
-- [ ] **Step 2: Add failing authorization and idempotency tests**
+- [x] **Step 2: Add failing authorization and idempotency tests**
 
 Cover:
 
@@ -1141,7 +1141,7 @@ Cover:
 - Reusing a commandId with a different payload returns invalid_command.
 - Processed-command memory keeps the newest 256 command results.
 
-- [ ] **Step 3: Run room-session tests and observe missing implementation**
+- [x] **Step 3: Run room-session tests and observe missing implementation**
 
 ~~~bash
 npm run test -w @cipher-party/worker -- room-session.test.ts
@@ -1149,7 +1149,7 @@ npm run test -w @cipher-party/worker -- room-session.test.ts
 
 Expected: FAIL because RoomSession does not exist.
 
-- [ ] **Step 4: Define persisted room state**
+- [x] **Step 4: Define persisted room state**
 
 ~~~ts
 export interface RoomSeat {
@@ -1200,7 +1200,7 @@ export interface RoomActor {
 
 New active seats begin with role unassigned and seatClass active. Spectator joins begin with role spectator and seatClass spectator. Changing to spectator clears teamId and changes seatClass; changing back to unassigned, clue-giver, or operative requires an available active-seat slot. Clearing an active seat's team also resets its role to unassigned, and clue-giver/operative roles require a team. Derive startingTeam once from createSeededRandom(boardSeed + "/starting-team") so the first board starter comes from the cryptographic room seed rather than host choice. Initialize publicHistory, connectionTickets, and processedCommands as empty arrays.
 
-- [ ] **Step 5: Add the original neutral fixture**
+- [x] **Step 5: Add the original neutral fixture**
 
 Export this exact franchise-neutral list as stable TextCard IDs neutral-001 through neutral-050 in order:
 
@@ -1223,7 +1223,7 @@ export const neutralWords: TextCard[] = labels.map((label, index) => ({
 
 Include no franchise names, characters, slogans, or artwork.
 
-- [ ] **Step 6: Implement RoomSession dispatch**
+- [x] **Step 6: Implement RoomSession dispatch**
 
 Use this public shape:
 
@@ -1255,7 +1255,7 @@ randomize_teams shuffles active non-spectator player IDs with createSeededRandom
 
 For an accepted gameplay command, append the corresponding allowlisted PublicHistoryEntry after assigning the new revision and trim publicHistory to the newest 100 entries. Never copy a BoardCard or unrevealed owner into history; card_revealed records the owner only after the reveal transition makes it public.
 
-- [ ] **Step 7: Map protocol commands to game-core actions**
+- [x] **Step 7: Map protocol commands to game-core actions**
 
 Keep the mapping exhaustive:
 
@@ -1269,7 +1269,7 @@ Keep the mapping exhaustive:
 
 Do not let a command supply its own actor identity or team.
 
-- [ ] **Step 8: Run room, projection, and core tests**
+- [x] **Step 8: Run room, projection, and core tests**
 
 Remove --passWithNoTests from the Worker test script now that the workspace contains room-session tests.
 
@@ -1282,7 +1282,7 @@ npm run check
 
 Expected: authorization, lobby validation, idempotency, and complete reducer integration pass.
 
-- [ ] **Step 9: Commit Task 6**
+- [x] **Step 9: Commit Task 6**
 
 ~~~bash
 git add apps/worker/package.json apps/worker/src packages/game-core/src packages/protocol/src

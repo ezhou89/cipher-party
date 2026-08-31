@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 7
+**Snapshot revision:** 8
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–5 are accepted. Protocol now provides strict role-safe projections whose runtime schema, serialized DTOs, and TypeScript types structurally omit unrevealed ownership outside clue-giver keys; Task 6 is ready.
+**Project state:** Tasks 1–6 are accepted. The Worker now has an authoritative in-memory room aggregate with deterministic lobby start, current-seat/host authorization, bounded idempotency and public history, reducer integration, and role-safe projection handoff; Task 7 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 5 — role-safe client projections at accepted head `1e8b7af` (`c6a7d18` projections plus `1e8b7af` review fix).
-- **Current task:** Task 6 — authoritative room aggregate and lobby rules.
-- **Next task after review:** Task 7 — SQLite-backed Durable Object persistence.
+- **Last accepted implementation task:** Task 6 — authoritative room aggregate and lobby rules at accepted head `2562415` (`143e8a7` aggregate plus `2562415` review fix).
+- **Current task:** Task 7 — SQLite-backed Durable Object persistence.
+- **Next task after review:** Task 8 — account-free room, seat-token, and ticket HTTP APIs.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -68,6 +68,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 3 commits: `6dd73d7` and review fix `bd49324`.
 - Task 4 commit: `79a9c3b`.
 - Task 5 commits: `c6a7d18` and review fix `1e8b7af`.
+- Task 6 commits: `143e8a7` and review fix `2562415`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -87,6 +88,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - `npm run test -w @cipher-party/protocol -- projections.test.ts`: 1 file, 53 tests passed.
 - `npm run typecheck -w @cipher-party/protocol`: passed with compile-time negative projection assertions.
 - Task 5 `npm run check`: 160 tests passed across game-core, protocol, and root suites.
+- `npm run test -w @cipher-party/worker -- room-session.test.ts`: 1 file, 50 tests passed after review fix.
+- `npm run typecheck -w @cipher-party/worker`: passed.
+- Task 6 `npm run check`: 210 tests passed across Worker, game-core, protocol, and root suites.
 
 ## Decisions agents must preserve
 
