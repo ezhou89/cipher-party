@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 6
+**Snapshot revision:** 7
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–4 are accepted. Game-core now provides deterministic Classic boards and a pure immutable two-team reducer covering clue, challenge, nomination, reveal, pause, turn, and completion transitions; Task 5 is ready.
+**Project state:** Tasks 1–5 are accepted. Protocol now provides strict role-safe projections whose runtime schema, serialized DTOs, and TypeScript types structurally omit unrevealed ownership outside clue-giver keys; Task 6 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 4 — pure two-team Classic reducer at `79a9c3b`.
-- **Current task:** Task 5 — role-safe client projections.
-- **Next task after review:** Task 6 — authoritative room aggregate and lobby rules.
+- **Last accepted implementation task:** Task 5 — role-safe client projections at accepted head `1e8b7af` (`c6a7d18` projections plus `1e8b7af` review fix).
+- **Current task:** Task 6 — authoritative room aggregate and lobby rules.
+- **Next task after review:** Task 7 — SQLite-backed Durable Object persistence.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -67,6 +67,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 2 commit: `f42a84e`.
 - Task 3 commits: `6dd73d7` and review fix `bd49324`.
 - Task 4 commit: `79a9c3b`.
+- Task 5 commits: `c6a7d18` and review fix `1e8b7af`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -83,6 +84,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - `npm run test -w @cipher-party/game-core -- reducer.test.ts`: 1 file, 54 tests passed.
 - `npm run test -w @cipher-party/game-core`: 3 files, 67 tests passed.
 - Task 4 `npm run check` and `npm test`: 107 tests passed across game-core, protocol, and root suites.
+- `npm run test -w @cipher-party/protocol -- projections.test.ts`: 1 file, 53 tests passed.
+- `npm run typecheck -w @cipher-party/protocol`: passed with compile-time negative projection assertions.
+- Task 5 `npm run check`: 160 tests passed across game-core, protocol, and root suites.
 
 ## Decisions agents must preserve
 
