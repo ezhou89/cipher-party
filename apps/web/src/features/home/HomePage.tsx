@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -27,9 +27,14 @@ export function HomePage({ seatStore }: HomePageProps) {
   const [pending, setPending] = useState<PendingAction>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (error !== null) {
+      errorRef.current?.focus();
+    }
+  }, [error]);
+
   const showError = (message: string) => {
     setError(message);
-    window.setTimeout(() => errorRef.current?.focus(), 0);
   };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
