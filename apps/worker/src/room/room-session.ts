@@ -168,6 +168,17 @@ function validateStart(state: RoomState): string | null {
   return null;
 }
 
+function validateCardPool(cardPool: readonly TextCard[]): string | null {
+  const uniqueCardIds = new Set(cardPool.map((card) => card.id));
+  if (uniqueCardIds.size < 25) {
+    return "Classic board requires at least 25 unique cards";
+  }
+  if (uniqueCardIds.size !== cardPool.length) {
+    return "Classic board requires unique card IDs";
+  }
+  return null;
+}
+
 function applyLobbyCommand(
   state: RoomState,
   command: ClientCommand,
@@ -260,21 +271,17 @@ function applyLobbyCommand(
       if (startFailure !== null) {
         return failed(state, "invalid_command", startFailure);
       }
-      try {
-        state.game = createClassicGame(
-          createClassicBoard({
-            cards: cardPool,
-            seed: `${state.boardSeed}/board-0`,
-            startingTeam: state.startingTeam,
-          }),
-        );
-      } catch (error) {
-        return failed(
-          state,
-          "invalid_command",
-          error instanceof Error ? error.message : "Invalid card pool",
-        );
+      const cardPoolFailure = validateCardPool(cardPool);
+      if (cardPoolFailure !== null) {
+        return failed(state, "invalid_command", cardPoolFailure);
       }
+      state.game = createClassicGame(
+        createClassicBoard({
+          cards: cardPool,
+          seed: `${state.boardSeed}/board-0`,
+          startingTeam: state.startingTeam,
+        }),
+      );
       state.phase = "playing";
       return null;
     }
@@ -435,6 +442,11 @@ export class RoomSession {
     envelope: CommandEnvelope,
     now: Date,
   ): Promise<CommandResult> {
+    const actorSnapshot: RoomActor = {
+      playerId: actor.playerId,
+      hostAuthority: actor.hostAuthority,
+    };
+    const commandTimestamp = now.getTime();
     const parsed = CommandEnvelopeSchema.safeParse(envelope);
     if (!parsed.success) {
       return failed(this.#state, "invalid_command", "Invalid command envelope");
@@ -461,7 +473,7 @@ export class RoomSession {
       );
     }
 
-    const seat = authorize(this.#state, actor, parsed.data.command);
+    const seat = authorize(this.#state, actorSnapshot, parsed.data.command);
     if (seat === null) {
       return failed(this.#state, "unauthorized", "Actor is not authorized");
     }
@@ -482,7 +494,7 @@ export class RoomSession {
     }
 
     next.revision = this.#state.revision + 1;
-    next.lastActivity = now.toISOString();
+    next.lastActivity = new Date(commandTimestamp).toISOString();
     const entry = historyEntry(
       parsed.data.command,
       nextSeat,

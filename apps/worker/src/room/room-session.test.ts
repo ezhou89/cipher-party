@@ -889,6 +889,54 @@ describe("RoomSession authorization", () => {
 });
 
 describe("RoomSession validation, revisions, idempotency, and isolation", () => {
+  it("snapshots an unauthorized actor before the digest await", async () => {
+    const session = RoomSession.from(configuredState());
+    const mutableActor = actor("missing");
+    const before = session.snapshot();
+
+    const pending = session.dispatch(
+      mutableActor,
+      envelope(0, { type: "lock_room", locked: true }),
+      COMMAND_AT,
+    );
+    mutableActor.playerId = "host";
+    mutableActor.hostAuthority = true;
+
+    expectError(await pending, "unauthorized", 0);
+    expect(session.snapshot()).toEqual(before);
+  });
+
+  it("snapshots an authorized actor before the digest await", async () => {
+    const session = RoomSession.from(configuredState());
+    const mutableActor = hostActor();
+
+    const pending = session.dispatch(
+      mutableActor,
+      envelope(0, { type: "lock_room", locked: true }),
+      COMMAND_AT,
+    );
+    mutableActor.playerId = "missing";
+    mutableActor.hostAuthority = false;
+
+    expect(await pending).toEqual({ ok: true, revision: 1 });
+    expect(session.snapshot().locked).toBe(true);
+  });
+
+  it("captures the command time before the digest await", async () => {
+    const session = RoomSession.from(configuredState());
+    const mutableNow = new Date("2026-08-30T12:00:00.000Z");
+
+    const pending = session.dispatch(
+      hostActor(),
+      envelope(0, { type: "lock_room", locked: true }),
+      mutableNow,
+    );
+    mutableNow.setUTCFullYear(2030);
+
+    expect(await pending).toEqual({ ok: true, revision: 1 });
+    expect(session.snapshot().lastActivity).toBe("2026-08-30T12:00:00.000Z");
+  });
+
   it("rejects stale revisions without mutation", async () => {
     const session = RoomSession.from(configuredState({ revision: 4 }));
     const before = session.snapshot();
