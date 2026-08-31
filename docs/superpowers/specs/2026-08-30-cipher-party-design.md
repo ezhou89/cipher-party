@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-30
 
-**Status:** Approved conversational design, awaiting written-spec review
+**Status:** Approved
 
 **Working title:** Cipher Party is an internal, franchise-neutral name and directory label. Product naming is a separate pre-launch decision.
 
@@ -351,7 +351,7 @@ The playfield is a responsive collection of text and image controls with hidden 
 
 ### 10.4 Room identity
 
-- Room codes use six unambiguous uppercase characters from a restricted base-32 alphabet.
+- Room codes use six characters from Crockford's human-readable base-32 alphabet. Generated codes omit I, L, O, and U; input accepts O as 0 and I/L as 1.
 - The Worker derives a Durable Object ID from the room code.
 - Initialization is atomic inside the object, so concurrent code claims cannot create two rooms.
 - A room code locates a room but grants no privileged action.
