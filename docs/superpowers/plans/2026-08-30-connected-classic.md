@@ -1314,7 +1314,7 @@ Update the snapshot to Task 7.
 - Consumes: RoomState and RoomSession.
 - Produces: env.ROOMS binding, RoomDurableObject.initialize(input), getSnapshot(), dispatch(actor, envelope), getProjection(viewer), and a 24-hour inactivity alarm.
 
-- [ ] **Step 1: Write the failing persistence integration test**
+- [x] **Step 1: Write the failing persistence integration test**
 
 Using cloudflare:test, obtain the same object by room code twice:
 
@@ -1334,7 +1334,7 @@ it("persists an accepted command before a new stub reads state", async () => {
 
 Also test that concurrent initialize calls produce one initialized room and one already_initialized result without replacing tokens or seed. Add alarm tests proving activity reschedules expiry, an early alarm reschedules without deleting, and an alarm at lastActivity plus 24 hours closes sockets and clears the snapshot.
 
-- [ ] **Step 2: Run the Worker integration test and observe the missing binding**
+- [x] **Step 2: Run the Worker integration test and observe the missing binding**
 
 ~~~bash
 npm run test -w @cipher-party/worker -- room-durable-object.test.ts
@@ -1342,7 +1342,7 @@ npm run test -w @cipher-party/worker -- room-durable-object.test.ts
 
 Expected: FAIL because ROOM binding and RoomDurableObject are absent.
 
-- [ ] **Step 3: Configure the SQLite-backed Durable Object**
+- [x] **Step 3: Configure the SQLite-backed Durable Object**
 
 Add the same Durable Object binding and migration to wrangler.jsonc, wrangler.dev.jsonc, and a new wrangler.test.jsonc. The test config has the same main, compatibility date, CANONICAL_ORIGIN, binding, and migration as development but no ASSETS binding:
 
@@ -1387,7 +1387,7 @@ export default defineConfig({
 
 Add @cloudflare/vitest-plugin to the test tsconfig types so cloudflare:test is typechecked. Do not use the superseded pool-based configuration. Add a configuration-parity assertion that all three Wrangler files use the same compatibility date, Durable Object binding, and v1 SQLite migration.
 
-- [ ] **Step 4: Implement the snapshot store**
+- [x] **Step 4: Implement the snapshot store**
 
 room-storage.ts uses one key:
 
@@ -1415,7 +1415,7 @@ export class RoomStorage {
 }
 ~~~
 
-- [ ] **Step 5: Implement RoomDurableObject RPC methods**
+- [x] **Step 5: Implement RoomDurableObject RPC methods**
 
 In the constructor, use blockConcurrencyWhile to load the snapshot once. initialize must write before exposing state. dispatch must:
 
@@ -1435,7 +1435,7 @@ Every initialization, join, reconnect, and accepted command updates lastActivity
 
 The compatibility date is later than 2026-02-24, so deleteAll also removes the active alarm. The handler is idempotent because alarms are delivered at least once.
 
-- [ ] **Step 6: Add persistence-failure coverage**
+- [x] **Step 6: Add persistence-failure coverage**
 
 Inject a RoomStorage interface in a pure adapter test. Make write reject and assert:
 
@@ -1443,7 +1443,7 @@ Inject a RoomStorage interface in a pure adapter test. Make write reject and ass
 - the in-memory revision does not advance.
 - no broadcast hook is called.
 
-- [ ] **Step 7: Run Worker and repository gates**
+- [x] **Step 7: Run Worker and repository gates**
 
 ~~~bash
 npm run test -w @cipher-party/worker -- room-durable-object.test.ts
@@ -1453,7 +1453,7 @@ npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc
 
 Expected: Durable Object integration and dry-run binding validation pass.
 
-- [ ] **Step 8: Commit Task 7**
+- [x] **Step 8: Commit Task 7**
 
 ~~~bash
 git add apps/worker
