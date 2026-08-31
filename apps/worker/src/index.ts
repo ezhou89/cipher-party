@@ -1,5 +1,7 @@
 import type { Env } from "./env";
 
+export { RoomDurableObject } from "./room/room-durable-object";
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);

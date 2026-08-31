@@ -6,6 +6,20 @@
   "vars": {
     "CANONICAL_ORIGIN": "http://127.0.0.1:5173",
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROOMS",
+        "class_name": "RoomDurableObject",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RoomDurableObject"],
+    },
+  ],
   "assets": {
     "directory": "../web/dist",
     "not_found_handling": "single-page-application",
