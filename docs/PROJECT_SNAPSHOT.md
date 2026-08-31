@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 3
+**Snapshot revision:** 4
 
 **Last updated:** 2026-08-30
 
-**Project state:** Task 1 is accepted. The npm workspace, React and Worker shells, locked dependencies, canonical-document gate, and executable quality commands are in place; Task 2 is ready.
+**Project state:** Tasks 1–2 are accepted. The scaffold is executable, and shared two-team domain IDs plus the strict versioned client-command/result protocol are implemented; Task 3 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,15 +55,16 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 1 — repository scaffold and executable quality gate at accepted head `9b7bc9a` (`b9b0cd9` scaffold plus `9b7bc9a` review fix).
-- **Current task:** Task 2 — domain IDs and validated command protocol.
-- **Next task after review:** Task 3 — deterministic Classic board generator.
+- **Last accepted implementation task:** Task 2 — domain IDs and validated command protocol at `f42a84e`.
+- **Current task:** Task 3 — deterministic Classic board generator.
+- **Next task after review:** Task 4 — pure two-team Classic reducer.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
 
 - Design commit: `ba2c612`; planning/drift-control commit: `628e11a`.
 - Task 1 commits: `b9b0cd9` and review fix `9b7bc9a`.
+- Task 2 commit: `f42a84e`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -71,6 +72,10 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying.
 - `npm test`: passed; empty workspace suites use their planned temporary `--passWithNoTests` flags until their first test tasks.
 - `git diff --check`: passed with no output before the accepted commits.
+- `npm run test -w @cipher-party/game-core`: 1 file, 2 tests passed.
+- `npm run test -w @cipher-party/protocol`: 1 file, 37 tests passed.
+- `npm run typecheck -w @cipher-party/protocol`: passed.
+- Task 2 `npm run check`: passed; root and workspace suites reported 42 tests total with no failures.
 
 ## Decisions agents must preserve
 
