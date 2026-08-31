@@ -12,11 +12,13 @@
   "scripts": {
     "build": "npm run build -w @cipher-party/game-core && npm run build -w @cipher-party/protocol && npm run build -w @cipher-party/web && npm run build -w @cipher-party/worker",
     "check": "npm run check:docs && npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "check:release": "npm run check && npm run build && npm run preflight && npm run test:e2e",
     "check:docs": "node scripts/check-project-docs.mjs",
     "dev": "concurrently -k -n worker,web \"npm run dev -w @cipher-party/worker\" \"npm run dev -w @cipher-party/web\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "preflight": "node scripts/preflight.mjs",
     "test": "npm run test --workspaces --if-present && vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
     "typecheck": "npm run typecheck --workspaces --if-present"
