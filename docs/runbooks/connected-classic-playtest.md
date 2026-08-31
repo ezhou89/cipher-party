@@ -2,11 +2,14 @@
 
 > **Human playtest: NOT YET RUN**
 
-This is the required Connected Classic human exit gate. Automated checks and a preliminary release gate are preconditions, not substitutes for four real humans using four distinct host-local browser profiles named A through D. Each profile opens exactly one assigned window. Keep the results record below blank or `PENDING` until the session actually occurs.
+This is the required Connected Classic human exit gate. Automated checks and a preliminary release gate are preconditions, not substitutes for four real humans using four distinct browser profiles or devices named A through D. Each participant opens exactly one assigned game window. Keep the results record below blank or `PENDING` until the session actually occurs.
 
 ## Session setup
 
-Use four human participants and four genuinely distinct browser profiles named A, B, C, and D on the computer running the development servers. Assign one profile to each human, and open exactly one game window in each assigned profile. Every participant uses <http://127.0.0.1:5173>. Human B must use DevTools responsive mode at exactly `320 × 780` CSS pixels. Distinct profiles isolate each seat's IndexedDB credentials; multiple windows in one shared profile are not valid evidence.
+Use four human participants and four genuinely distinct browser profiles or devices named A, B, C, and D. Assign one profile or device to each human, and open exactly one game window for each participant. Choose one origin for the whole session:
+
+- Host-local: every participant uses <http://127.0.0.1:5173> on the development computer. Human B must use DevTools responsive mode at exactly `320 × 780` CSS pixels. Distinct profiles isolate each seat's IndexedDB credentials; multiple windows in one shared profile are not valid evidence.
+- Authorized distributed staging: every participant uses <https://staging.oddlyuseful.studio> on their assigned phone or laptop. Use one browser window per device; the staging Worker is `cipher-party-staging` and the apex domain is not part of this session.
 
 Assign the seats so both teams have exactly one clue-giver and one operative:
 
@@ -17,22 +20,21 @@ Assign the seats so both teams have exactly one clue-giver and one operative:
 | C     | Profile C                | One window      | Normal desktop window                | Blue | Clue-giver            |
 | D     | Profile D                | One window      | Normal desktop window                | Blue | Operative             |
 
-Before inviting players:
+Before inviting players, run the release gate from the repository:
 
 ```bash
 npm install
 npm run check:release
-npm run dev
 ```
 
-If `npm run check:release` reveals a critical defect, stop and apply the regression rule below before scheduling the human session. Keep `npm run dev` running for the session and have the one assigned window in each of Profiles A–D open <http://127.0.0.1:5173>.
+If `npm run check:release` reveals a critical defect, stop and apply the regression rule below before scheduling the human session. For the host-local option, also run `npm run dev` and open the one assigned window in each of Profiles A–D at <http://127.0.0.1:5173>. For the authorized distributed staging option, no local server is required; open <https://staging.oddlyuseful.studio> on the one assigned device/browser for each participant.
 
-Physical multi-device validation requires a separately authorized HTTPS staging deployment and is not part of this local exit gate. Do not expose the loopback development server or improvise a LAN or production deployment.
+Do not use the apex `oddlyuseful.studio`, expose the loopback development server, or improvise a LAN or production deployment.
 
 ## Procedure
 
 1. In Profile A's assigned window, create a room. Start the invite-to-first-clue timer when the host shares the displayed invite URL.
-2. Humans B, C, and D independently open that invite and join from the single assigned window in Profiles B, C, and D. Record any uncertainty about joining, team assignment, role assignment, locking, or who acts first.
+2. Humans B, C, and D independently open that invite and join from their single assigned window or device in Profiles B, C, and D. Record any uncertainty about joining, team assignment, role assignment, locking, or who acts first.
 3. The host assigns the four seats exactly as shown above, locks the room, and starts the board. The clue-giver for the authoritative starting team submits the first clue. Stop and record the invite-to-first-clue timer when that clue is visible in all four distinct profiles.
 4. Continue normal human play. For every nomination, note whether the nominating human understood it was only a nomination and whether the confirmation dialog prevented an unintended reveal. Record every accidental nomination or reveal, including the card and circumstances.
 5. In Profile B's assigned window at exactly `320 × 780` CSS pixels, inspect all 25 cards, clue/turn status, nomination state, confirmation dialog, and revealed ownership. Record wrapping, clipping, overlap, horizontal page scrolling, or unreadable text.
@@ -45,7 +47,7 @@ Physical multi-device validation requires a separately authorized HTTPS staging 
 **Human playtest: NOT YET RUN**
 
 - Date: `PENDING (YYYY-MM-DD)`
-- Test origin: `PENDING (must be http://127.0.0.1:5173)`
+- Test origin: `PENDING (must be http://127.0.0.1:5173 or https://staging.oddlyuseful.studio)`
 - Facilitator: `PENDING`
 - Overall result: `PENDING — PASS or FAIL only after the full session`
 

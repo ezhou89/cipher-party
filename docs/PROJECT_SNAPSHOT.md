@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 15
+**Snapshot revision:** 16
 
 **Last updated:** 2026-08-31
 
-**Project state:** Tasks 1–12 are accepted. Task 13's release preflight and local/playtest documentation are independently approved at pre-human head `4a7911c`; the required four-human Connected Classic session is the current exit gate, and no human result has been recorded yet.
+**Project state:** Tasks 1–12 are accepted. Task 13's release preflight and local/playtest documentation are independently approved at pre-human head `4a7911c`. The separate `cipher-party-staging` Worker is deployed at `https://staging.oddlyuseful.studio`; the required four-human Connected Classic session is the current exit gate, and no human result has been recorded yet.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -56,9 +56,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 ## Work ledger
 
 - **Last accepted implementation task:** Task 12 — multiplayer browser E2E and hidden-data regression at accepted head `7badb94` (`3b16324` implementation plus review fixes `130f408`, `6305f54`, `935a30c`, and `7badb94`).
-- **Current task:** Task 13 Step 5 — run and record the four-human Connected Classic playtest from `docs/runbooks/connected-classic-playtest.md`.
+- **Current task:** Task 13 Step 5 — run and record the four-human Connected Classic playtest against the authorized staging origin `https://staging.oddlyuseful.studio` from `docs/runbooks/connected-classic-playtest.md`.
 - **Next task after playtest:** Fix any critical defect through a failing regression, rerun the final exit gate, close Connected Classic, and hand off to Milestone 2 Pack Studio planning.
-- **Blocked by:** Four real humans completing the reviewed host-local session with four distinct browser profiles and one assigned window per profile. **Human playtest: NOT YET RUN.**
+- **Blocked by:** Four real humans completing the reviewed session with four distinct browser profiles/devices and one assigned window per participant. **Human playtest: NOT YET RUN.**
 
 ## Verified baseline
 
@@ -134,6 +134,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 13 `npm run preflight`: all eight rows passed and required exactly seven named, passed expiry identities, including literal 24-hour duration and future-safe test anchoring.
 - Task 13 `npm run check:release`: passed 439 repository tests (web 120, Worker 120, game-core 67, protocol 95, root 37), all builds, seven required expiry identities, and 36/36 Playwright tests across Chromium and WebKit Mobile.
 - Task 13 standalone Worker dry-run, full/direct lint, formatting, cumulative/fix `git diff --check`, and tracked status passed. Independent disposable mutations proved that a 23-hour production TTL and a skipped future-anchor identity each fail only the Room expiry preflight row.
+- Authorized staging deployment: Worker `cipher-party-staging`, version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94`, custom domain `https://staging.oddlyuseful.studio`; HTTPS SPA and `/api/health` smoke checks returned 200. The apex `oddlyuseful.studio` was not changed.
 
 ## Decisions agents must preserve
 
@@ -162,7 +163,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Every received room WebSocket frame in the E2E privacy harness receives a persistent value-free outcome before strict schema handling; public raw projections are recursively audited before parsing, and later valid frames cannot erase earlier violations.
 - The credential/hidden-data E2E spec disables automatic trace and screenshot capture. Explicit screenshots use public roles only, and clue-giver-derived target labels, IDs, and positions stay inside caught page-side interactions with fixed value-free diagnostics until the authoritative reveal makes them public.
 - Release preflight reads one immutable snapshot of all three Wrangler JSONC configs, rejects Milestone 2 bindings at root and `env.*` scopes, and requires seven exact real expiry-test identities; count-only or skipped-test substitution is not accepted.
-- The no-deploy human exit gate uses four real humans and four genuinely distinct host-local browser profiles named A–D, with exactly one assigned window each and Profile B at 320×780 CSS pixels. Physical multi-device testing requires a separately authorized HTTPS staging deployment and must not be improvised through LAN exposure.
+- The local human exit gate uses four real humans and four genuinely distinct host-local browser profiles named A–D, with exactly one assigned window each and Profile B at 320×780 CSS pixels. The authorized distributed-device gate may use one browser/device per participant at `https://staging.oddlyuseful.studio`; never use the apex or improvise LAN exposure.
 
 ## Known risks
 
