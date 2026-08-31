@@ -106,10 +106,6 @@ function validSpectatorProjection(revision: number): ClientProjection {
   };
 }
 
-function escapeRegularExpression(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
 function boardOf(projection: ClientProjection | null) {
   if (projection?.board === null || projection?.board === undefined) {
     throw new Error("Expected an authoritative Classic board projection");
@@ -398,43 +394,304 @@ async function expectSpectatorModerationActionsAbsent(
   }
 }
 
+type SecretTargetDomAction =
+  | "activate_card"
+  | "check_nomination"
+  | "check_dialog"
+  | "cancel_dialog"
+  | "confirm_dialog"
+  | "check_cancelled";
+
+type SecretTargetDomOutcome =
+  | "card_action_succeeded"
+  | "nomination_visible"
+  | "dialog_visible"
+  | "dialog_action_succeeded"
+  | "cancel_state_visible"
+  | "not_ready"
+  | "interaction_unavailable";
+
+type ValueFreeWaitState = "ready" | "pending" | "invalid";
+
+type SecretTargetDiagnostic =
+  | "secret_target_card_action_failed"
+  | "secret_target_nomination_failed"
+  | "secret_target_nomination_render_failed"
+  | "secret_target_dialog_action_failed"
+  | "secret_target_dialog_failed"
+  | "secret_target_cancel_action_failed"
+  | "secret_target_cancel_verification_failed"
+  | "secret_target_cancel_command_failed"
+  | "secret_target_cancel_projection_failed"
+  | "secret_target_confirm_action_failed"
+  | "secret_target_command_failed"
+  | "secret_target_command_result_failed"
+  | "secret_target_reveal_failed";
+
+async function interactWithSecretTarget(
+  page: Page,
+  secretLabel: string,
+  action: SecretTargetDomAction,
+): Promise<SecretTargetDomOutcome> {
+  return page
+    .evaluate<
+      SecretTargetDomOutcome,
+      { secretLabel: string; action: SecretTargetDomAction }
+    >(
+      ({ secretLabel: label, action: requestedAction }) => {
+        const board = document.querySelector('[aria-label="Classic board"]');
+        const cardLabel = Array.from(
+          board?.querySelectorAll<HTMLElement>(".board-card-label") ?? [],
+        ).find((candidate) => candidate.textContent?.trim() === label);
+        const cardButton = cardLabel?.closest("button");
+        const expectedDialogTitle = `Confirm reveal of ${label}`;
+        const dialog = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+        ).find((candidate) => {
+          const explicitLabel = candidate.getAttribute("aria-label")?.trim();
+          const labelledBy = candidate
+            .getAttribute("aria-labelledby")
+            ?.split(/\s+/u)
+            .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+            .join(" ")
+            .trim();
+          return (
+            explicitLabel === expectedDialogTitle ||
+            labelledBy === expectedDialogTitle
+          );
+        });
+        const dialogButton = (name: string) =>
+          Array.from(
+            dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [],
+          ).find((candidate) => candidate.textContent?.trim() === name);
+
+        if (requestedAction === "activate_card") {
+          if (
+            !(cardButton instanceof HTMLButtonElement) ||
+            cardButton.disabled
+          ) {
+            return "interaction_unavailable";
+          }
+          cardButton.click();
+          return "card_action_succeeded";
+        }
+        if (requestedAction === "check_nomination") {
+          return cardButton instanceof HTMLButtonElement &&
+            cardButton.getAttribute("aria-pressed") === "true" &&
+            cardButton.querySelector(".public-owner") === null
+            ? "nomination_visible"
+            : "not_ready";
+        }
+        if (requestedAction === "check_dialog") {
+          return dialog === undefined ? "not_ready" : "dialog_visible";
+        }
+        if (requestedAction === "check_cancelled") {
+          return dialog === undefined &&
+            cardButton instanceof HTMLButtonElement &&
+            cardButton.getAttribute("aria-pressed") === "true" &&
+            cardButton.querySelector(".public-owner") === null
+            ? "cancel_state_visible"
+            : "not_ready";
+        }
+
+        const control = dialogButton(
+          requestedAction === "cancel_dialog"
+            ? "Cancel reveal"
+            : "Confirm reveal",
+        );
+        if (control === undefined || control.disabled) {
+          return "interaction_unavailable";
+        }
+        control.click();
+        return "dialog_action_succeeded";
+      },
+      { secretLabel, action },
+    )
+    .catch(() => "interaction_unavailable");
+}
+
+function throwValueFreeSecretTargetError(code: SecretTargetDiagnostic): never {
+  throw new Error(code);
+}
+
+async function requireSecretTargetDomAction(
+  page: Page,
+  secretLabel: string,
+  action: SecretTargetDomAction,
+  expected: SecretTargetDomOutcome,
+  errorCode: SecretTargetDiagnostic,
+): Promise<void> {
+  const outcome = await interactWithSecretTarget(page, secretLabel, action);
+  if (outcome !== expected) {
+    throwValueFreeSecretTargetError(errorCode);
+  }
+}
+
+async function waitForValueFreeSecretTargetState(
+  check: () => ValueFreeWaitState,
+  errorCode: SecretTargetDiagnostic,
+): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  do {
+    let state: ValueFreeWaitState;
+    try {
+      state = check();
+    } catch {
+      state = "invalid";
+    }
+    if (state === "ready") {
+      return;
+    }
+    if (state === "invalid") {
+      throwValueFreeSecretTargetError(errorCode);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  } while (Date.now() < deadline);
+  throwValueFreeSecretTargetError(errorCode);
+}
+
+async function waitForSecretTargetDomState(
+  page: Page,
+  secretLabel: string,
+  action: SecretTargetDomAction,
+  expected: SecretTargetDomOutcome,
+  errorCode: SecretTargetDiagnostic,
+): Promise<void> {
+  const deadline = Date.now() + 20_000;
+  do {
+    const outcome = await interactWithSecretTarget(page, secretLabel, action);
+    if (outcome === expected) {
+      return;
+    }
+    if (outcome === "interaction_unavailable") {
+      throwValueFreeSecretTargetError(errorCode);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  } while (Date.now() < deadline);
+  throwValueFreeSecretTargetError(errorCode);
+}
+
+function projectedSecretTargetState(
+  seat: ObservedSeat,
+  secretLabel: string,
+  minimumRevision: number,
+): ValueFreeWaitState {
+  const projection = latestProjection(seat.frames);
+  if (projection === null || projection.revision <= minimumRevision) {
+    return "pending";
+  }
+  const board = projection.board;
+  if (board === null || board === undefined) {
+    return "invalid";
+  }
+  const card = board.cards.find(
+    (candidate) => candidate.label === secretLabel && !candidate.revealed,
+  );
+  if (card === undefined) {
+    return "invalid";
+  }
+  return board.nomination?.cardId === card.id ? "ready" : "pending";
+}
+
+async function nominateSecretTarget(
+  seat: ObservedSeat,
+  secretLabel: string,
+): Promise<void> {
+  const beforeNomination = latestProjection(seat.frames)?.revision ?? -1;
+  await requireSecretTargetDomAction(
+    seat.page,
+    secretLabel,
+    "activate_card",
+    "card_action_succeeded",
+    "secret_target_card_action_failed",
+  );
+  await waitForValueFreeSecretTargetState(
+    () => projectedSecretTargetState(seat, secretLabel, beforeNomination),
+    "secret_target_nomination_failed",
+  );
+  await waitForSecretTargetDomState(
+    seat.page,
+    secretLabel,
+    "check_nomination",
+    "nomination_visible",
+    "secret_target_nomination_render_failed",
+  );
+}
+
+async function verifySecretTargetNominated(
+  seat: ObservedSeat,
+  secretLabel: string,
+): Promise<void> {
+  await waitForValueFreeSecretTargetState(() => {
+    const revision = latestProjection(seat.frames)?.revision ?? -1;
+    return projectedSecretTargetState(seat, secretLabel, revision - 1);
+  }, "secret_target_nomination_failed");
+  await waitForSecretTargetDomState(
+    seat.page,
+    secretLabel,
+    "check_nomination",
+    "nomination_visible",
+    "secret_target_nomination_render_failed",
+  );
+}
+
+async function openSecretTargetDialog(
+  seat: ObservedSeat,
+  secretLabel: string,
+): Promise<void> {
+  await requireSecretTargetDomAction(
+    seat.page,
+    secretLabel,
+    "activate_card",
+    "card_action_succeeded",
+    "secret_target_dialog_action_failed",
+  );
+  await waitForSecretTargetDomState(
+    seat.page,
+    secretLabel,
+    "check_dialog",
+    "dialog_visible",
+    "secret_target_dialog_failed",
+  );
+}
+
 async function cancelReveal(seat: ObservedSeat, label: string): Promise<void> {
-  const cardName = new RegExp(
-    `^${escapeRegularExpression(label)}(?:, nominated)?$`,
-    "u",
-  );
-  const card = seat.page.getByRole("button", { name: cardName });
-  const before = latestProjection(seat.frames)?.revision ?? -1;
-  await card.click();
-  await waitForProjection(
-    seat.frames,
-    (projection) =>
-      projection.revision > before &&
-      projection.board?.nomination?.cardId ===
-        projection.board.cards.find((candidate) => candidate.label === label)
-          ?.id,
-  );
-  await expect(card).toHaveAttribute("aria-pressed", "true");
-  await card.click();
-  const dialog = seat.page.getByRole("dialog", {
-    name: `Confirm reveal of ${label}`,
-  });
-  await expect(dialog).toBeVisible();
+  await nominateSecretTarget(seat, label);
+  await openSecretTargetDialog(seat, label);
   const confirmsBefore = seat.frames.sentCommands.filter(
     (envelope) => envelope.command.type === "confirm_reveal",
   ).length;
-  await dialog.getByRole("button", { name: "Cancel reveal" }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(card).toHaveAttribute("aria-pressed", "true");
-  expect(
-    seat.frames.sentCommands.filter(
-      (envelope) => envelope.command.type === "confirm_reveal",
-    ),
-  ).toHaveLength(confirmsBefore);
-  const projectedCard = boardOf(latestProjection(seat.frames)).cards.find(
-    (candidate) => candidate.label === label,
+  await requireSecretTargetDomAction(
+    seat.page,
+    label,
+    "cancel_dialog",
+    "dialog_action_succeeded",
+    "secret_target_cancel_action_failed",
   );
-  expect(projectedCard?.revealed).toBe(false);
+  await waitForSecretTargetDomState(
+    seat.page,
+    label,
+    "check_cancelled",
+    "cancel_state_visible",
+    "secret_target_cancel_verification_failed",
+  );
+  const confirmsAfter = seat.frames.sentCommands.filter(
+    (envelope) => envelope.command.type === "confirm_reveal",
+  ).length;
+  if (confirmsAfter !== confirmsBefore) {
+    throwValueFreeSecretTargetError("secret_target_cancel_command_failed");
+  }
+  const projection = latestProjection(seat.frames);
+  const board = projection?.board;
+  const projectedCard = board?.cards.find(
+    (candidate) => candidate.label === label && !candidate.revealed,
+  );
+  if (
+    projectedCard === undefined ||
+    board?.nomination?.cardId !== projectedCard.id
+  ) {
+    throwValueFreeSecretTargetError("secret_target_cancel_projection_failed");
+  }
 }
 
 async function revealTarget(
@@ -442,66 +699,54 @@ async function revealTarget(
   label: string,
   alreadyNominated = false,
 ): Promise<string> {
-  const cardName = new RegExp(
-    `^${escapeRegularExpression(label)}(?:, nominated)?$`,
-    "u",
-  );
-  const card = seat.page.getByRole("button", { name: cardName });
   if (!alreadyNominated) {
-    const beforeNomination = latestProjection(seat.frames)?.revision ?? -1;
-    await card.click();
-    await waitForProjection(
-      seat.frames,
-      (projection) =>
-        projection.revision > beforeNomination &&
-        projection.board?.cards.some(
-          (candidate) =>
-            candidate.label === label &&
-            projection.board?.nomination?.cardId === candidate.id,
-        ) === true,
-    );
-    await expect(card).toHaveAttribute("aria-pressed", "true");
+    await nominateSecretTarget(seat, label);
+  } else {
+    await verifySecretTargetNominated(seat, label);
   }
 
-  await card.click();
-  const dialog = seat.page.getByRole("dialog", {
-    name: `Confirm reveal of ${label}`,
-  });
-  await expect(dialog).toBeVisible();
+  await openSecretTargetDialog(seat, label);
   const confirmsBefore = seat.frames.sentCommands.filter(
     (envelope) => envelope.command.type === "confirm_reveal",
   ).length;
-  await dialog.getByRole("button", { name: "Confirm reveal" }).click();
-  await expect
-    .poll(
-      () =>
-        seat.frames.sentCommands.filter(
-          (envelope) => envelope.command.type === "confirm_reveal",
-        ).length,
-      { message: "the reveal command was not observed on the real socket" },
-    )
-    .toBe(confirmsBefore + 1);
+  await requireSecretTargetDomAction(
+    seat.page,
+    label,
+    "confirm_dialog",
+    "dialog_action_succeeded",
+    "secret_target_confirm_action_failed",
+  );
+  await waitForValueFreeSecretTargetState(() => {
+    const count = seat.frames.sentCommands.filter(
+      (envelope) => envelope.command.type === "confirm_reveal",
+    ).length;
+    if (count === confirmsBefore + 1) {
+      return "ready";
+    }
+    return count <= confirmsBefore ? "pending" : "invalid";
+  }, "secret_target_command_failed");
   const command = seat.frames.sentCommands.filter(
     (envelope) => envelope.command.type === "confirm_reveal",
   )[confirmsBefore]!;
-  await expect
-    .poll(
-      () =>
-        seat.frames.commandResults.filter(
-          (result) => result.commandId === command.commandId,
-        ).length,
-      { message: "the reveal command did not receive its socket result" },
-    )
-    .toBe(1);
-  await waitForProjection(
-    seat.frames,
-    (projection) =>
-      projection.board?.cards.some(
-        (candidate) =>
-          candidate.id === command.command.cardId && candidate.revealed,
-      ) === true,
-    "the confirmed card did not become publicly revealed",
-  );
+  await waitForValueFreeSecretTargetState(() => {
+    const count = seat.frames.commandResults.filter(
+      (result) => result.commandId === command.commandId,
+    ).length;
+    return count === 1 ? "ready" : count === 0 ? "pending" : "invalid";
+  }, "secret_target_command_result_failed");
+  await waitForValueFreeSecretTargetState(() => {
+    const board = latestProjection(seat.frames)?.board;
+    if (board === null || board === undefined) {
+      return "invalid";
+    }
+    const card = board.cards.find(
+      (candidate) => candidate.id === command.command.cardId,
+    );
+    if (card === undefined) {
+      return "invalid";
+    }
+    return card.revealed ? "ready" : "pending";
+  }, "secret_target_reveal_failed");
   return command.commandId;
 }
 
@@ -685,6 +930,96 @@ async function blankIfSecretKeyVisible(
   }
 }
 
+function syntheticSecretTargetSeat(
+  page: Page,
+  secretLabel: string,
+): ObservedSeat {
+  const frames = emptyFrameObserver();
+  frames.projections.push({
+    revision: 1,
+    board: {
+      cards: [{ id: "synthetic-card", label: secretLabel, revealed: false }],
+      nomination: null,
+    },
+  } as unknown as ClientProjection);
+  return { page, frames } as ObservedSeat;
+}
+
+function nominateSyntheticSecretTarget(
+  seat: ObservedSeat,
+  secretLabel: string,
+): void {
+  seat.frames.projections.push({
+    revision: 2,
+    board: {
+      cards: [{ id: "synthetic-card", label: secretLabel, revealed: false }],
+      nomination: {
+        playerId: "synthetic-operative",
+        cardId: "synthetic-card",
+      },
+    },
+  } as unknown as ClientProjection);
+}
+
+async function installSyntheticSecretTargetPage(
+  page: Page,
+  secretLabel: string,
+): Promise<void> {
+  await page.setContent(`
+    <section aria-label="Classic board">
+      <button type="button" aria-pressed="false">
+        <span class="board-card-label"></span>
+      </button>
+    </section>
+  `);
+  await page.evaluate((label) => {
+    const button = document.querySelector("button")!;
+    const cardLabel = document.querySelector(".board-card-label")!;
+    button.setAttribute("aria-label", label);
+    cardLabel.textContent = label;
+    document.body.dataset.cardActions = "0";
+    button.addEventListener("click", () => {
+      const actionCount = Number(document.body.dataset.cardActions ?? "0") + 1;
+      document.body.dataset.cardActions = String(actionCount);
+      if (actionCount === 1) {
+        button.setAttribute("aria-label", `${label}, nominated`);
+        button.setAttribute("aria-pressed", "true");
+        return;
+      }
+      const dialog = document.createElement("div");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-label", `Confirm reveal of ${label}`);
+      const cancel = document.createElement("button");
+      cancel.textContent = "Cancel reveal";
+      dialog.append(cancel);
+      document.body.append(dialog);
+    });
+  }, secretLabel);
+}
+
+async function captureValueFreeSecretTargetDiagnostic(
+  page: Page,
+  action: () => Promise<unknown>,
+): Promise<{ diagnostic: string; cardActions: number }> {
+  let receivedError: unknown;
+  try {
+    await action();
+  } catch (error) {
+    receivedError = error;
+  }
+  const cardActions = await page
+    .evaluate(() => Number(document.body.dataset.cardActions ?? "0"))
+    .catch(() => -1);
+  await page
+    .evaluate(() => document.body.replaceChildren())
+    .catch(() => page.close({ runBeforeUnload: false }));
+  return {
+    diagnostic:
+      receivedError instanceof Error ? receivedError.message : "no_error",
+    cardActions,
+  };
+}
+
 test("sensitive multiplayer spec disables automatic failure artifacts", ({
   trace,
   screenshot,
@@ -755,6 +1090,51 @@ test("secret-key reader makes the page artifact-safe when concealment fails duri
     diagnostic: "secret_key_extraction_failed",
   });
   expect(diagnostic).not.toMatch(/Synthetic card|(?:Red|Blue) key/u);
+});
+
+test("missing pre-public target action has a fixed value-free diagnostic", async ({
+  page,
+}) => {
+  page.setDefaultTimeout(250);
+  const secretLabel = crypto.randomUUID();
+  const seat = syntheticSecretTargetSeat(page, secretLabel);
+
+  const result = await captureValueFreeSecretTargetDiagnostic(page, () =>
+    cancelReveal(seat, secretLabel),
+  );
+
+  expect({
+    fixed: result.diagnostic === "secret_target_card_action_failed",
+    leaked: result.diagnostic.includes(secretLabel),
+  }).toEqual({ fixed: true, leaked: false });
+});
+
+test("a later pre-public confirm failure cannot disclose its target", async ({
+  page,
+}) => {
+  page.setDefaultTimeout(250);
+  const secretLabel = crypto.randomUUID();
+  await installSyntheticSecretTargetPage(page, secretLabel);
+  const seat = syntheticSecretTargetSeat(page, secretLabel);
+  const nomination = setTimeout(
+    () => nominateSyntheticSecretTarget(seat, secretLabel),
+    25,
+  );
+
+  const result = await captureValueFreeSecretTargetDiagnostic(page, () =>
+    revealTarget(seat, secretLabel),
+  );
+  clearTimeout(nomination);
+
+  expect({
+    cardActions: result.cardActions,
+    fixed: result.diagnostic === "secret_target_confirm_action_failed",
+    leaked: result.diagnostic.includes(secretLabel),
+  }).toEqual({
+    cardActions: 2,
+    fixed: true,
+    leaked: false,
+  });
 });
 
 test("public projection auditing ignores a frame's claimed role and rejects nested ownership", () => {
