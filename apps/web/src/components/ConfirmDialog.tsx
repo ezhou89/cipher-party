@@ -1,11 +1,17 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 
 interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel: string;
   cancelLabel: string;
-  disabled: boolean;
+  confirmDisabled: boolean;
   returnFocus: HTMLElement | null;
   children?: ReactNode;
   onConfirm(): void;
@@ -17,7 +23,7 @@ export function ConfirmDialog({
   description,
   confirmLabel,
   cancelLabel,
-  disabled,
+  confirmDisabled,
   returnFocus,
   children,
   onConfirm,
@@ -28,7 +34,10 @@ export function ConfirmDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const cancelHandlerRef = useRef(onCancel);
-  cancelHandlerRef.current = onCancel;
+
+  useLayoutEffect(() => {
+    cancelHandlerRef.current = onCancel;
+  }, [onCancel]);
 
   useEffect(() => {
     cancelRef.current?.focus();
@@ -49,17 +58,23 @@ export function ConfirmDialog({
       if (event.key !== "Tab") {
         return;
       }
+      const dialog = dialogRef.current;
       const focusable = Array.from(
-        dialogRef.current?.querySelectorAll<HTMLElement>(
+        dialog?.querySelectorAll<HTMLElement>(
           'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
         ) ?? [],
       );
       if (focusable.length === 0) {
+        event.preventDefault();
+        dialog?.focus();
         return;
       }
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
+      if (dialog?.contains(document.activeElement) !== true) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -80,6 +95,7 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
+        tabIndex={-1}
       >
         <p className="card-index">Confirm action</p>
         <h2 id={titleId}>{title}</h2>
@@ -90,12 +106,11 @@ export function ConfirmDialog({
             className="button-secondary"
             ref={cancelRef}
             type="button"
-            disabled={disabled}
             onClick={onCancel}
           >
             {cancelLabel}
           </button>
-          <button type="button" disabled={disabled} onClick={onConfirm}>
+          <button type="button" disabled={confirmDisabled} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>

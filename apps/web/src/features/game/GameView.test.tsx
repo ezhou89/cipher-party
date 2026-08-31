@@ -5,18 +5,22 @@ import type {
   PublicHistoryEntry,
 } from "@cipher-party/protocol";
 import {
+  act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { startTransition, Suspense, useState } from "react";
 import { createMemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../app/App";
 import { createAppRoutes } from "../../app/router";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import type {
   RoomConnectionSnapshot,
   RoomConnectionState,
@@ -532,6 +536,232 @@ describe("GameView public board", () => {
       expect(updates).toHaveTextContent("Blue team. Clue phase."),
     );
   });
+
+  it.each([
+    {
+      transition: "neutral reveal",
+      owner: "neutral" as const,
+      ownerText: "◇ Neutral",
+      startingGuesses: 3,
+    },
+    {
+      transition: "opponent reveal",
+      owner: "blue" as const,
+      ownerText: "● Blue",
+      startingGuesses: 3,
+    },
+    {
+      transition: "final own-team guess",
+      owner: "red" as const,
+      ownerText: "◆ Red",
+      startingGuesses: 1,
+    },
+  ])(
+    "composes a $transition with the simultaneous next-team clue phase",
+    async ({ owner, ownerText, startingGuesses }) => {
+      const { rerender } = renderGame(
+        projection({ board: { guessesRemaining: startingGuesses } }),
+      );
+      const updates = screen.getByRole("status", { name: "Game updates" });
+
+      rerender(
+        <GameView
+          projection={projection({
+            revision: 13,
+            board: {
+              phase: "clue",
+              activeTeam: "blue",
+              clue: null,
+              guessesRemaining: 0,
+            },
+            publicHistory: [
+              {
+                revision: 13,
+                at: "2026-08-30T10:07:00.000Z",
+                type: "card_revealed",
+                teamId: "red",
+                cardId: "card-01",
+                owner,
+              },
+            ],
+          })}
+          connection="open"
+          pending={false}
+          send={() => {}}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(updates).toHaveTextContent(
+          `Archive 01 was revealed as ${ownerText}.`,
+        );
+        expect(updates).toHaveTextContent("Blue team. Clue phase.");
+      });
+    },
+  );
+
+  it.each([
+    {
+      reason: "targets" as const,
+      owner: "blue" as const,
+      revealedOwner: "● Blue",
+      reasonText: "All Blue targets were revealed.",
+    },
+    {
+      reason: "hazard" as const,
+      owner: "hazard" as const,
+      revealedOwner: "✦ Hazard",
+      reasonText: "The hazard ended the board.",
+    },
+  ])(
+    "announces a decisive $reason reveal with winner and public reason",
+    async ({ reason, owner, revealedOwner, reasonText }) => {
+      const { rerender } = renderGame(projection());
+      const updates = screen.getByRole("status", { name: "Game updates" });
+
+      rerender(
+        <GameView
+          projection={projection({
+            revision: 13,
+            roomPhase: "complete",
+            board: {
+              phase: "board_complete",
+              winner: "blue",
+              completionReason: reason,
+              guessesRemaining: 0,
+            },
+            publicHistory: [
+              {
+                revision: 13,
+                at: "2026-08-30T10:08:00.000Z",
+                type: "card_revealed",
+                teamId: "red",
+                cardId: "card-01",
+                owner,
+              },
+            ],
+          })}
+          connection="open"
+          pending={false}
+          send={() => {}}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(updates).toHaveTextContent(
+          `Archive 01 was revealed as ${revealedOwner}.`,
+        );
+        expect(updates).toHaveTextContent(`Blue wins. ${reasonText}`);
+      });
+    },
+  );
+
+  it("announces a rejected challenge together with the authoritative next turn", async () => {
+    const { rerender } = renderGame(
+      projection({ board: { phase: "challenged" } }),
+    );
+    const updates = screen.getByRole("status", { name: "Game updates" });
+
+    rerender(
+      <GameView
+        projection={projection({
+          revision: 13,
+          board: {
+            phase: "clue",
+            activeTeam: "blue",
+            clue: null,
+            guessesRemaining: 0,
+          },
+          publicHistory: [
+            {
+              revision: 13,
+              at: "2026-08-30T10:09:00.000Z",
+              type: "challenge_resolved",
+              decision: "reject",
+            },
+          ],
+        })}
+        connection="open"
+        pending={false}
+        send={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(updates).toHaveTextContent("The clue challenge was rejected.");
+      expect(updates).toHaveTextContent("Blue team. Clue phase.");
+    });
+  });
+
+  it.each([
+    { identity: "room", change: { code: "DEF456" } as ProjectionOptions },
+    {
+      identity: "viewer",
+      change: { playerId: "replacement-viewer" } as ProjectionOptions,
+    },
+    {
+      identity: "role",
+      change: {
+        role: "unassigned",
+        teamId: null,
+        playerId: "spectator",
+      } as ProjectionOptions,
+    },
+    {
+      identity: "board",
+      change: {
+        board: { order: [cardIds[1]!, cardIds[0]!, ...cardIds.slice(2)] },
+      } as ProjectionOptions,
+    },
+  ])(
+    "synchronously remounts a silent announcer for a new $identity identity",
+    async ({ change }) => {
+      const { rerender } = renderGame(projection());
+      rerender(
+        <GameView
+          projection={projection({
+            revision: 13,
+            publicHistory: [
+              {
+                revision: 13,
+                at: "2026-08-30T10:10:00.000Z",
+                type: "room_paused",
+              },
+            ],
+          })}
+          connection="open"
+          pending={false}
+          send={() => {}}
+        />,
+      );
+      const previous = screen.getByRole("status", { name: "Game updates" });
+      await waitFor(() =>
+        expect(previous).toHaveTextContent("The room was paused."),
+      );
+
+      rerender(
+        <GameView
+          projection={projection({
+            revision: 14,
+            publicHistory: [
+              {
+                revision: 13,
+                at: "2026-08-30T10:10:00.000Z",
+                type: "room_paused",
+              },
+            ],
+            ...change,
+          })}
+          connection="open"
+          pending={false}
+          send={() => {}}
+        />,
+      );
+      const current = screen.getByRole("status", { name: "Game updates" });
+      expect(current).not.toBe(previous);
+      expect(current).toBeEmptyDOMElement();
+    },
+  );
 });
 
 describe("GameView clue-giver controls", () => {
@@ -954,12 +1184,68 @@ describe("GameView operative and moderation interactions", () => {
       { send },
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "End turn" }));
+    const endTurn = screen.getByRole("button", { name: "End turn" });
+    await user.click(endTurn);
     const dialog = screen.getByRole("dialog", { name: "Confirm end turn" });
     expect(send).not.toHaveBeenCalled();
     await user.click(
       within(dialog).getByRole("button", { name: "Keep guessing" }),
     );
+    expect(send).not.toHaveBeenCalled();
+    expect(endTurn).toHaveFocus();
+
+    await user.click(endTurn);
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Confirm end turn",
+      }),
+    );
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({ type: "end_turn" });
+  });
+
+  it("retires end-turn intent across pause and a later guessing turn until fresh activation", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const guessing = projection({
+      role: "operative",
+      permissions: { nominate: true, endTurn: true },
+      board: { guessesRemaining: 2 },
+    });
+    const { rerender } = renderGame(guessing, { send });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "End turn" }));
+    expect(
+      screen.getByRole("dialog", { name: "Confirm end turn" }),
+    ).toBeVisible();
+
+    rerender(
+      <GameView
+        projection={projection({
+          role: "operative",
+          revision: 13,
+          board: { phase: "paused", guessesRemaining: 2 },
+        })}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    rerender(
+      <GameView
+        projection={projection({
+          role: "operative",
+          revision: 14,
+          permissions: { nominate: true, endTurn: true },
+          board: { phase: "guess", guessesRemaining: 2 },
+        })}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(send).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "End turn" }));
@@ -970,6 +1256,297 @@ describe("GameView operative and moderation interactions", () => {
     );
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith({ type: "end_turn" });
+  });
+
+  it.each([
+    {
+      validity: "clue phase",
+      change: {
+        permissions: { nominate: true, endTurn: true },
+        board: { phase: "clue", guessesRemaining: 2 },
+      } as ProjectionOptions,
+    },
+    {
+      validity: "inactive permission",
+      change: {
+        permissions: { nominate: true, endTurn: false },
+        board: { guessesRemaining: 2 },
+      } as ProjectionOptions,
+    },
+    {
+      validity: "completed board",
+      change: {
+        roomPhase: "complete",
+        permissions: { nominate: true, endTurn: true },
+        board: {
+          phase: "board_complete",
+          winner: "red",
+          completionReason: "targets",
+        },
+      } as ProjectionOptions,
+    },
+    {
+      validity: "active team",
+      change: {
+        permissions: { nominate: true, endTurn: true },
+        board: { activeTeam: "blue", guessesRemaining: 2 },
+      } as ProjectionOptions,
+    },
+    {
+      validity: "remaining guess count",
+      change: {
+        permissions: { nominate: true, endTurn: true },
+        board: { guessesRemaining: 1 },
+      } as ProjectionOptions,
+    },
+    {
+      validity: "room identity",
+      change: {
+        code: "DEF456",
+        permissions: { nominate: true, endTurn: true },
+        board: { guessesRemaining: 2 },
+      } as ProjectionOptions,
+    },
+  ])(
+    "dismisses end-turn intent when authoritative $validity changes",
+    async ({ change }) => {
+      const { rerender } = renderGame(
+        projection({
+          role: "operative",
+          permissions: { nominate: true, endTurn: true },
+          board: { guessesRemaining: 2 },
+        }),
+      );
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "End turn" }));
+      expect(screen.getByRole("dialog")).toBeVisible();
+
+      rerender(
+        <GameView
+          projection={projection({
+            role: "operative",
+            revision: 13,
+            ...change,
+          })}
+          connection="open"
+          pending={false}
+          send={() => {}}
+        />,
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    { identity: "room", change: { code: "DEF456" } as ProjectionOptions },
+    {
+      identity: "viewer",
+      change: { playerId: "replacement-operative" } as ProjectionOptions,
+    },
+    {
+      identity: "role",
+      change: {
+        role: "unassigned",
+        teamId: null,
+        playerId: "red-op",
+      } as ProjectionOptions,
+    },
+    {
+      identity: "board",
+      change: {
+        board: { order: [cardIds[1]!, cardIds[0]!, ...cardIds.slice(2)] },
+      } as ProjectionOptions,
+    },
+  ])(
+    "retires reveal intent for a new $identity identity with the same nominated card ID",
+    async ({ change }) => {
+      const current = projection({
+        role: "operative",
+        permissions: { nominate: true, confirmReveal: true },
+        board: { nomination: { playerId: "red-op", cardId: "card-01" } },
+      });
+      const { rerender } = renderGame(current);
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "Archive 01, nominated" }));
+      expect(screen.getByRole("dialog")).toBeVisible();
+
+      rerender(
+        <GameView
+          projection={projection({
+            role: "operative",
+            permissions: { nominate: true, confirmReveal: true },
+            ...change,
+            board: {
+              nomination: { playerId: "red-op", cardId: "card-01" },
+              ...change.board,
+            },
+          })}
+          connection="open"
+          pending={false}
+          send={() => {}}
+        />,
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    },
+  );
+
+  it("keeps reveal cancellation clickable through reconnect while confirm stays disabled", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const current = projection({
+      role: "operative",
+      permissions: { nominate: true, confirmReveal: true },
+      board: { nomination: { playerId: "red-op", cardId: "card-01" } },
+    });
+    const { rerender } = renderGame(current, { send });
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "Archive 01, nominated" }),
+    );
+
+    rerender(
+      <GameView
+        projection={current}
+        connection="reconnecting"
+        pending={false}
+        send={send}
+      />,
+    );
+    const dialog = screen.getByRole("dialog");
+    const cancel = within(dialog).getByRole("button", {
+      name: "Cancel reveal",
+    });
+    expect(cancel).toBeEnabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Confirm reveal" }),
+    ).toBeDisabled();
+    await user.click(cancel);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("keeps end-turn cancellation clickable through reconnect while confirm stays disabled", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const current = projection({
+      role: "operative",
+      permissions: { nominate: true, endTurn: true },
+      board: { guessesRemaining: 2 },
+    });
+    const { rerender } = renderGame(current, { send });
+    const user = userEvent.setup();
+    const endTurn = screen.getByRole("button", { name: "End turn" });
+    await user.click(endTurn);
+
+    rerender(
+      <GameView
+        projection={current}
+        connection="reconnecting"
+        pending={false}
+        send={send}
+      />,
+    );
+    const dialog = screen.getByRole("dialog");
+    const cancel = within(dialog).getByRole("button", {
+      name: "Keep guessing",
+    });
+    expect(cancel).toBeEnabled();
+    expect(
+      within(dialog).getByRole("button", { name: "Confirm end turn" }),
+    ).toBeDisabled();
+    expect(cancel).toHaveFocus();
+    await user.keyboard("{Tab}");
+    expect(cancel).toHaveFocus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(cancel).toHaveFocus();
+    await user.click(cancel);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("contains forward and reverse Tab when focus is forced outside the modal", async () => {
+    renderGame(
+      projection({
+        role: "operative",
+        permissions: { nominate: true, confirmReveal: true },
+        board: { nomination: { playerId: "red-op", cardId: "card-01" } },
+      }),
+    );
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "Archive 01, nominated" }),
+    );
+    const dialog = screen.getByRole("dialog");
+    const cancel = within(dialog).getByRole("button", {
+      name: "Cancel reveal",
+    });
+    const confirm = within(dialog).getByRole("button", {
+      name: "Confirm reveal",
+    });
+    expect(cancel).toHaveFocus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(confirm).toHaveFocus();
+    await user.keyboard("{Tab}");
+    expect(cancel).toHaveFocus();
+
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    await user.keyboard("{Tab}");
+    expect(cancel).toHaveFocus();
+    outside.focus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(confirm).toHaveFocus();
+    outside.remove();
+  });
+
+  it("owns reveal and end-turn confirmation as one structurally exclusive modal", async () => {
+    renderGame(
+      projection({
+        role: "operative",
+        permissions: {
+          nominate: true,
+          confirmReveal: true,
+          endTurn: true,
+        },
+        board: {
+          guessesRemaining: 2,
+          nomination: { playerId: "red-op", cardId: "card-01" },
+        },
+      }),
+    );
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "End turn" }));
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Archive 01, nominated" }),
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(
+      screen.getByRole("dialog", { name: "Confirm reveal of Archive 01" }),
+    ).toBeVisible();
+  });
+
+  it("does not restore focus to a reveal trigger removed during dialog cleanup", async () => {
+    const view = renderGame(
+      projection({
+        role: "operative",
+        permissions: { nominate: true, confirmReveal: true },
+        board: { nomination: { playerId: "red-op", cardId: "card-01" } },
+      }),
+    );
+    const card = screen.getByRole("button", {
+      name: "Archive 01, nominated",
+    });
+    await userEvent.setup().click(card);
+    const focus = vi.spyOn(card, "focus");
+    focus.mockClear();
+
+    view.unmount();
+    expect(card.isConnected).toBe(false);
+    expect(focus).not.toHaveBeenCalled();
   });
 
   it("uses exact challenge resolution, pause, and resume commands only when permitted", async () => {
@@ -1011,6 +1588,52 @@ describe("GameView operative and moderation interactions", () => {
     await user.click(screen.getByRole("button", { name: "Resume room" }));
     expect(send).toHaveBeenLastCalledWith({ type: "resume_room" });
   });
+
+  it.each([
+    {
+      phase: "challenged" as const,
+      allowed: ["Accept clue", "Reject clue", "Pause room"],
+    },
+    { phase: "clue" as const, allowed: ["Pause room"] },
+    { phase: "guess" as const, allowed: ["Pause room"] },
+    { phase: "paused" as const, allowed: ["Resume room"] },
+    { phase: "board_complete" as const, allowed: [] },
+  ])(
+    "keeps stale host permissions phase-coherent during $phase",
+    ({ phase, allowed }) => {
+      renderGame(
+        projection({
+          role: "spectator",
+          isHost: true,
+          roomPhase: phase === "board_complete" ? "complete" : "playing",
+          permissions: {
+            resolveChallenge: true,
+            pause: true,
+            resume: true,
+          },
+          board: {
+            phase,
+            clue: { word: "Harbor", count: 2 },
+            winner: phase === "board_complete" ? "red" : null,
+            completionReason: phase === "board_complete" ? "targets" : null,
+          },
+        }),
+      );
+      for (const name of [
+        "Accept clue",
+        "Reject clue",
+        "Pause room",
+        "Resume room",
+      ]) {
+        const button = screen.queryByRole("button", { name });
+        if ((allowed as readonly string[]).includes(name)) {
+          expect(button).toBeEnabled();
+        } else {
+          expect(button).not.toBeInTheDocument();
+        }
+      }
+    },
+  );
 
   it("disables every available action while pending or reconnecting", () => {
     const current = projection({
@@ -1084,6 +1707,57 @@ describe("GameView operative and moderation interactions", () => {
       screen.queryByRole("button", { name: /rematch|continue/iu }),
     ).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/campaign/iu);
+  });
+});
+
+describe("ConfirmDialog committed listener lifecycle", () => {
+  it("keeps Escape bound to the committed handler during an interrupted render and removes it on cleanup", () => {
+    const committedCancel = vi.fn();
+    const interruptedCancel = vi.fn();
+    const never = new Promise<never>(() => {});
+    let beginInterruptedRender = () => {};
+
+    function SuspendForever(): never {
+      throw never;
+    }
+
+    function Harness() {
+      const [interrupt, setInterrupt] = useState(false);
+      beginInterruptedRender = () => {
+        startTransition(() => setInterrupt(true));
+      };
+      return (
+        <Suspense fallback={<span>Pending render</span>}>
+          <ConfirmDialog
+            title="Committed dialog"
+            description="The committed callback must remain active."
+            confirmLabel="Confirm"
+            cancelLabel="Cancel"
+            confirmDisabled={false}
+            returnFocus={null}
+            onConfirm={() => {}}
+            onCancel={interrupt ? interruptedCancel : committedCancel}
+          >
+            {interrupt ? <SuspendForever /> : null}
+          </ConfirmDialog>
+        </Suspense>
+      );
+    }
+
+    const view = render(<Harness />);
+    act(() => beginInterruptedRender());
+    expect(
+      screen.getByRole("dialog", { name: "Committed dialog" }),
+    ).toBeVisible();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(committedCancel).toHaveBeenCalledOnce();
+    expect(interruptedCancel).not.toHaveBeenCalled();
+
+    committedCancel.mockClear();
+    view.unmount();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(committedCancel).not.toHaveBeenCalled();
   });
 });
 

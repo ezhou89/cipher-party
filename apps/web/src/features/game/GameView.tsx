@@ -3,7 +3,13 @@ import type {
   ClientProjection,
   PublicHistoryEntry,
 } from "@cipher-party/protocol";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
@@ -74,6 +80,20 @@ function phaseLabel(phase: GameBoard["phase"]): string {
   }
 }
 
+function boardIdentity(board: GameBoard): string {
+  const labels = new Map(board.cards.map((card) => [card.id, card.label]));
+  return JSON.stringify(
+    board.order.map((cardId) => [cardId, labels.get(cardId) ?? ""]),
+  );
+}
+
+function workspaceIdentity(
+  projection: ClientProjection,
+  board: GameBoard,
+): string {
+  return `${projection.code}\u0000${projection.viewer.playerId}\u0000${projection.viewer.teamId ?? ""}\u0000${projection.viewRole}\u0000${boardIdentity(board)}`;
+}
+
 function eventAnnouncement(
   entry: PublicHistoryEntry,
   cardLabels: ReadonlyMap<string, string>,
@@ -108,6 +128,8 @@ interface AnnouncementSnapshot {
   latestEvent: string;
   phase: GameBoard["phase"];
   activeTeam: GameBoard["activeTeam"];
+  winner: GameBoard["winner"];
+  completionReason: GameBoard["completionReason"];
 }
 
 function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
@@ -117,11 +139,13 @@ function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
   useEffect(() => {
     const latest = projection.publicHistory.at(-1);
     const current: AnnouncementSnapshot = {
-      identity: `${projection.code}\u0000${projection.viewer.playerId}\u0000${board.order.join("\u0000")}`,
+      identity: workspaceIdentity(projection, board),
       latestEvent:
         latest === undefined ? "" : `${latest.revision}\u0000${latest.type}`,
       phase: board.phase,
       activeTeam: board.activeTeam,
+      winner: board.winner,
+      completionReason: board.completionReason,
     };
     const previous = previousRef.current;
     previousRef.current = current;
@@ -130,18 +154,36 @@ function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
       return;
     }
 
+    const messages: string[] = [];
     if (latest !== undefined && previous.latestEvent !== current.latestEvent) {
       const labels = new Map(board.cards.map((card) => [card.id, card.label]));
-      setAnnouncement(eventAnnouncement(latest, labels));
-      return;
+      messages.push(eventAnnouncement(latest, labels));
     }
+    const resultChanged =
+      board.phase === "board_complete" &&
+      (previous.phase !== current.phase ||
+        previous.winner !== current.winner ||
+        previous.completionReason !== current.completionReason);
     if (
+      resultChanged &&
+      board.winner !== null &&
+      board.completionReason !== null
+    ) {
+      const reason =
+        board.completionReason === "targets"
+          ? `All ${TEAM[board.winner].label} targets were revealed.`
+          : "The hazard ended the board.";
+      messages.push(`${TEAM[board.winner].label} wins. ${reason}`);
+    } else if (
       previous.phase !== current.phase ||
       previous.activeTeam !== current.activeTeam
     ) {
-      setAnnouncement(
+      messages.push(
         `${TEAM[board.activeTeam].label} team. ${phaseLabel(board.phase)}.`,
       );
+    }
+    if (messages.length > 0) {
+      setAnnouncement(messages.join(" "));
     }
   }, [
     board,
@@ -204,12 +246,26 @@ function ModerationPanel({
   transportDisabled,
   send,
 }: ModerationPanelProps) {
+  const complete =
+    projection.roomPhase === "complete" || board.phase === "board_complete";
+  const resolveAllowed =
+    !complete &&
+    board.phase === "challenged" &&
+    projection.permissions.resolveChallenge;
+  const pauseAllowed =
+    !complete &&
+    (board.phase === "clue" ||
+      board.phase === "guess" ||
+      board.phase === "challenged") &&
+    projection.permissions.pause;
+  const resumeAllowed =
+    !complete && board.phase === "paused" && projection.permissions.resume;
   const showPanel =
     board.phase === "challenged" ||
     board.phase === "paused" ||
-    projection.permissions.resolveChallenge ||
-    projection.permissions.pause ||
-    projection.permissions.resume;
+    resolveAllowed ||
+    pauseAllowed ||
+    resumeAllowed;
   if (!showPanel) {
     return null;
   }
@@ -226,7 +282,7 @@ function ModerationPanel({
         </p>
       ) : null}
       {board.phase === "paused" ? <p>Game actions are paused.</p> : null}
-      {projection.permissions.resolveChallenge ? (
+      {resolveAllowed ? (
         <div className="control-row">
           <button
             type="button"
@@ -249,7 +305,7 @@ function ModerationPanel({
           </button>
         </div>
       ) : null}
-      {projection.permissions.pause ? (
+      {pauseAllowed ? (
         <button
           className="button-secondary"
           type="button"
@@ -259,7 +315,7 @@ function ModerationPanel({
           Pause room
         </button>
       ) : null}
-      {projection.permissions.resume ? (
+      {resumeAllowed ? (
         <button
           type="button"
           disabled={transportDisabled}
@@ -284,6 +340,19 @@ interface GameWorkspaceProps {
   send(command: ClientCommand): void;
 }
 
+type ConfirmationIntent =
+  | {
+      type: "reveal";
+      cardId: string;
+      returnFocus: HTMLElement | null;
+    }
+  | {
+      type: "end-turn";
+      activeTeam: GameBoard["activeTeam"];
+      guessesRemaining: number;
+      returnFocus: HTMLElement | null;
+    };
+
 function GameWorkspace({
   projection,
   board,
@@ -295,30 +364,45 @@ function GameWorkspace({
   ownTeam,
   send,
 }: GameWorkspaceProps) {
-  const [revealCardId, setRevealCardId] = useState<string | null>(null);
-  const [revealReturnFocus, setRevealReturnFocus] =
-    useState<HTMLElement | null>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationIntent | null>(
+    null,
+  );
   const transportDisabled = pending || connection !== "open";
   const gameActionsDisabled =
     transportDisabled ||
     board.phase === "paused" ||
     board.phase === "board_complete" ||
     projection.roomPhase === "complete";
+  const revealIntent = confirmation?.type === "reveal" ? confirmation : null;
   const revealCard =
-    revealCardId !== null &&
+    revealIntent !== null &&
     board.phase === "guess" &&
     projection.permissions.confirmReveal &&
-    board.nomination?.cardId === revealCardId
+    board.nomination?.cardId === revealIntent.cardId
       ? (board.cards.find(
-          (card) => card.id === revealCardId && card.revealed === false,
+          (card) => card.id === revealIntent.cardId && card.revealed === false,
         ) ?? null)
       : null;
+  const endTurnIntent = confirmation?.type === "end-turn" ? confirmation : null;
+  const endTurnIntentIsCurrent =
+    endTurnIntent !== null &&
+    projection.roomPhase === "playing" &&
+    board.phase === "guess" &&
+    projection.permissions.endTurn &&
+    board.guessesRemaining > 0 &&
+    board.activeTeam === endTurnIntent.activeTeam &&
+    board.guessesRemaining === endTurnIntent.guessesRemaining;
+  const confirmationIsCurrent =
+    confirmation === null ||
+    (confirmation.type === "reveal"
+      ? revealCard !== null
+      : endTurnIntentIsCurrent);
 
-  useEffect(() => {
-    if (revealCardId !== null && revealCard === null) {
-      setRevealCardId(null);
+  useLayoutEffect(() => {
+    if (!confirmationIsCurrent) {
+      setConfirmation(null);
     }
-  }, [revealCard, revealCardId]);
+  }, [confirmationIsCurrent]);
 
   const cardActionsAvailable =
     projection.permissions.nominate || projection.permissions.confirmReveal;
@@ -332,17 +416,39 @@ function GameWorkspace({
       board.phase === "guess" &&
       board.nomination?.cardId === cardId
     ) {
-      setRevealReturnFocus(
-        document.activeElement instanceof HTMLElement
-          ? document.activeElement
-          : null,
-      );
-      setRevealCardId(cardId);
+      setConfirmation({
+        type: "reveal",
+        cardId,
+        returnFocus:
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null,
+      });
       return;
     }
     if (projection.permissions.nominate && board.phase === "guess") {
       send({ type: "nominate_card", cardId });
     }
+  };
+  const requestEndTurn = (returnFocus: HTMLButtonElement) => {
+    if (
+      gameActionsDisabled ||
+      projection.roomPhase !== "playing" ||
+      board.phase !== "guess" ||
+      !projection.permissions.endTurn
+    ) {
+      return;
+    }
+    if (board.guessesRemaining > 0) {
+      setConfirmation({
+        type: "end-turn",
+        activeTeam: board.activeTeam,
+        guessesRemaining: board.guessesRemaining,
+        returnFocus,
+      });
+      return;
+    }
+    send({ type: "end_turn" });
   };
 
   return (
@@ -384,6 +490,7 @@ function GameWorkspace({
             endTurnAllowed={projection.permissions.endTurn}
             disabled={gameActionsDisabled}
             send={send}
+            onRequestEndTurn={requestEndTurn}
           />
           <ModerationPanel
             projection={projection}
@@ -394,15 +501,15 @@ function GameWorkspace({
           <GameHistory entries={projection.publicHistory} cards={board.cards} />
         </aside>
       </div>
-      {revealCard === null ? null : (
+      {revealCard !== null && revealIntent !== null ? (
         <ConfirmDialog
           title={`Confirm reveal of ${revealCard.label}`}
           description={`Reveal ${revealCard.label}? This cannot be undone.`}
           confirmLabel="Confirm reveal"
           cancelLabel="Cancel reveal"
-          disabled={gameActionsDisabled}
-          returnFocus={revealReturnFocus}
-          onCancel={() => setRevealCardId(null)}
+          confirmDisabled={gameActionsDisabled}
+          returnFocus={revealIntent.returnFocus}
+          onCancel={() => setConfirmation(null)}
           onConfirm={() => {
             const currentCard = board.cards.find(
               (card) => card.id === revealCard.id,
@@ -416,10 +523,34 @@ function GameWorkspace({
             ) {
               send({ type: "confirm_reveal", cardId: revealCard.id });
             }
-            setRevealCardId(null);
+            setConfirmation(null);
           }}
         />
-      )}
+      ) : endTurnIntentIsCurrent && endTurnIntent !== null ? (
+        <ConfirmDialog
+          title="Confirm end turn"
+          description={`End the turn with ${board.guessesRemaining} guesses remaining?`}
+          confirmLabel="Confirm end turn"
+          cancelLabel="Keep guessing"
+          confirmDisabled={gameActionsDisabled}
+          returnFocus={endTurnIntent.returnFocus}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => {
+            if (
+              !gameActionsDisabled &&
+              projection.roomPhase === "playing" &&
+              projection.permissions.endTurn &&
+              board.phase === "guess" &&
+              board.guessesRemaining > 0 &&
+              board.activeTeam === endTurnIntent.activeTeam &&
+              board.guessesRemaining === endTurnIntent.guessesRemaining
+            ) {
+              send({ type: "end_turn" });
+            }
+            setConfirmation(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -531,7 +662,7 @@ export function GameView({
         </section>
       ) : projection.viewRole === "clue-giver" ? (
         <ClueGiverWorkspace
-          key={`${projection.code}\u0000${projection.viewer.playerId}\u0000${board.order.join("\u0000")}`}
+          key={workspaceIdentity(projection, board)}
           projection={projection}
           board={board}
           connection={connection}
@@ -540,6 +671,7 @@ export function GameView({
         />
       ) : (
         <PublicWorkspace
+          key={workspaceIdentity(projection, board)}
           projection={projection}
           board={board}
           connection={connection}
