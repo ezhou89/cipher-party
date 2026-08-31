@@ -2240,7 +2240,7 @@ Update the snapshot to Task 13 and record exact browser projects passed.
 - Consumes: verified Milestone 1 application.
 - Produces: reproducible local setup, automated preflight, human playtest record, completed plan ledger, and Pack Studio planning handoff.
 
-- [ ] **Step 1: Write the failing preflight test**
+- [x] **Step 1: Write the failing preflight test**
 
 The preflight validates:
 
@@ -2256,7 +2256,7 @@ The preflight validates:
 
 Parse JSONC with the jsonc-parser dependency locked in Task 1. Test both a valid fixture and one missing the ROOMS binding.
 
-- [ ] **Step 2: Run the preflight test and observe the missing module**
+- [x] **Step 2: Run the preflight test and observe the missing module**
 
 ~~~bash
 npx vitest run scripts/preflight.test.ts
@@ -2264,7 +2264,7 @@ npx vitest run scripts/preflight.test.ts
 
 Expected: FAIL because scripts/preflight.mjs does not exist.
 
-- [ ] **Step 3: Implement preflight and add it to the quality gate**
+- [x] **Step 3: Implement preflight and add it to the quality gate**
 
 Export runPreflight(root, nodeVersion) for tests and print a concise table when executed. Add npm run preflight and call it after build in npm run check:release.
 
@@ -2277,7 +2277,7 @@ Export runPreflight(root, nodeVersion) for tests and print a concise table when 
 }
 ~~~
 
-- [ ] **Step 4: Document exact local setup**
+- [x] **Step 4: Document exact local setup**
 
 README and local-development.md include:
 

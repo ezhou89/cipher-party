@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 14
+**Snapshot revision:** 15
 
 **Last updated:** 2026-08-31
 
-**Project state:** Tasks 1–12 are accepted. Five isolated browser clients now complete a real Connected Classic board across Chromium and mobile WebKit, including assignment, lock/start, Cancel/Confirm, refresh recovery, monotonic convergence, exactly-once results/history, responsive 320px layout, and value-free raw-frame hidden-data auditing; Task 13 is current.
+**Project state:** Tasks 1–12 are accepted. Task 13's release preflight and local/playtest documentation are independently approved at pre-human head `4a7911c`; the required four-human Connected Classic session is the current exit gate, and no human result has been recorded yet.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -56,9 +56,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 ## Work ledger
 
 - **Last accepted implementation task:** Task 12 — multiplayer browser E2E and hidden-data regression at accepted head `7badb94` (`3b16324` implementation plus review fixes `130f408`, `6305f54`, `935a30c`, and `7badb94`).
-- **Current task:** Task 13 — release preflight, documentation, and playtest handoff.
-- **Next task after review:** Close Connected Classic and hand off to Milestone 2 Pack Studio planning.
-- **Blocked by:** Nothing; the required four-player human playtest remains an explicit Task 13 exit gate.
+- **Current task:** Task 13 Step 5 — run and record the four-human Connected Classic playtest from `docs/runbooks/connected-classic-playtest.md`.
+- **Next task after playtest:** Fix any critical defect through a failing regression, rerun the final exit gate, close Connected Classic, and hand off to Milestone 2 Pack Studio planning.
+- **Blocked by:** Four real humans completing the reviewed host-local session with four distinct browser profiles and one assigned window per profile. **Human playtest: NOT YET RUN.**
 
 ## Verified baseline
 
@@ -129,6 +129,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 12 `npm run build`: passed package/app typechecks, the Vite production build, and Worker dry-run build.
 - Task 12 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and resolved four web assets plus the expected Durable Object/environment bindings.
 - Task 12 cumulative and fix-only `git diff --check`: passed with no output; tracked status was clean. Public-only desktop and 320px screenshots were visually inspected in both browser projects, and the generated test artifact contained only a passing `.last-run.json`.
+- Task 13 pre-human commits: `8911dc7` and review fixes `ccd71ce`, `ab71958`, `4a7911c`.
+- Task 13 `npx vitest run scripts/preflight.test.ts`: 34/34 passed; the real Worker Durable Object integration file passed 16/16.
+- Task 13 `npm run preflight`: all eight rows passed and required exactly seven named, passed expiry identities, including literal 24-hour duration and future-safe test anchoring.
+- Task 13 `npm run check:release`: passed 439 repository tests (web 120, Worker 120, game-core 67, protocol 95, root 37), all builds, seven required expiry identities, and 36/36 Playwright tests across Chromium and WebKit Mobile.
+- Task 13 standalone Worker dry-run, full/direct lint, formatting, cumulative/fix `git diff --check`, and tracked status passed. Independent disposable mutations proved that a 23-hour production TTL and a skipped future-anchor identity each fail only the Room expiry preflight row.
 
 ## Decisions agents must preserve
 
@@ -156,6 +161,8 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Game announcements use allowlisted public data and compose simultaneous reveal, turn/phase, and board-result changes without making the 25-card grid live.
 - Every received room WebSocket frame in the E2E privacy harness receives a persistent value-free outcome before strict schema handling; public raw projections are recursively audited before parsing, and later valid frames cannot erase earlier violations.
 - The credential/hidden-data E2E spec disables automatic trace and screenshot capture. Explicit screenshots use public roles only, and clue-giver-derived target labels, IDs, and positions stay inside caught page-side interactions with fixed value-free diagnostics until the authoritative reveal makes them public.
+- Release preflight reads one immutable snapshot of all three Wrangler JSONC configs, rejects Milestone 2 bindings at root and `env.*` scopes, and requires seven exact real expiry-test identities; count-only or skipped-test substitution is not accepted.
+- The no-deploy human exit gate uses four real humans and four genuinely distinct host-local browser profiles named A–D, with exactly one assigned window each and Profile B at 320×780 CSS pixels. Physical multi-device testing requires a separately authorized HTTPS staging deployment and must not be improvised through LAN exposure.
 
 ## Known risks
 
