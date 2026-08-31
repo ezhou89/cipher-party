@@ -11,6 +11,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { createMemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -155,7 +156,9 @@ function deferred<T>() {
 }
 
 class FakeRoomSocket {
-  readonly connect = vi.fn(async () => {});
+  readonly connect = vi.fn<(credentials: SeatCredentials) => Promise<void>>(
+    async () => {},
+  );
   readonly send = vi.fn(() => "command-id");
   readonly close = vi.fn();
   readonly unsubscribe = vi.fn();
@@ -225,6 +228,56 @@ describe("LobbyView authoritative projection", () => {
     expect(within(waiting).getByText("Noa")).toBeVisible();
     expect(within(waiting).getByText("Jules")).toBeVisible();
     expect(within(waiting).getByText("Spectator")).toBeVisible();
+  });
+
+  it("politely announces other seats going offline and reconnecting without initial noise", async () => {
+    const initial = readyProjection();
+    const { rerender } = render(
+      <LobbyView
+        projection={initial}
+        connection="open"
+        pending={false}
+        send={() => {}}
+      />,
+    );
+    const presence = screen.getByRole("status", {
+      name: "Seat connection updates",
+    });
+    expect(presence).toHaveAttribute("aria-live", "polite");
+    expect(presence).toBeEmptyDOMElement();
+    expect(
+      within(screen.getByRole("region", { name: "● Blue team" })).queryByRole(
+        "status",
+      ),
+    ).not.toBeInTheDocument();
+
+    const offline = hostProjection({
+      revision: 8,
+      seats: initial.seats.map((seat) =>
+        seat.playerId === "blue-op" ? { ...seat, connected: false } : seat,
+      ),
+    });
+    rerender(
+      <LobbyView
+        projection={offline}
+        connection="open"
+        pending={false}
+        send={() => {}}
+      />,
+    );
+    await waitFor(() =>
+      expect(presence).toHaveTextContent("Kai went offline."),
+    );
+
+    rerender(
+      <LobbyView
+        projection={hostProjection({ revision: 9, seats: initial.seats })}
+        connection="open"
+        pending={false}
+        send={() => {}}
+      />,
+    );
+    await waitFor(() => expect(presence).toHaveTextContent("Kai reconnected."));
   });
 
   it("shows host assignment, role, randomize, lock, and start controls only from permissions", () => {
@@ -362,40 +415,110 @@ describe("LobbyView authoritative projection", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("associates a precise start reason and emits start only from a ready projection", async () => {
-    const send = vi.fn<(command: ClientCommand) => void>();
-    const { rerender } = render(
-      <LobbyView
-        projection={hostProjection()}
-        connection="open"
-        pending={false}
-        send={send}
-      />,
-    );
-    const blocked = screen.getByRole("button", { name: "Start board" });
-    expect(blocked).toBeDisabled();
-    const reasonId = blocked.getAttribute("aria-describedby");
-    expect(reasonId).not.toBeNull();
-    expect(document.getElementById(reasonId!)).toHaveTextContent(
-      "Every active seat must be online and fully assigned.",
-    );
+  it.each([
+    {
+      branch: "offline or unassigned active seats",
+      projection: hostProjection(),
+      ready: false,
+      reason: "Every active seat must be online and fully assigned.",
+    },
+    {
+      branch: "teams imbalanced by more than one seat",
+      projection: hostProjection({
+        seats: [
+          ...readyProjection().seats,
+          {
+            playerId: "red-extra-one",
+            displayName: "Sora",
+            teamId: "red",
+            role: "operative",
+            connected: true,
+          },
+          {
+            playerId: "red-extra-two",
+            displayName: "Yui",
+            teamId: "red",
+            role: "operative",
+            connected: true,
+          },
+        ],
+      }),
+      ready: false,
+      reason: "Red and Blue team sizes must differ by no more than one.",
+    },
+    {
+      branch: "a team with zero clue-givers",
+      projection: hostProjection({
+        seats: readyProjection().seats.map((seat) =>
+          seat.playerId === "host" ? { ...seat, role: "operative" } : seat,
+        ),
+      }),
+      ready: false,
+      reason:
+        "Each team needs exactly one clue-giver and at least one operative.",
+    },
+    {
+      branch: "a team with multiple clue-givers",
+      projection: hostProjection({
+        seats: [
+          ...readyProjection().seats,
+          {
+            playerId: "red-extra-clue",
+            displayName: "Emi",
+            teamId: "red",
+            role: "clue-giver",
+            connected: true,
+          },
+        ],
+      }),
+      ready: false,
+      reason:
+        "Each team needs exactly one clue-giver and at least one operative.",
+    },
+    {
+      branch: "a team with no operative",
+      projection: hostProjection({
+        seats: readyProjection().seats.map((seat) =>
+          seat.playerId === "blue-op"
+            ? { ...seat, teamId: null, role: "spectator" }
+            : seat,
+        ),
+      }),
+      ready: false,
+      reason:
+        "Each team needs exactly one clue-giver and at least one operative.",
+    },
+    {
+      branch: "the fully ready configuration",
+      projection: readyProjection(),
+      ready: true,
+      reason: "Ready: each team has one clue-giver and at least one operative.",
+    },
+  ])(
+    "explains start readiness for $branch",
+    ({ projection, ready, reason }) => {
+      renderLobby(projection);
 
-    rerender(
-      <LobbyView
-        projection={readyProjection()}
-        connection="open"
-        pending={false}
-        send={send}
-      />,
-    );
-    const ready = screen.getByRole("button", { name: "Start board" });
-    expect(ready).toBeEnabled();
-    expect(
-      document.getElementById(ready.getAttribute("aria-describedby")!),
-    ).toHaveTextContent(
-      "Ready: each team has one clue-giver and at least one operative.",
-    );
-    await userEvent.setup().click(ready);
+      const start = screen.getByRole("button", { name: "Start board" });
+      if (ready) {
+        expect(start).toBeEnabled();
+      } else {
+        expect(start).toBeDisabled();
+      }
+      const reasonId = start.getAttribute("aria-describedby");
+      expect(reasonId).not.toBeNull();
+      expect(document.getElementById(reasonId!)).toHaveTextContent(reason);
+    },
+  );
+
+  it("emits start only from a ready authoritative projection", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    renderLobby(readyProjection(), { send });
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Start board" }));
+
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith({ type: "start_board" });
   });
@@ -490,6 +613,35 @@ describe("ConnectionBadge", () => {
 });
 
 describe("RoomPage invite and socket lifecycle", () => {
+  it("gives the home wordmark and room navigation link 44px touch targets", async () => {
+    const store: SeatStore = {
+      get: async () => undefined,
+      put: async () => {},
+      delete: async () => {},
+    };
+    const router = createMemoryRouter(createAppRoutes({ seatStore: store }), {
+      initialEntries: ["/"],
+    });
+    render(<App router={router} />);
+
+    expect(
+      Number.parseFloat(
+        getComputedStyle(
+          screen.getByRole("link", { name: "Cipher Party home" }),
+        ).minHeight,
+      ),
+    ).toBeGreaterThanOrEqual(44);
+
+    await router.navigate("/room/ABC123");
+    expect(
+      Number.parseFloat(
+        getComputedStyle(
+          await screen.findByRole("link", { name: "Use another code" }),
+        ).minHeight,
+      ),
+    ).toBeGreaterThanOrEqual(44);
+  });
+
   it("joins an invite explicitly as spectator, stores first, then uses the canonical route", async () => {
     const write = deferred<void>();
     const persisted: SeatCredentials[] = [];
@@ -552,6 +704,106 @@ describe("RoomPage invite and socket lifecycle", () => {
     );
     await waitFor(() => expect(createRoomSocket).toHaveBeenCalledOnce());
     expect(socket.connect).toHaveBeenCalledWith(persisted[0]);
+  });
+
+  it("does not persist or navigate a stale invite join after the player returns home", async () => {
+    const response = deferred<Response>();
+    const put = vi.fn(async () => {});
+    const store: SeatStore = {
+      get: async () => undefined,
+      put,
+      delete: async () => {},
+    };
+    const createRoomSocket = vi.fn(
+      () =>
+        new FakeRoomSocket({
+          connection: "idle",
+          projection: null,
+          lastResult: null,
+        }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(() => response.promise),
+    );
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText("Display name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Join this room" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await router.navigate("/");
+    expect(
+      await screen.findByRole("heading", {
+        name: "Open the archive. Find the connection.",
+      }),
+    ).toBeVisible();
+
+    response.resolve(
+      Response.json({
+        code: "ABC123",
+        playerId: "guest-player",
+        seatToken: "guest-seat-token".padEnd(43, "x"),
+      }),
+    );
+    await waitFor(() =>
+      expect(response.promise).resolves.toBeInstanceOf(Response),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(router.state.location.pathname).toBe("/");
+    expect(put).not.toHaveBeenCalled();
+    expect(createRoomSocket).not.toHaveBeenCalled();
+  });
+
+  it("allows an already-started stale credential write to finish without reclaiming the current route", async () => {
+    const write = deferred<void>();
+    const put = vi.fn(async () => {
+      await write.promise;
+    });
+    const store: SeatStore = {
+      get: async () => undefined,
+      put,
+      delete: async () => {},
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        Response.json({
+          code: "ABC123",
+          playerId: "guest-player",
+          seatToken: "guest-seat-token".padEnd(43, "x"),
+        }),
+      ),
+    );
+    const router = createMemoryRouter(createAppRoutes({ seatStore: store }), {
+      initialEntries: ["/room/ABC123"],
+    });
+    render(<App router={router} />);
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText("Display name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Join this room" }));
+    await waitFor(() => expect(put).toHaveBeenCalledOnce());
+    await router.navigate("/room/DEF456");
+    expect(
+      await screen.findByRole("form", { name: "Join room DEF456" }),
+    ).toBeVisible();
+
+    write.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(put).toHaveBeenCalledOnce();
+    expect(router.state.location.pathname).toBe("/room/DEF456");
+    expect(
+      screen.getByRole("form", { name: "Join room DEF456" }),
+    ).toBeVisible();
   });
 
   it("keeps an invite join API error visible and focuses its summary", async () => {
@@ -658,6 +910,167 @@ describe("RoomPage invite and socket lifecycle", () => {
     expect(createRoomSocket).not.toHaveBeenCalled();
   });
 
+  it("does not let a stale credential delete clear the next room generation", async () => {
+    const deletion = deferred<void>();
+    const credentialsB: SeatCredentials = {
+      code: "DEF456",
+      playerId: "host-b",
+      seatToken: "room-b-seat-token".padEnd(43, "x"),
+      hostToken: "room-b-host-token".padEnd(43, "x"),
+    };
+    const store: SeatStore = {
+      get: async (code) =>
+        code === "ABC123"
+          ? {
+              code: "ABC123",
+              playerId: "host-a",
+              seatToken: "invalid",
+            }
+          : credentialsB,
+      put: async () => {},
+      delete: vi.fn(async () => {
+        await deletion.promise;
+      }),
+    };
+    const socketB = new FakeRoomSocket({
+      connection: "open",
+      projection: hostProjection({
+        code: "DEF456",
+        inviteUrl: "https://play.example/room/DEF456",
+        viewer: {
+          playerId: "host-b",
+          teamId: "red",
+          role: "clue-giver",
+          isHost: true,
+        },
+      }),
+      lastResult: null,
+    });
+    const createRoomSocket = vi.fn(() => socketB);
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    const user = userEvent.setup();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Forget saved seat and rejoin",
+      }),
+    );
+    await waitFor(() => expect(store.delete).toHaveBeenCalledWith("ABC123"));
+    await router.navigate("/room/DEF456");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Room DEF456" }),
+      ).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(socketB.connect).toHaveBeenCalledWith(credentialsB),
+    );
+
+    deletion.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(router.state.location.pathname).toBe("/room/DEF456");
+    expect(
+      screen.queryByRole("form", { name: "Join room DEF456" }),
+    ).not.toBeInTheDocument();
+    expect(socketB.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps only the current socket generation active through StrictMode setup and cleanup", async () => {
+    const credentials: SeatCredentials = {
+      code: "ABC123",
+      playerId: "host",
+      seatToken: "durable-seat-token".padEnd(43, "x"),
+      hostToken: "durable-host-token".padEnd(43, "x"),
+    };
+    const nextCredentials: SeatCredentials = {
+      code: "DEF456",
+      playerId: "host-b",
+      seatToken: "room-b-seat-token".padEnd(43, "x"),
+      hostToken: "room-b-host-token".padEnd(43, "x"),
+    };
+    const store: SeatStore = {
+      get: vi.fn(async (code) =>
+        code === "ABC123" ? credentials : nextCredentials,
+      ),
+      put: async () => {},
+      delete: async () => {},
+    };
+    const sockets: FakeRoomSocket[] = [];
+    const createRoomSocket = vi.fn(() => {
+      const socket = new FakeRoomSocket({
+        connection: "open",
+        projection: hostProjection(),
+        lastResult: null,
+      });
+      sockets.push(socket);
+      return socket;
+    });
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+
+    const view = render(
+      <StrictMode>
+        <App router={router} />
+      </StrictMode>,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Room ABC123" }),
+      ).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(
+        sockets.filter(
+          (socket) =>
+            socket.connect.mock.calls.length === 1 &&
+            socket.close.mock.calls.length === 0,
+        ),
+      ).toHaveLength(1),
+    );
+    for (const retired of sockets.filter(
+      (socket) => socket.close.mock.calls.length > 0,
+    )) {
+      expect(retired.unsubscribe).toHaveBeenCalledOnce();
+    }
+
+    await router.navigate("/room/DEF456");
+    await waitFor(() => {
+      const active = sockets.filter(
+        (socket) =>
+          socket.connect.mock.calls.length === 1 &&
+          socket.close.mock.calls.length === 0,
+      );
+      expect(active).toHaveLength(1);
+      expect(active[0]?.connect).toHaveBeenCalledWith(nextCredentials);
+    });
+    for (const stale of sockets.filter((socket) =>
+      socket.connect.mock.calls.some(
+        ([connected]) => connected === credentials,
+      ),
+    )) {
+      expect(stale.close).toHaveBeenCalledOnce();
+      expect(stale.unsubscribe).toHaveBeenCalledOnce();
+    }
+
+    view.unmount();
+    expect(
+      sockets.filter(
+        (socket) =>
+          socket.connect.mock.calls.length === 1 &&
+          socket.close.mock.calls.length === 0,
+      ),
+    ).toHaveLength(0);
+  });
+
   it("keeps controls pending through result-first delivery until the fresh projection", async () => {
     const credentials: SeatCredentials = {
       code: "ABC123",
@@ -701,5 +1114,60 @@ describe("RoomPage invite and socket lifecycle", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Unlock room" })).toBeEnabled(),
     );
+  });
+
+  it("shows local public copy for a rejected command without reflecting its server message", async () => {
+    const credentials: SeatCredentials = {
+      code: "ABC123",
+      playerId: "host",
+      seatToken: "durable-seat-token".padEnd(43, "x"),
+      hostToken: "durable-host-token".padEnd(43, "x"),
+    };
+    const store: SeatStore = {
+      get: async () => credentials,
+      put: async () => {},
+      delete: async () => {},
+    };
+    const socket = new FakeRoomSocket({
+      connection: "open",
+      projection: hostProjection(),
+      lastResult: null,
+    });
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Lock room" }));
+
+    const rejected: CommandResult = {
+      ok: false,
+      revision: 8,
+      code: "unauthorized",
+      message: "durable-seat-token-SENTINEL must never enter public copy",
+    };
+    socket.emit({
+      connection: "open",
+      projection: hostProjection(),
+      lastResult: rejected,
+    });
+    expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
+
+    socket.emit({
+      connection: "open",
+      projection: hostProjection({ revision: 8 }),
+      lastResult: rejected,
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "You no longer have permission to do that.",
+    );
+    expect(alert).toHaveFocus();
+    expect(document.body.textContent).not.toContain(
+      "durable-seat-token-SENTINEL",
+    );
+    expect(screen.getByRole("button", { name: "Lock room" })).toBeEnabled();
   });
 });

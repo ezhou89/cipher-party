@@ -1,5 +1,5 @@
 import type { ClientCommand, ClientProjection } from "@cipher-party/protocol";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { CopyInviteButton } from "../../components/CopyInviteButton";
@@ -28,6 +28,76 @@ const WAITING_TEAM: TeamPanelIdentity = {
   label: "Waiting & spectators",
   symbol: "◇",
 };
+
+interface SeatPresenceAnnouncerProps {
+  roomCode: string;
+  seats: ClientProjection["seats"];
+  viewerPlayerId: string;
+}
+
+interface SeatPresenceSnapshot {
+  roomCode: string;
+  viewerPlayerId: string;
+  connectedByPlayer: Map<string, boolean>;
+}
+
+function SeatPresenceAnnouncer({
+  roomCode,
+  seats,
+  viewerPlayerId,
+}: SeatPresenceAnnouncerProps) {
+  const previousRef = useRef<SeatPresenceSnapshot | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+
+  useEffect(() => {
+    const current: SeatPresenceSnapshot = {
+      roomCode,
+      viewerPlayerId,
+      connectedByPlayer: new Map(
+        seats.map((seat) => [seat.playerId, seat.connected]),
+      ),
+    };
+    const previous = previousRef.current;
+    previousRef.current = current;
+    if (
+      previous === null ||
+      previous.roomCode !== roomCode ||
+      previous.viewerPlayerId !== viewerPlayerId
+    ) {
+      setAnnouncement("");
+      return;
+    }
+    const changes = seats.flatMap((seat) => {
+      if (seat.playerId === viewerPlayerId) {
+        return [];
+      }
+      const wasConnected = previous.connectedByPlayer.get(seat.playerId);
+      if (wasConnected === undefined || wasConnected === seat.connected) {
+        return [];
+      }
+      return [
+        seat.connected
+          ? `${seat.displayName} reconnected.`
+          : `${seat.displayName} went offline.`,
+      ];
+    });
+    if (changes.length > 0) {
+      setAnnouncement(changes.join(" "));
+    }
+  }, [roomCode, seats, viewerPlayerId]);
+
+  return (
+    <span
+      className="visually-hidden"
+      role="status"
+      aria-label="Seat connection updates"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {announcement}
+    </span>
+  );
+}
 
 function roleLabel(role: ClientProjection["viewer"]["role"]): string {
   switch (role) {
@@ -139,6 +209,11 @@ export function LobbyView({
       </section>
 
       <section className="lobby-table" aria-labelledby="lobby-heading">
+        <SeatPresenceAnnouncer
+          roomCode={projection.code}
+          seats={projection.seats}
+          viewerPlayerId={projection.viewer.playerId}
+        />
         <header className="section-heading">
           <div>
             <p className="card-index">Seat manifest</p>

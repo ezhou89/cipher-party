@@ -2,6 +2,16 @@
   box-sizing: border-box;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 html {
   min-width: 0;
   overflow-x: hidden;
@@ -109,6 +119,7 @@ button:disabled {
 
 .wordmark {
   display: inline-flex;
+  min-height: 44px;
   align-items: center;
   gap: 0.75rem;
   color: var(--color-text);
@@ -691,6 +702,9 @@ button:disabled {
 }
 
 .text-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
   color: var(--color-focus);
   font-weight: 800;
 }

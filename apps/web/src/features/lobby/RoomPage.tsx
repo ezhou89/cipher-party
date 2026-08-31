@@ -81,7 +81,11 @@ export function RoomPage({ seatStore, createRoomSocket }: RoomPageProps) {
           This device cannot use its saved room credential. Remove it to join as
           a new seat; the host can coordinate recovery separately.
         </p>
-        <button type="button" onClick={() => void room.discardCredentials()}>
+        <button
+          type="button"
+          disabled={room.pending}
+          onClick={() => void room.discardCredentials()}
+        >
           Forget saved seat and rejoin
         </button>
       </main>
@@ -175,7 +179,11 @@ export function RoomPage({ seatStore, createRoomSocket }: RoomPageProps) {
         )}
         <p>Synchronizing the latest public room state…</p>
         {room.connection === "closed" ? (
-          <button type="button" onClick={() => void room.discardCredentials()}>
+          <button
+            type="button"
+            disabled={room.pending}
+            onClick={() => void room.discardCredentials()}
+          >
             Forget saved seat and rejoin
           </button>
         ) : null}

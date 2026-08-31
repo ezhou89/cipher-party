@@ -1,9 +1,16 @@
 import type {
   ClientCommand,
   ClientProjection,
+  CommandErrorCode,
   CommandResult,
 } from "@cipher-party/protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, joinRoom, normalizeRoomCodeInput } from "../../lib/api";
@@ -15,6 +22,16 @@ import {
 import type { SeatCredentials, SeatStore } from "../../lib/seat-store";
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
+const COMMAND_ERROR_MESSAGES: Record<CommandErrorCode, string> = {
+  invalid_command: "The room could not understand that action.",
+  unauthorized: "You no longer have permission to do that.",
+  wrong_phase: "That action is not available right now.",
+  stale_revision: "The room changed before that action completed. Try again.",
+  storage_failed: "The room could not save that action. Try again.",
+  room_locked: "The room is locked to new seats.",
+  room_full: "The room has no open seats.",
+};
 
 export interface RoomSocketClient {
   connect(credentials: SeatCredentials): Promise<void>;
@@ -99,20 +116,33 @@ export function useRoom({
   });
   const [pending, setPending] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [error, setError] = useState<string | null>(
     code === null ? "This invite does not contain a valid room code." : null,
   );
   const socketRef = useRef<RoomSocketClient | null>(null);
+  const lifecycleGenerationRef = useRef(0);
+  const joinGenerationRef = useRef<number | null>(null);
+  const discardGenerationRef = useRef<number | null>(null);
   const pendingCommandRef = useRef<PendingCommand | null>(null);
   const projectionSequenceRef = useRef(0);
   const lastProjectionRef = useRef<ClientProjection | null>(null);
   const lastResultRef = useRef<CommandResult | null>(null);
+
+  useLayoutEffect(() => {
+    lifecycleGenerationRef.current += 1;
+    return () => {
+      lifecycleGenerationRef.current += 1;
+    };
+  }, [code]);
 
   useEffect(() => {
     let current = true;
     setCredentials(null);
     setSnapshot({ connection: "idle", projection: null, lastResult: null });
     setPending(false);
+    setJoining(false);
+    setDiscarding(false);
     pendingCommandRef.current = null;
     projectionSequenceRef.current = 0;
     lastProjectionRef.current = null;
@@ -189,7 +219,7 @@ export function useRoom({
         pendingCommandRef.current = null;
         setPending(false);
         if (!tracked.result.ok) {
-          setError(tracked.result.message);
+          setError(COMMAND_ERROR_MESSAGES[tracked.result.code]);
         }
       }
     });
@@ -235,7 +265,8 @@ export function useRoom({
 
   const join = useCallback(
     async (displayName: string, asSpectator: boolean) => {
-      if (code === null || joining) {
+      const generation = lifecycleGenerationRef.current;
+      if (code === null || joinGenerationRef.current === generation) {
         return;
       }
       const trimmedName = displayName.trim();
@@ -243,40 +274,75 @@ export function useRoom({
         setError("Enter a display name to join the room.");
         return;
       }
+      joinGenerationRef.current = generation;
       setJoining(true);
       setError(null);
       try {
         const joined = await joinRoom(code, trimmedName, asSpectator);
+        if (lifecycleGenerationRef.current !== generation) {
+          return;
+        }
         const nextCredentials: SeatCredentials = {
           code: joined.code,
           playerId: joined.playerId,
           seatToken: joined.seatToken,
         };
         await seatStore.put(nextCredentials);
+        if (lifecycleGenerationRef.current !== generation) {
+          return;
+        }
         setCredentials(nextCredentials);
         setCredentialStatus("ready");
+        if (lifecycleGenerationRef.current !== generation) {
+          return;
+        }
         await navigate(`/room/${joined.code}`, { replace: true });
       } catch (joinError) {
-        setError(publicError(joinError));
+        if (lifecycleGenerationRef.current === generation) {
+          setError(publicError(joinError));
+        }
       } finally {
-        setJoining(false);
+        if (
+          lifecycleGenerationRef.current === generation &&
+          joinGenerationRef.current === generation
+        ) {
+          joinGenerationRef.current = null;
+          setJoining(false);
+        }
       }
     },
-    [code, joining, navigate, seatStore],
+    [code, navigate, seatStore],
   );
 
   const discardCredentials = useCallback(async () => {
-    if (code === null) {
+    const generation = lifecycleGenerationRef.current;
+    if (code === null || discardGenerationRef.current === generation) {
       return;
     }
+    discardGenerationRef.current = generation;
+    setDiscarding(true);
+    setError(null);
     try {
       await seatStore.delete(code);
+      if (lifecycleGenerationRef.current !== generation) {
+        return;
+      }
       setCredentials(null);
       setCredentialStatus("missing");
       setSnapshot({ connection: "idle", projection: null, lastResult: null });
       setError(null);
     } catch {
-      setError("The saved seat could not be removed from this device.");
+      if (lifecycleGenerationRef.current === generation) {
+        setError("The saved seat could not be removed from this device.");
+      }
+    } finally {
+      if (
+        lifecycleGenerationRef.current === generation &&
+        discardGenerationRef.current === generation
+      ) {
+        discardGenerationRef.current = null;
+        setDiscarding(false);
+      }
     }
   }, [code, seatStore]);
 
@@ -286,7 +352,7 @@ export function useRoom({
     connection: snapshot.connection,
     projection: snapshot.projection,
     lastResult: snapshot.lastResult,
-    pending: pending || joining,
+    pending: pending || joining || discarding,
     error,
     join,
     discardCredentials,
