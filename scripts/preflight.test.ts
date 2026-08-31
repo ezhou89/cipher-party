@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +26,29 @@ interface FixtureOptions {
   developmentRoomClass?: string;
   developmentExtra?: Record<string, unknown>;
   testMigrationClass?: string;
+  testExtra?: Record<string, unknown>;
   productionExtra?: Record<string, unknown>;
+}
+
+const requiredExpiryTests = [
+  "RoomDurableObject persistence reschedules expiry only after accepted revision-changing activity",
+  "RoomDurableObject inactivity alarm reschedules the unchanged deadline when an alarm arrives early",
+  "RoomDurableObject inactivity alarm expires at the exact deadline and is empty on an idempotent repeat",
+  "RoomDurableObject inactivity alarm expires after the deadline and is empty on an idempotent repeat",
+  "RoomDurableObject inactivity alarm closes every accepted socket with the room-expired close frame",
+  "RoomDurableObject inactivity alarm uses the approved 24-hour inactivity duration",
+];
+
+function expiryReport(
+  assertionResults = requiredExpiryTests.map((fullName) => ({
+    fullName,
+    status: "passed",
+  })),
+) {
+  return JSON.stringify({
+    success: true,
+    testResults: [{ assertionResults }],
+  });
 }
 
 function configSource(input: {
@@ -139,6 +161,7 @@ async function createPreflightFixture(options: FixtureOptions = {}) {
         includeRooms: true,
         roomClass: "RoomDurableObject",
         migrationClass: options.testMigrationClass ?? "RoomDurableObject",
+        extra: options.testExtra,
       }),
     ),
   ]);
@@ -151,20 +174,20 @@ async function createPreflightFixture(options: FixtureOptions = {}) {
 }
 
 function fixturePreflight(
-  verifyRoomExpiryCoverage = vi
+  runExpiryTestProcess = vi
     .fn<(root: string) => Promise<string>>()
-    .mockResolvedValue("room alarm integration coverage passed"),
+    .mockResolvedValue(expiryReport()),
 ) {
   return {
-    run: createPreflight({ verifyRoomExpiryCoverage }),
-    verifyRoomExpiryCoverage,
+    run: createPreflight({ runExpiryTestProcess }),
+    runExpiryTestProcess,
   };
 }
 
 describe("runPreflight", () => {
   it("passes every release invariant for a valid JSONC fixture", async () => {
     const root = await createPreflightFixture();
-    const { run, verifyRoomExpiryCoverage } = fixturePreflight();
+    const { run, runExpiryTestProcess } = fixturePreflight();
 
     const result = await run(root, "v22.0.0");
 
@@ -178,8 +201,33 @@ describe("runPreflight", () => {
       expect.objectContaining({ check: "Project documents", status: "PASS" }),
       expect.objectContaining({ check: "Room expiry", status: "PASS" }),
     ]);
-    expect(verifyRoomExpiryCoverage).toHaveBeenCalledOnce();
-    expect(verifyRoomExpiryCoverage).toHaveBeenCalledWith(root);
+    expect(result.at(-1)?.detail).toBe(
+      "6 required RoomDurableObject expiry tests passed",
+    );
+    expect(runExpiryTestProcess).toHaveBeenCalledOnce();
+    expect(runExpiryTestProcess).toHaveBeenCalledWith(root);
+  });
+
+  it("reads each Wrangler config exactly once into one run snapshot", async () => {
+    const root = await createPreflightFixture();
+    const readTextFile = vi.fn((path: string) => readFile(path, "utf8"));
+    const run = createPreflight({
+      readTextFile,
+      runExpiryTestProcess: vi.fn().mockResolvedValue(expiryReport()),
+    });
+
+    await run(root, "v22.0.0");
+
+    for (const relativePath of [
+      "apps/worker/wrangler.jsonc",
+      "apps/worker/wrangler.dev.jsonc",
+      "apps/worker/wrangler.test.jsonc",
+    ]) {
+      expect(
+        readTextFile.mock.calls.filter(([path]) => path.endsWith(relativePath)),
+      ).toHaveLength(1);
+    }
+    expect(readTextFile).toHaveBeenCalledTimes(3);
   });
 
   it("fails a fixture whose production config is missing the ROOMS binding", async () => {
@@ -274,8 +322,31 @@ describe("runPreflight", () => {
   });
 
   it.each([
-    ["R2", { productionExtra: { r2_buckets: [{ binding: "PACK_ASSETS" }] } }],
-    ["Workers AI", { developmentExtra: { ai: { binding: "AI" } } }],
+    [
+      "R2 in production",
+      { productionExtra: { r2_buckets: [{ binding: "PACK_ASSETS" }] } },
+    ],
+    [
+      "Workers AI in a production environment",
+      { productionExtra: { env: { preview: { ai: { binding: "AI" } } } } },
+    ],
+    [
+      "Workers AI in development",
+      { developmentExtra: { ai: { binding: "AI" } } },
+    ],
+    [
+      "R2 in a development environment",
+      {
+        developmentExtra: {
+          env: { preview: { r2_buckets: [{ binding: "PACK_ASSETS" }] } },
+        },
+      },
+    ],
+    ["R2 in test", { testExtra: { r2_buckets: [{ binding: "PACK_ASSETS" }] } }],
+    [
+      "Workers AI in a test environment",
+      { testExtra: { env: { preview: { ai: { binding: "AI" } } } } },
+    ],
   ])("rejects an early %s binding", async (_label, options) => {
     const root = await createPreflightFixture(options);
     const { run } = fixturePreflight();
@@ -295,14 +366,111 @@ describe("runPreflight", () => {
     await expect(run(root, "v22.0.0")).rejects.toThrow("Project documents");
   });
 
-  it("fails when the real room-expiry coverage command fails", async () => {
+  it.each([
+    [
+      "missing",
+      [
+        ...requiredExpiryTests.slice(1).map((fullName) => ({
+          fullName,
+          status: "passed",
+        })),
+        {
+          fullName:
+            "RoomDurableObject inactivity alarm unrelated replacement behavior",
+          status: "passed",
+        },
+      ],
+      "Missing required expiry test",
+    ],
+    [
+      "skipped",
+      [
+        ...requiredExpiryTests.map((fullName, index) => ({
+          fullName,
+          status: index === 1 ? "skipped" : "passed",
+        })),
+        {
+          fullName:
+            "RoomDurableObject inactivity alarm unrelated replacement behavior",
+          status: "passed",
+        },
+      ],
+      "Required expiry test did not pass",
+    ],
+    [
+      "failed",
+      requiredExpiryTests.map((fullName, index) => ({
+        fullName,
+        status: index === 2 ? "failed" : "passed",
+      })),
+      "Required expiry test did not pass",
+    ],
+    [
+      "duplicated",
+      [
+        ...requiredExpiryTests.map((fullName) => ({
+          fullName,
+          status: "passed",
+        })),
+        { fullName: requiredExpiryTests[0], status: "passed" },
+      ],
+      "Duplicate required expiry test",
+    ],
+  ])(
+    "rejects a %s required expiry-test identity",
+    async (_label, assertionResults, expectedMessage) => {
+      const root = await createPreflightFixture();
+      const { run } = fixturePreflight(
+        vi.fn().mockResolvedValue(expiryReport(assertionResults)),
+      );
+
+      await expect(run(root, "v22.0.0")).rejects.toThrow(expectedMessage);
+    },
+  );
+
+  it("rejects malformed fresh Vitest JSON", async () => {
     const root = await createPreflightFixture();
     const { run } = fixturePreflight(
-      vi.fn().mockRejectedValue(new Error("expiry integration failed")),
+      vi.fn().mockResolvedValue("not a Vitest JSON report"),
     );
 
     await expect(run(root, "v22.0.0")).rejects.toThrow(
-      "expiry integration failed",
+      "Room expiry integration report was not valid JSON",
+    );
+  });
+
+  it("rejects a structurally malformed Vitest report", async () => {
+    const root = await createPreflightFixture();
+    const { run } = fixturePreflight(
+      vi
+        .fn()
+        .mockResolvedValue(
+          JSON.stringify({ success: true, testResults: [{}] }),
+        ),
+    );
+
+    await expect(run(root, "v22.0.0")).rejects.toThrow(
+      "Room expiry integration report was malformed",
+    );
+  });
+
+  it("reports a raw expiry subprocess failure without leaking its output", async () => {
+    const root = await createPreflightFixture();
+    const subprocessError = Object.assign(
+      new Error("SECRET CHILD OUTPUT SHOULD NOT APPEAR"),
+      { code: 17 },
+    );
+    const { run } = fixturePreflight(
+      vi.fn().mockRejectedValue(subprocessError),
+    );
+
+    await expect(run(root, "v22.0.0")).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof Error &&
+        error.message.includes(
+          "Room expiry integration coverage failed (exit 17)",
+        ) &&
+        !error.message.includes("SECRET CHILD OUTPUT SHOULD NOT APPEAR"),
     );
   });
 });

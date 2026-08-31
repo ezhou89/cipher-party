@@ -16,6 +16,15 @@ const configFiles = [
   ["wrangler.test.jsonc", "apps/worker/wrangler.test.jsonc"],
 ];
 
+const requiredExpiryTests = [
+  "RoomDurableObject persistence reschedules expiry only after accepted revision-changing activity",
+  "RoomDurableObject inactivity alarm reschedules the unchanged deadline when an alarm arrives early",
+  "RoomDurableObject inactivity alarm expires at the exact deadline and is empty on an idempotent repeat",
+  "RoomDurableObject inactivity alarm expires after the deadline and is empty on an idempotent repeat",
+  "RoomDurableObject inactivity alarm closes every accepted socket with the room-expired close frame",
+  "RoomDurableObject inactivity alarm uses the approved 24-hour inactivity duration",
+];
+
 class PreflightError extends Error {
   constructor(results) {
     const failures = results.filter((result) => result.status === "FAIL");
@@ -55,9 +64,19 @@ async function requireFile(path, message) {
   }
 }
 
-async function parseConfig(root, [label, relativePath]) {
+function deepFreeze(value) {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) {
+      deepFreeze(nested);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+async function parseConfig(root, [label, relativePath], readTextFile) {
   const path = resolve(root, relativePath);
-  const source = await readFile(path, "utf8");
+  const source = await readTextFile(path, "utf8");
   const errors = [];
   const config = parse(source, errors, {
     allowTrailingComma: true,
@@ -72,11 +91,15 @@ async function parseConfig(root, [label, relativePath]) {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
     throw new Error(`${label} must contain a JSONC object`);
   }
-  return { config, label, path };
+  return deepFreeze({ config: deepFreeze(config), label, path });
 }
 
-async function readConfigs(root) {
-  return Promise.all(configFiles.map((entry) => parseConfig(root, entry)));
+async function readConfigs(root, readTextFile) {
+  return deepFreeze(
+    await Promise.all(
+      configFiles.map((entry) => parseConfig(root, entry, readTextFile)),
+    ),
+  );
 }
 
 function requireRoomsBinding({ config, label }) {
@@ -112,8 +135,7 @@ function sameValue(values) {
   return values.every((value) => value === values[0]);
 }
 
-async function verifyWranglerParity(root) {
-  const configs = await readConfigs(root);
+function verifyWranglerParity(configs) {
   const roomClasses = configs.map(requireRoomsBinding);
   const migrations = configs.map(requireSqliteMigration);
   const compatibilityDates = configs.map(
@@ -158,8 +180,7 @@ async function verifyWranglerParity(root) {
   return "3 configs; ROOMS and v1 SQLite migration agree";
 }
 
-async function verifyCanonicalOrigin(root) {
-  const configs = await readConfigs(root);
+function verifyCanonicalOrigin(configs) {
   const value = configs[0].config.vars?.CANONICAL_ORIGIN;
   if (typeof value !== "string") {
     throw new Error(
@@ -191,8 +212,8 @@ async function verifyCanonicalOrigin(root) {
   return value;
 }
 
-async function verifyStaticAssets(root) {
-  const production = await parseConfig(root, configFiles[0]);
+async function verifyStaticAssets(root, configs) {
+  const production = configs[0];
   const directory = production.config.assets?.directory;
   if (typeof directory !== "string") {
     throw new Error("wrangler.jsonc must configure the Worker asset directory");
@@ -210,62 +231,134 @@ async function verifyStaticAssets(root) {
   return "apps/web/dist/index.html";
 }
 
-async function verifyMilestoneBindings(root) {
-  const configs = await readConfigs(root);
-  const hasFutureBinding = configs.some(({ config }) =>
-    ["r2_buckets", "ai"].some((key) =>
-      Object.prototype.hasOwnProperty.call(config, key),
-    ),
-  );
+function verifyMilestoneBindings(configs) {
+  const hasFutureBinding = configs.some(({ config }) => {
+    const environments =
+      config.env !== null &&
+      typeof config.env === "object" &&
+      !Array.isArray(config.env)
+        ? Object.values(config.env).filter(
+            (environment) =>
+              environment !== null &&
+              typeof environment === "object" &&
+              !Array.isArray(environment),
+          )
+        : [];
+    return [config, ...environments].some((scope) =>
+      ["r2_buckets", "ai"].some((key) =>
+        Object.prototype.hasOwnProperty.call(scope, key),
+      ),
+    );
+  });
   if (hasFutureBinding) {
     throw new Error("R2 and Workers AI bindings belong to Milestone 2");
   }
   return "R2 and Workers AI absent";
 }
 
-async function runRoomExpiryCoverage(root) {
-  const arguments_ = [
-    "run",
-    "test",
-    "-w",
-    "@cipher-party/worker",
-    "--",
-    "room-durable-object.test.ts",
-    "--testNamePattern",
-    "reschedules expiry only after accepted revision-changing activity|RoomDurableObject inactivity alarm",
-  ];
-  let command = "npm";
-  let commandArguments = arguments_;
-  if (process.env.npm_execpath) {
-    command = process.execPath;
-    commandArguments = [process.env.npm_execpath, ...arguments_];
-  } else if (process.platform === "win32") {
-    command = "npm.cmd";
-  }
-
-  try {
-    const { stdout } = await execFileAsync(command, commandArguments, {
-      cwd: root,
+async function executeExpiryTestProcess(root) {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      resolve(root, "node_modules/vitest/vitest.mjs"),
+      "run",
+      "test/room-durable-object.test.ts",
+      "--config",
+      "vitest.config.ts",
+      "--reporter=json",
+    ],
+    {
+      cwd: resolve(root, "apps/worker"),
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
-    });
-    const count = /Tests\s+(\d+) passed/u.exec(stdout)?.[1];
-    if (count === undefined || Number(count) < 5) {
-      throw new Error("all five expiry behavior tests did not pass");
-    }
-    return `${count} RoomDurableObject integration tests passed`;
+    },
+  );
+  return stdout;
+}
+
+function subprocessExitDetail(error) {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    (typeof error.code === "number" || typeof error.code === "string")
+  ) {
+    return ` (exit ${String(error.code)})`;
+  }
+  return "";
+}
+
+async function verifyRoomExpiryCoverage(root, runProcess) {
+  let output;
+  try {
+    output = await runProcess(root);
   } catch (error) {
-    const exitCode =
-      error !== null &&
-      typeof error === "object" &&
-      "code" in error &&
-      (typeof error.code === "number" || typeof error.code === "string")
-        ? ` (exit ${String(error.code)})`
-        : "";
-    throw new Error(`Room expiry integration coverage failed${exitCode}`, {
+    throw new Error(
+      `Room expiry integration coverage failed${subprocessExitDetail(error)}`,
+      { cause: error },
+    );
+  }
+
+  let report;
+  try {
+    report = JSON.parse(output);
+  } catch (error) {
+    throw new Error("Room expiry integration report was not valid JSON", {
       cause: error,
     });
   }
+
+  if (
+    report === null ||
+    typeof report !== "object" ||
+    !Array.isArray(report.testResults)
+  ) {
+    throw new Error("Room expiry integration report was malformed");
+  }
+
+  const assertionResults = [];
+  for (const testResult of report.testResults) {
+    if (
+      testResult === null ||
+      typeof testResult !== "object" ||
+      !Array.isArray(testResult.assertionResults)
+    ) {
+      throw new Error("Room expiry integration report was malformed");
+    }
+    for (const assertion of testResult.assertionResults) {
+      if (
+        assertion === null ||
+        typeof assertion !== "object" ||
+        typeof assertion.fullName !== "string" ||
+        typeof assertion.status !== "string"
+      ) {
+        throw new Error("Room expiry integration report was malformed");
+      }
+      assertionResults.push(assertion);
+    }
+  }
+
+  for (const fullName of requiredExpiryTests) {
+    const matches = assertionResults.filter(
+      (assertion) => assertion.fullName === fullName,
+    );
+    if (matches.length === 0) {
+      throw new Error(`Missing required expiry test: ${fullName}`);
+    }
+    if (matches.length > 1) {
+      throw new Error(`Duplicate required expiry test: ${fullName}`);
+    }
+    if (matches[0].status !== "passed") {
+      throw new Error(
+        `Required expiry test did not pass: ${fullName} (${matches[0].status})`,
+      );
+    }
+  }
+  if (report.success !== true) {
+    throw new Error("Room expiry integration report did not succeed");
+  }
+
+  return `${requiredExpiryTests.length} required RoomDurableObject expiry tests passed`;
 }
 
 async function runCheck(results, check, operation) {
@@ -277,10 +370,26 @@ async function runCheck(results, check, operation) {
 }
 
 export function createPreflight({
-  verifyRoomExpiryCoverage = runRoomExpiryCoverage,
+  readTextFile = readFile,
+  runExpiryTestProcess = executeExpiryTestProcess,
 } = {}) {
   return async function runPreflight(root, nodeVersion) {
     const results = [];
+    let configSnapshot;
+    let configSnapshotError;
+
+    try {
+      configSnapshot = await readConfigs(root, readTextFile);
+    } catch (error) {
+      configSnapshotError = error;
+    }
+
+    const requireConfigSnapshot = () => {
+      if (configSnapshotError !== undefined) {
+        throw configSnapshotError;
+      }
+      return configSnapshot;
+    };
 
     await runCheck(results, "Node.js", async () => {
       const major = parseNodeMajor(nodeVersion);
@@ -299,21 +408,23 @@ export function createPreflight({
       return "package-lock.json";
     });
     await runCheck(results, "Wrangler parity", () =>
-      verifyWranglerParity(root),
+      verifyWranglerParity(requireConfigSnapshot()),
     );
     await runCheck(results, "Canonical origin", () =>
-      verifyCanonicalOrigin(root),
+      verifyCanonicalOrigin(requireConfigSnapshot()),
     );
-    await runCheck(results, "Static assets", () => verifyStaticAssets(root));
+    await runCheck(results, "Static assets", () =>
+      verifyStaticAssets(root, requireConfigSnapshot()),
+    );
     await runCheck(results, "Milestone bindings", () =>
-      verifyMilestoneBindings(root),
+      verifyMilestoneBindings(requireConfigSnapshot()),
     );
     await runCheck(results, "Project documents", async () => {
       await verifyProjectDocs(root);
       return "canonical context verified";
     });
     await runCheck(results, "Room expiry", () =>
-      verifyRoomExpiryCoverage(root),
+      verifyRoomExpiryCoverage(root, runExpiryTestProcess),
     );
 
     if (results.some((result) => result.status === "FAIL")) {

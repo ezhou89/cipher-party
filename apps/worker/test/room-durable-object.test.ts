@@ -453,6 +453,19 @@ describe("RoomDurableObject persistence", () => {
 });
 
 describe("RoomDurableObject inactivity alarm", () => {
+  it("uses the approved 24-hour inactivity duration", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIALIZED_AT);
+    const room = stub("TTL024");
+    await room.initialize(roomInitialization("TTL024"));
+
+    await runInDurableObject(room, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBe(
+        INITIALIZED_AT.getTime() + 86_400_000,
+      );
+    });
+  });
+
   it("reschedules the unchanged deadline when an alarm arrives early", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(INITIALIZED_AT);
