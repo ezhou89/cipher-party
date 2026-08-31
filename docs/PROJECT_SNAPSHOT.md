@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 11
+**Snapshot revision:** 12
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–9 are accepted. Ticket-authenticated hibernating WebSockets now deliver per-seat role-safe projections, authoritative command results, race-safe presence/reconnect behavior, IndexedDB credentials, and a generation-guarded browser reconnect client; Task 10 is ready.
+**Project state:** Tasks 1–10 are accepted. Account-free create and invite joins persist canonical credentials before navigation, route generations own asynchronous recovery and socket lifecycles, and the responsive lobby renders only authoritative role-safe projections; Task 11 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 9 — hibernating WebSockets and browser reconnect client at accepted head `4f4ea4f` (`29e1255` implementation plus `4f4ea4f` review fix).
-- **Current task:** Task 10 — landing, join, and authoritative lobby UI.
-- **Next task after review:** Task 11 — role-aware Classic game board UI.
+- **Last accepted implementation task:** Task 10 — landing, join, and authoritative lobby UI at accepted head `abd09bc` (`2022230` implementation plus `abd09bc` review fix).
+- **Current task:** Task 11 — role-aware Classic game board UI.
+- **Next task after review:** Task 12 — multiplayer browser E2E and hidden-data regression.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -72,6 +72,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 7 commit: `de27e83`.
 - Task 8 commits: `f0ac58c` and review fix `fc49865`.
 - Task 9 commits: `29e1255` and review fix `4f4ea4f`.
+- Task 10 commits: `2022230` and review fix `abd09bc`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -109,6 +110,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 9 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 299 tests with no failures.
 - Task 9 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
 - Task 9 `git diff --check`: passed with no output.
+- Task 10 focused Home/Lobby suites: 2 files, 38 tests passed after review fixes.
+- Task 10 full web suite: 4 files, 54 tests passed.
+- Task 10 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 337 tests with no failures.
+- Task 10 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
+- Task 10 cumulative and fix-only `git diff --check`: passed with no output.
 
 ## Decisions agents must preserve
 
@@ -129,6 +135,8 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - WebSocket admission orders persisted ticket consumption before accept/attach, then persists `markConnected` before the first projection and 101 response; attachments contain only connectionId, playerId, and hostAuthority.
 - Every accepted socket receives a separately derived current-seat projection; disconnect marks a seat offline only after its last open socket and never extends lastActivity.
 - Durable credentials live only in IndexedDB and HTTP headers; reconnect attempts and callbacks are generation-guarded and retain the same idempotent in-flight envelope until authoritative resync.
+- Landing and invite flows persist server-canonical credentials before navigation; route/unmount generations guard every asynchronous join and credential-recovery continuation so stale work cannot reclaim current UI, navigation, or socket ownership.
+- The lobby renders authoritative projections only, maps command failures to exhaustive local public copy, disables commands while pending or reconnecting, and uses one restrained polite region for other-seat presence transitions.
 
 ## Known risks
 
