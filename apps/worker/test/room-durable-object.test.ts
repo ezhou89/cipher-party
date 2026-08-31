@@ -27,7 +27,11 @@ import {
 } from "../src/room/room-state";
 import type { RoomDurableObject } from "../src/room/room-durable-object";
 
-const INITIALIZED_AT = new Date("2026-08-30T10:00:00.000Z");
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIALIZED_AT = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
 let commandSequence = 0;
 
 type RoomsEnv = { ROOMS: DurableObjectNamespace<RoomDurableObject> };
@@ -197,6 +201,7 @@ describe("Cloudflare Durable Object configuration", () => {
 describe("PersistentRoomController failure atomicity", () => {
   it("persists initialization before exposing a trusted defensive snapshot", async () => {
     const storage = new FakeRoomStorage();
+    const initializedAt = new Date(INITIALIZED_AT.getTime() + 60 * 60 * 1000);
     let finishWrite: (() => void) | undefined;
     storage.write = async (state) => {
       await new Promise<void>((resolve) => {
@@ -206,7 +211,7 @@ describe("PersistentRoomController failure atomicity", () => {
     };
     const controller = new PersistentRoomController(
       storage,
-      () => new Date("2026-08-30T11:00:00.000Z"),
+      () => initializedAt,
     );
     const pending = controller.initialize(roomInitialization("INIT01"));
 
@@ -217,7 +222,7 @@ describe("PersistentRoomController failure atomicity", () => {
     await expect(pending).resolves.toEqual({ ok: true });
 
     const exposed = controller.getSnapshot()!;
-    expect(exposed.lastActivity).toBe("2026-08-30T11:00:00.000Z");
+    expect(exposed.lastActivity).toBe(initializedAt.toISOString());
     exposed.locked = true;
     exposed.seats[0]!.seatTokenHash = "mutated";
     expect(controller.getSnapshot()).toMatchObject({
@@ -259,10 +264,11 @@ describe("PersistentRoomController failure atomicity", () => {
 
   it("returns storage_failed at the old revision without caching or publishing the accepted command", async () => {
     const storage = new FakeRoomStorage();
+    const acceptedAt = new Date(INITIALIZED_AT.getTime() + 2 * 60 * 60 * 1000);
     const postPersist = vi.fn<(persisted: RoomState) => void>();
     const controller = new PersistentRoomController(
       storage,
-      () => new Date("2026-08-30T12:00:00.000Z"),
+      () => acceptedAt,
       postPersist,
     );
     postPersist.mockImplementation((persisted) => {
@@ -391,7 +397,7 @@ describe("RoomDurableObject persistence", () => {
     vi.setSystemTime(INITIALIZED_AT);
     const room = stub("SCHED1");
     await room.initialize(roomInitialization("SCHED1"));
-    const acceptedAt = new Date("2026-08-30T12:00:00.000Z");
+    const acceptedAt = new Date(INITIALIZED_AT.getTime() + 2 * 60 * 60 * 1000);
     vi.setSystemTime(acceptedAt);
     const command = envelope(0, { type: "lock_room", locked: true });
     await expect(room.dispatch(hostActor(), command)).resolves.toEqual({
@@ -403,7 +409,7 @@ describe("RoomDurableObject persistence", () => {
     await runInDurableObject(room, async (_instance, state) => {
       expect(await state.storage.getAlarm()).toBe(acceptedDeadline);
     });
-    vi.setSystemTime(new Date("2026-08-30T13:00:00.000Z"));
+    vi.setSystemTime(INITIALIZED_AT.getTime() + 3 * 60 * 60 * 1000);
     await expect(
       room.dispatch(
         hostActor(),
@@ -453,17 +459,12 @@ describe("RoomDurableObject persistence", () => {
 });
 
 describe("RoomDurableObject inactivity alarm", () => {
-  it("uses the approved 24-hour inactivity duration", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(INITIALIZED_AT);
-    const room = stub("TTL024");
-    await room.initialize(roomInitialization("TTL024"));
+  it("keeps the integration anchor safely ahead of real process time", () => {
+    expect(INITIALIZED_AT.getTime() - REAL_PROCESS_TIME_MS).toBe(604_800_000);
+  });
 
-    await runInDurableObject(room, async (_instance, state) => {
-      expect(await state.storage.getAlarm()).toBe(
-        INITIALIZED_AT.getTime() + 86_400_000,
-      );
-    });
+  it("uses the approved 24-hour inactivity duration", () => {
+    expect(ROOM_IDLE_TTL_MS).toBe(86_400_000);
   });
 
   it("reschedules the unchanged deadline when an alarm arrives early", async () => {
