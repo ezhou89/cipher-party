@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { ClientProjection } from "@cipher-party/protocol";
 
 import {
+  auditPublicProjection,
   closeConnectedClassicRoom,
   createConnectedClassicRoom,
   latestProjection,
@@ -14,12 +15,28 @@ import {
 } from "./helpers/room";
 
 const SECRET_OWNER_TEXT = /(?:Red|Blue|Neutral|Hazard) key$/u;
-const EXPECTED_REJECTION_CONSOLE =
-  /Failed to load resource: the server responded with a status of (?:404|409)/u;
+const REJECTION_CONSOLE_STATUS =
+  /Failed to load resource: the server responded with a status of (\d{3})/u;
 
 // Room creation returns durable browser-local credentials. Keep the repository
 // default for other tests, but never record this credential-bearing flow.
 test.use({ trace: "off" });
+
+function emptyFrameObserver(): RoomFrameObserver {
+  return {
+    projections: [],
+    projectionFrames: [],
+    projectionViolations: [],
+    sentCommands: [],
+    commandResults: [],
+    privacyViolations: [],
+    ticketRequests: 0,
+    socketCount: 0,
+    consoleIssues: [],
+    consoleIssuePaths: [],
+    httpFailures: [],
+  };
+}
 
 function escapeRegularExpression(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
@@ -32,10 +49,55 @@ function boardOf(projection: ClientProjection | null) {
   return projection.board;
 }
 
-function unexpectedConsoleIssues(observer: RoomFrameObserver): string[] {
-  return observer.consoleIssues.filter(
-    (issue) => !EXPECTED_REJECTION_CONSOLE.test(issue),
+interface ExpectedHttpFailure {
+  method: string;
+  path: string;
+  status: number;
+}
+
+function unexpectedConsoleIssues(
+  observer: RoomFrameObserver,
+  expected?: ExpectedHttpFailure,
+): string[] {
+  if (expected === undefined) {
+    return [...observer.consoleIssues];
+  }
+
+  let correlatedResponses = observer.httpFailures.filter(
+    (failure) =>
+      failure.method === expected.method &&
+      failure.path === expected.path &&
+      failure.status === expected.status,
+  ).length;
+  return observer.consoleIssues.filter((issue, index) => {
+    const status = Number(REJECTION_CONSOLE_STATUS.exec(issue)?.[1]);
+    const locationPath = observer.consoleIssuePaths[index] ?? null;
+    if (
+      correlatedResponses === 0 ||
+      status !== expected.status ||
+      (locationPath !== null && locationPath !== expected.path)
+    ) {
+      return true;
+    }
+    correlatedResponses -= 1;
+    return false;
+  });
+}
+
+function expectPlayingAndCompleteRole(
+  seat: ObservedSeat,
+  expectedRole: ClientProjection["viewRole"],
+): void {
+  const activeProjections = seat.frames.projections.filter(
+    (projection) =>
+      projection.roomPhase === "playing" || projection.roomPhase === "complete",
   );
+  expect(activeProjections.length).toBeGreaterThan(0);
+  expect(
+    activeProjections.every(
+      (projection) => projection.viewRole === expectedRole,
+    ),
+  ).toBe(true);
 }
 
 async function submitClue(
@@ -92,6 +154,21 @@ async function expectPublicDomHasNoHiddenOwnership(page: Page): Promise<void> {
   ).toLowerCase();
   expect(html).not.toContain("key-owner");
   expect(html).not.toContain("owner-");
+}
+
+async function expectSpectatorModerationActionsAbsent(
+  page: Page,
+): Promise<void> {
+  for (const name of [
+    "Pause room",
+    "Resume room",
+    "Accept clue",
+    "Reject clue",
+  ]) {
+    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
+      0,
+    );
+  }
 }
 
 async function cancelReveal(seat: ObservedSeat, label: string): Promise<void> {
@@ -204,6 +281,8 @@ async function revealTarget(
 async function expectConvergedRevision(
   room: ConnectedClassicRoom,
 ): Promise<number> {
+  expectNondecreasingProjectionRevisions(room);
+
   let revision = -1;
   await expect
     .poll(
@@ -220,7 +299,23 @@ async function expectConvergedRevision(
       },
     )
     .toBe(true);
+  expectNondecreasingProjectionRevisions(room);
   return revision;
+}
+
+function expectNondecreasingProjectionRevisions(
+  room: ConnectedClassicRoom,
+): void {
+  for (const seat of room.seats) {
+    for (let index = 1; index < seat.frames.projections.length; index += 1) {
+      if (
+        seat.frames.projections[index]!.revision <
+        seat.frames.projections[index - 1]!.revision
+      ) {
+        throw new Error("observed projection revision regressed");
+      }
+    }
+  }
 }
 
 async function assertPhoneBoard(page: Page): Promise<void> {
@@ -291,6 +386,131 @@ async function expectHealthyRenderedPage(seat: ObservedSeat): Promise<void> {
   ).toHaveCount(0);
 }
 
+test("public projection auditing ignores a frame's claimed role and rejects nested ownership", () => {
+  const observer = emptyFrameObserver();
+
+  auditPublicProjection(
+    {
+      roomPhase: "playing",
+      viewRole: "clue-giver",
+      key: {},
+      nested: {
+        keyOwner: "synthetic",
+        owners: {},
+        ownership: {},
+      },
+      board: {
+        cards: [
+          { revealed: false, owner: "synthetic" },
+          { revealed: true, owner: "synthetic" },
+        ],
+      },
+      publicHistory: [
+        { type: "card_revealed", owner: "synthetic" },
+        { type: "room_paused", owner: "synthetic" },
+      ],
+    },
+    observer,
+    "operative",
+  );
+
+  expect(observer.privacyViolations).toEqual([
+    "unexpected_public_view_role",
+    "forbidden_hidden_field",
+    "forbidden_hidden_field",
+    "forbidden_hidden_field",
+    "forbidden_hidden_field",
+    "owner_on_unrevealed_board_card",
+    "owner_outside_public_reveal",
+  ]);
+});
+
+test("convergence rejects a regressing raw projection sequence", () => {
+  const seatWithRevisions = (revisions: number[]): ObservedSeat => {
+    const frames = emptyFrameObserver();
+    frames.projections = revisions.map(
+      (revision) => ({ revision }) as ClientProjection,
+    );
+    return { frames } as ObservedSeat;
+  };
+  const room = {
+    seats: [
+      seatWithRevisions([12, 11, 13]),
+      seatWithRevisions([13]),
+      seatWithRevisions([13]),
+      seatWithRevisions([13]),
+      seatWithRevisions([13]),
+    ],
+  } as ConnectedClassicRoom;
+  expect(() => expectNondecreasingProjectionRevisions(room)).toThrow(
+    "observed projection revision regressed",
+  );
+});
+
+test("console filtering preserves an uncorrelated matching status failure", () => {
+  const observer = emptyFrameObserver();
+  const unrelatedIssue =
+    "error: Failed to load resource: the server responded with a status of 409";
+  observer.consoleIssues.push(unrelatedIssue);
+
+  expect(unexpectedConsoleIssues(observer)).toEqual([unrelatedIssue]);
+});
+
+test("console filtering suppresses only the correlated endpoint failure", () => {
+  const observer = emptyFrameObserver();
+  const genericFailure =
+    "error: Failed to load resource: the server responded with a status of 409";
+  observer.consoleIssues.push(genericFailure, genericFailure);
+  observer.consoleIssuePaths.push(null, "/unrelated.css");
+  observer.httpFailures.push(
+    { method: "POST", path: "/api/rooms/ABC123/join", status: 409 },
+    { method: "GET", path: "/unrelated.css", status: 409 },
+  );
+  expect(
+    unexpectedConsoleIssues(observer, {
+      method: "POST",
+      path: "/api/rooms/ABC123/join",
+      status: 409,
+    }),
+  ).toEqual([genericFailure]);
+});
+
+test("room setup failure closes every helper-created context", async ({
+  browser,
+  baseURL,
+}) => {
+  const initialContexts = new Set(browser.contexts());
+  let setupError: unknown;
+
+  try {
+    try {
+      await createConnectedClassicRoom({
+        browser,
+        baseURL: baseURL!,
+        beforeStart: async () => {
+          throw new Error("synthetic setup failure");
+        },
+      });
+    } catch (error) {
+      setupError = error;
+    }
+
+    expect(setupError).toBeInstanceOf(Error);
+    expect((setupError as Error).message).toBe("synthetic setup failure");
+    expect(
+      browser.contexts().filter((context) => !initialContexts.has(context))
+        .length,
+    ).toBe(0);
+  } finally {
+    await Promise.allSettled(
+      browser
+        .contexts()
+        .filter((context) => !initialContexts.has(context))
+        .map((context) => context.close()),
+    );
+  }
+});
+
 test("wrong room code reports a focused public error", async ({ page }) => {
   const frames = observeRoomPage(page);
   await page.goto("/");
@@ -302,7 +522,13 @@ test("wrong room code reports a focused public error", async ({ page }) => {
   await expect(error).toBeFocused();
   await expect(page).toHaveURL("http://127.0.0.1:5173/");
   expect(frames.projections).toHaveLength(0);
-  expect(unexpectedConsoleIssues(frames)).toEqual([]);
+  expect(
+    unexpectedConsoleIssues(frames, {
+      method: "POST",
+      path: "/api/rooms/ZZZZZZ/join",
+      status: 404,
+    }),
+  ).toEqual([]);
 });
 
 test("five isolated clients complete Connected Classic without hidden-data or duplicate-reveal leaks", async ({
@@ -331,7 +557,13 @@ test("five isolated clients complete Connected Classic without hidden-data or du
           await expect(error).toBeFocused();
           expect(frames.ticketRequests).toBe(0);
           expect(frames.projections).toHaveLength(0);
-          expect(unexpectedConsoleIssues(frames)).toEqual([]);
+          expect(
+            unexpectedConsoleIssues(frames, {
+              method: "POST",
+              path: `/api/rooms/${code}/join`,
+              status: 409,
+            }),
+          ).toEqual([]);
         } finally {
           await context.close();
         }
@@ -340,11 +572,16 @@ test("five isolated clients complete Connected Classic without hidden-data or du
 
     const redTargets = await readRedTargetLabels(room.host.page);
     await expectPublicDomHasNoHiddenOwnership(room.redOperative.page);
+    await expectPublicDomHasNoHiddenOwnership(room.blueOperative.page);
     await expectPublicDomHasNoHiddenOwnership(room.spectator.page);
     expect(room.redOperative.frames.privacyViolations).toEqual([]);
+    expect(room.blueOperative.frames.privacyViolations).toEqual([]);
     expect(room.spectator.frames.privacyViolations).toEqual([]);
     expect(room.redOperative.frames.projections.length).toBeGreaterThan(0);
+    expect(room.blueOperative.frames.projections.length).toBeGreaterThan(0);
     expect(room.spectator.frames.projections.length).toBeGreaterThan(0);
+
+    await expectSpectatorModerationActionsAbsent(room.spectator.page);
 
     await expect(
       room.spectator.page.getByRole("region", { name: "Clue controls" }),
@@ -359,6 +596,7 @@ test("five isolated clients complete Connected Classic without hidden-data or du
     ).toHaveCount(0);
 
     const openingTeam = boardOf(latestProjection(room.host.frames)).activeTeam;
+    expect(redTargets.length).toBe(openingTeam === "red" ? 9 : 8);
     if (openingTeam === "blue") {
       await submitClue(room.blueClueGiver, "Compass", 1);
       await endTurn(room.blueOperative);
@@ -396,6 +634,7 @@ test("five isolated clients complete Connected Classic without hidden-data or du
         exact: true,
       }),
     ).toBeVisible();
+    await expectSpectatorModerationActionsAbsent(room.spectator.page);
     const desktopScreenshot = `/tmp/cipher-party-task12-${testInfo.project.name}-desktop.png`;
     await room.spectator.page.screenshot({ path: desktopScreenshot });
 
@@ -426,22 +665,35 @@ test("five isolated clients complete Connected Classic without hidden-data or du
     const socketsBeforeRefresh = room.redOperative.frames.socketCount;
 
     await room.redOperative.page.reload({ waitUntil: "domcontentloaded" });
-    const recovered = await waitForProjection(
-      room.redOperative.frames,
-      (projection) =>
-        projection.revision > afterFirstReveal.revision &&
-        projection.viewer.playerId === viewerPlayerId &&
-        projection.board?.activeTeam === turnBeforeRefresh &&
-        projection.board.phase === "guess",
-      "the refreshed operative did not recover the same seat and turn",
+    const recoveredSocketIndex = socketsBeforeRefresh + 1;
+    let firstRecoveredFrame = room.redOperative.frames.projectionFrames.find(
+      (frame) => frame.socketIndex === recoveredSocketIndex,
     );
+    await expect
+      .poll(
+        () => {
+          firstRecoveredFrame = room.redOperative.frames.projectionFrames.find(
+            (frame) => frame.socketIndex === recoveredSocketIndex,
+          );
+          return firstRecoveredFrame !== undefined;
+        },
+        {
+          message:
+            "the first projection on the refreshed room socket did not arrive",
+          timeout: 20_000,
+        },
+      )
+      .toBe(true);
+    expect(firstRecoveredFrame!.socketProjectionIndex).toBe(0);
+    const recovered = firstRecoveredFrame!.projection;
+    expect(recovered.revision).toBeGreaterThan(afterFirstReveal.revision);
     expect(recovered.viewer.playerId).toBe(viewerPlayerId);
+    expect(recovered.board?.activeTeam).toBe(turnBeforeRefresh);
+    expect(recovered.board?.phase).toBe("guess");
     expect(room.redOperative.frames.ticketRequests).toBeGreaterThan(
       ticketRequestsBeforeRefresh,
     );
-    expect(room.redOperative.frames.socketCount).toBeGreaterThan(
-      socketsBeforeRefresh,
-    );
+    expect(room.redOperative.frames.socketCount).toBe(recoveredSocketIndex);
     const recoveredRevision = await expectConvergedRevision(room);
     expect(recoveredRevision).toBeGreaterThan(afterFirstReveal.revision);
     const mobileScreenshot = `/tmp/cipher-party-task12-${testInfo.project.name}-320.png`;
@@ -502,8 +754,25 @@ test("five isolated clients complete Connected Classic without hidden-data or du
       ).toHaveLength(1);
     }
 
-    expect(room.redOperative.frames.privacyViolations).toEqual([]);
-    expect(room.spectator.frames.privacyViolations).toEqual([]);
+    const expectedRoles: [ObservedSeat, ClientProjection["viewRole"]][] = [
+      [room.host, "clue-giver"],
+      [room.redOperative, "operative"],
+      [room.blueClueGiver, "clue-giver"],
+      [room.blueOperative, "operative"],
+      [room.spectator, "spectator"],
+    ];
+    for (const [seat, expectedRole] of expectedRoles) {
+      expectPlayingAndCompleteRole(seat, expectedRole);
+      expect(seat.frames.projectionViolations).toEqual([]);
+    }
+    for (const publicSeat of [
+      room.redOperative,
+      room.blueOperative,
+      room.spectator,
+    ]) {
+      expect(publicSeat.frames.privacyViolations).toEqual([]);
+    }
+    expect(room.spectator.frames.sentCommands).toHaveLength(0);
     for (const seat of room.seats) {
       expect(seat.frames.consoleIssues).toEqual([]);
     }

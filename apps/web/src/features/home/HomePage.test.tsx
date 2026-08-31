@@ -183,6 +183,30 @@ describe("HomePage", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refocuses the public summary after the same client validation error repeats", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    const user = userEvent.setup();
+    const code = screen.getByLabelText("Room code");
+    const submit = screen.getByRole("button", { name: "Join Room" });
+
+    await user.type(code, "ßabcde");
+    await user.type(screen.getByLabelText("Join display name"), "Guest");
+    await user.click(submit);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/six ASCII letters or numbers/iu);
+    expect(alert).toHaveFocus();
+
+    await user.click(code);
+    expect(code).toHaveFocus();
+    await user.click(submit);
+
+    expect(alert).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps an API error visible and focuses the public summary", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse(

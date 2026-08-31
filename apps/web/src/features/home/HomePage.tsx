@@ -15,6 +15,11 @@ interface HomePageProps {
 
 type PendingAction = "create" | "join" | null;
 
+interface VisibleError {
+  focusGeneration: number;
+  message: string;
+}
+
 function publicMessage(error: unknown): string {
   return error instanceof ApiError
     ? error.message
@@ -25,16 +30,20 @@ export function HomePage({ seatStore }: HomePageProps) {
   const navigate = useNavigate();
   const errorRef = useRef<HTMLDivElement>(null);
   const [pending, setPending] = useState<PendingAction>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<VisibleError | null>(null);
+  const errorFocusGeneration = error?.focusGeneration;
 
   useEffect(() => {
-    if (error !== null) {
+    if (errorFocusGeneration !== undefined) {
       errorRef.current?.focus();
     }
-  }, [error]);
+  }, [errorFocusGeneration]);
 
   const showError = (message: string) => {
-    setError(message);
+    setError((current) => ({
+      focusGeneration: (current?.focusGeneration ?? 0) + 1,
+      message,
+    }));
   };
 
   const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
@@ -129,7 +138,7 @@ export function HomePage({ seatStore }: HomePageProps) {
           tabIndex={-1}
         >
           <strong>We could not continue.</strong>
-          <span>{error}</span>
+          <span>{error.message}</span>
         </div>
       )}
 

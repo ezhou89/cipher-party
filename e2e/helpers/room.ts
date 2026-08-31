@@ -4,10 +4,11 @@ import {
   type BrowserContext,
   type Page,
 } from "@playwright/test";
-import type {
-  ClientProjection,
-  CommandEnvelope,
-  CommandResult,
+import {
+  ClientProjectionSchema,
+  type ClientProjection,
+  type CommandEnvelope,
+  type CommandResult,
 } from "@cipher-party/protocol";
 
 const DESKTOP_VIEWPORT = { width: 1280, height: 900 } as const;
@@ -20,14 +21,30 @@ export interface ObservedCommandResult {
   result: CommandResult;
 }
 
+export interface ObservedProjectionFrame {
+  projection: ClientProjection;
+  socketIndex: number;
+  socketProjectionIndex: number;
+}
+
+export interface ObservedHttpFailure {
+  method: string;
+  path: string;
+  status: number;
+}
+
 export interface RoomFrameObserver {
   projections: ClientProjection[];
+  projectionFrames: ObservedProjectionFrame[];
+  projectionViolations: string[];
   sentCommands: CommandEnvelope[];
   commandResults: ObservedCommandResult[];
   privacyViolations: string[];
   ticketRequests: number;
   socketCount: number;
   consoleIssues: string[];
+  consoleIssuePaths: (string | null)[];
+  httpFailures: ObservedHttpFailure[];
 }
 
 export interface ObservedSeat {
@@ -52,6 +69,15 @@ interface CreateConnectedClassicRoomOptions {
   beforeStart?(code: string): Promise<void>;
 }
 
+interface ObserveRoomPageOptions {
+  expectedViewRole?: ClientProjection["viewRole"];
+  publicObserver?: boolean;
+}
+
+interface CreateObservedSeatOptions extends ObserveRoomPageOptions {
+  phone?: boolean;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -72,47 +98,142 @@ function redactCredentials(value: string): string {
   return value.replace(/[A-Za-z0-9_-]{43}/gu, "[credential-redacted]");
 }
 
-function auditPublicProjection(
-  projection: JsonRecord,
-  observer: RoomFrameObserver,
-): void {
-  if (
-    projection.viewRole !== "operative" &&
-    projection.viewRole !== "spectator"
-  ) {
-    return;
+function safePathname(value: string): string | null {
+  if (value === "") {
+    return null;
   }
-  if (Object.hasOwn(projection, "key")) {
-    observer.privacyViolations.push(
-      `${String(projection.viewRole)} projection contained a key field`,
-    );
-  }
-  const board = projection.board;
-  if (!isRecord(board) || !Array.isArray(board.cards)) {
-    return;
-  }
-  for (const card of board.cards) {
-    if (
-      isRecord(card) &&
-      card.revealed !== true &&
-      Object.hasOwn(card, "owner")
-    ) {
-      observer.privacyViolations.push(
-        `${String(projection.viewRole)} projection contained an owner on an unrevealed card`,
-      );
-    }
+  try {
+    return new URL(value).pathname;
+  } catch {
+    return null;
   }
 }
 
-export function observeRoomPage(page: Page): RoomFrameObserver {
+export function auditPublicProjection(
+  projection: JsonRecord,
+  observer: RoomFrameObserver,
+  expectedViewRole?: "operative" | "spectator",
+): void {
+  if (expectedViewRole === undefined) {
+    return;
+  }
+
+  if (
+    (projection.roomPhase === "playing" ||
+      projection.roomPhase === "complete") &&
+    projection.viewRole !== expectedViewRole
+  ) {
+    observer.privacyViolations.push("unexpected_public_view_role");
+  }
+
+  const visit = (value: unknown, path: (string | number)[]): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, [...path, index]));
+      return;
+    }
+    if (!isRecord(value)) {
+      return;
+    }
+
+    for (const [field, nested] of Object.entries(value)) {
+      const normalizedField = field.toLowerCase().replace(/[^a-z]/gu, "");
+      if (normalizedField === "owner") {
+        const boardCardOwner =
+          path.length === 3 &&
+          path[0] === "board" &&
+          path[1] === "cards" &&
+          typeof path[2] === "number";
+        const revealedBoardCardOwner =
+          boardCardOwner && value.revealed === true;
+        const publicRevealOwner =
+          path.length === 2 &&
+          path[0] === "publicHistory" &&
+          typeof path[1] === "number" &&
+          value.type === "card_revealed";
+        if (!revealedBoardCardOwner && !publicRevealOwner) {
+          observer.privacyViolations.push(
+            boardCardOwner
+              ? "owner_on_unrevealed_board_card"
+              : "owner_outside_public_reveal",
+          );
+        }
+        continue;
+      }
+      if (
+        normalizedField === "key" ||
+        normalizedField.endsWith("key") ||
+        normalizedField.includes("keyowner") ||
+        normalizedField.includes("ownerkey") ||
+        normalizedField.includes("ownership") ||
+        normalizedField.endsWith("owners") ||
+        normalizedField.includes("ownermap")
+      ) {
+        observer.privacyViolations.push("forbidden_hidden_field");
+        continue;
+      }
+      visit(nested, [...path, field]);
+    }
+  };
+
+  visit(projection, []);
+}
+
+function recordProjection(
+  rawProjection: JsonRecord,
+  observer: RoomFrameObserver,
+  options: ObserveRoomPageOptions,
+  socketIndex: number,
+  socketProjectionIndex: number,
+): void {
+  if (options.publicObserver === true) {
+    auditPublicProjection(
+      rawProjection,
+      observer,
+      options.expectedViewRole === "operative" ||
+        options.expectedViewRole === "spectator"
+        ? options.expectedViewRole
+        : undefined,
+    );
+  }
+
+  const parsed = ClientProjectionSchema.safeParse(rawProjection);
+  if (!parsed.success) {
+    observer.projectionViolations.push("projection_schema_invalid");
+    return;
+  }
+  const projection = parsed.data;
+  if (
+    options.expectedViewRole !== undefined &&
+    (projection.roomPhase === "playing" ||
+      projection.roomPhase === "complete") &&
+    projection.viewRole !== options.expectedViewRole
+  ) {
+    observer.projectionViolations.push("unexpected_projection_view_role");
+  }
+  observer.projections.push(projection);
+  observer.projectionFrames.push({
+    projection,
+    socketIndex,
+    socketProjectionIndex,
+  });
+}
+
+export function observeRoomPage(
+  page: Page,
+  options: ObserveRoomPageOptions = {},
+): RoomFrameObserver {
   const observer: RoomFrameObserver = {
     projections: [],
+    projectionFrames: [],
+    projectionViolations: [],
     sentCommands: [],
     commandResults: [],
     privacyViolations: [],
     ticketRequests: 0,
     socketCount: 0,
     consoleIssues: [],
+    consoleIssuePaths: [],
+    httpFailures: [],
   };
 
   page.on("request", (request) => {
@@ -126,15 +247,32 @@ export function observeRoomPage(page: Page): RoomFrameObserver {
       observer.consoleIssues.push(
         `${message.type()}: ${redactCredentials(message.text())}`,
       );
+      observer.consoleIssuePaths.push(safePathname(message.location().url));
     }
   });
   page.on("pageerror", (error) => {
     observer.consoleIssues.push(
       `pageerror: ${redactCredentials(error.message)}`,
     );
+    observer.consoleIssuePaths.push(null);
+  });
+  page.on("response", (response) => {
+    if (response.status() >= 400) {
+      observer.httpFailures.push({
+        method: response.request().method(),
+        path: new URL(response.url()).pathname,
+        status: response.status(),
+      });
+    }
   });
   page.on("websocket", (socket) => {
-    observer.socketCount += 1;
+    const socketPath = new URL(socket.url()).pathname;
+    if (!socketPath.endsWith("/connect")) {
+      return;
+    }
+    const socketIndex = observer.socketCount + 1;
+    observer.socketCount = socketIndex;
+    let socketProjectionIndex = 0;
     socket.on("framesent", ({ payload }) => {
       const frame = parseJsonFrame(payload);
       if (
@@ -149,10 +287,14 @@ export function observeRoomPage(page: Page): RoomFrameObserver {
     socket.on("framereceived", ({ payload }) => {
       const frame = parseJsonFrame(payload);
       if (frame?.type === "projection" && isRecord(frame.projection)) {
-        auditPublicProjection(frame.projection, observer);
-        observer.projections.push(
-          frame.projection as unknown as ClientProjection,
+        recordProjection(
+          frame.projection,
+          observer,
+          options,
+          socketIndex,
+          socketProjectionIndex,
         );
+        socketProjectionIndex += 1;
         return;
       }
       if (
@@ -174,15 +316,20 @@ export function observeRoomPage(page: Page): RoomFrameObserver {
 async function createObservedSeat(
   browser: Browser,
   baseURL: string,
-  phone = false,
+  options: CreateObservedSeatOptions,
 ): Promise<ObservedSeat> {
   const context = await browser.newContext({
     baseURL,
-    viewport: phone ? PHONE_VIEWPORT : DESKTOP_VIEWPORT,
+    viewport: options.phone === true ? PHONE_VIEWPORT : DESKTOP_VIEWPORT,
   });
-  const page = await context.newPage();
-  const frames = observeRoomPage(page);
-  return { context, page, frames };
+  try {
+    const page = await context.newPage();
+    const frames = observeRoomPage(page, options);
+    return { context, page, frames };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
 }
 
 export function latestProjection(
@@ -265,83 +412,107 @@ export async function createConnectedClassicRoom({
   baseURL,
   beforeStart,
 }: CreateConnectedClassicRoomOptions): Promise<ConnectedClassicRoom> {
-  const host = await createObservedSeat(browser, baseURL);
-  const redOperative = await createObservedSeat(browser, baseURL, true);
-  const blueClueGiver = await createObservedSeat(browser, baseURL);
-  const blueOperative = await createObservedSeat(browser, baseURL);
-  const spectator = await createObservedSeat(browser, baseURL);
-  const seats = [host, redOperative, blueClueGiver, blueOperative, spectator];
+  const seats: ObservedSeat[] = [];
+  try {
+    const host = await createObservedSeat(browser, baseURL, {
+      expectedViewRole: "clue-giver",
+    });
+    seats.push(host);
+    const redOperative = await createObservedSeat(browser, baseURL, {
+      expectedViewRole: "operative",
+      phone: true,
+      publicObserver: true,
+    });
+    seats.push(redOperative);
+    const blueClueGiver = await createObservedSeat(browser, baseURL, {
+      expectedViewRole: "clue-giver",
+    });
+    seats.push(blueClueGiver);
+    const blueOperative = await createObservedSeat(browser, baseURL, {
+      expectedViewRole: "operative",
+      publicObserver: true,
+    });
+    seats.push(blueOperative);
+    const spectator = await createObservedSeat(browser, baseURL, {
+      expectedViewRole: "spectator",
+      publicObserver: true,
+    });
+    seats.push(spectator);
 
-  await host.page.goto("/");
-  await host.page.getByLabel("Your display name").fill("Avery");
-  await host.page.getByRole("button", { name: "Create Room" }).click();
-  await waitForConnectedLobby(host);
-  const roomPath = new URL(host.page.url()).pathname;
-  const code = /^\/room\/([0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6})$/u.exec(
-    roomPath,
-  )?.[1];
-  if (code === undefined) {
-    throw new Error("Room creation did not navigate to a canonical room URL");
+    await host.page.goto("/");
+    await host.page.getByLabel("Your display name").fill("Avery");
+    await host.page.getByRole("button", { name: "Create Room" }).click();
+    await waitForConnectedLobby(host);
+    const roomPath = new URL(host.page.url()).pathname;
+    const code = /^\/room\/([0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6})$/u.exec(
+      roomPath,
+    )?.[1];
+    if (code === undefined) {
+      throw new Error("Room creation did not navigate to a canonical room URL");
+    }
+
+    await joinSeat(redOperative, code, "Rin", false);
+    await joinSeat(blueClueGiver, code, "Mina", false);
+    await joinSeat(blueOperative, code, "Kai", false);
+    await joinSeat(spectator, code, "Jules", true);
+    await waitForProjection(
+      host.frames,
+      (projection) => projection.seats.length === 5,
+      "the host did not observe all five isolated seats",
+    );
+
+    await updateAssignment(host, "Team for Avery", "red");
+    await updateAssignment(host, "Role for Avery", "clue-giver");
+    await updateAssignment(host, "Team for Rin", "red");
+    await updateAssignment(host, "Role for Rin", "operative");
+    await updateAssignment(host, "Team for Mina", "blue");
+    await updateAssignment(host, "Role for Mina", "clue-giver");
+    await updateAssignment(host, "Team for Kai", "blue");
+    await updateAssignment(host, "Role for Kai", "operative");
+
+    const beforeLock = latestProjection(host.frames)?.revision ?? -1;
+    await host.page.getByRole("button", { name: "Lock room" }).click();
+    await waitForProjection(
+      host.frames,
+      (projection) => projection.revision > beforeLock && projection.locked,
+    );
+    await expect(
+      host.page.getByText("Entry locked", { exact: true }),
+    ).toBeVisible();
+
+    await beforeStart?.(code);
+
+    await expect(
+      host.page.getByRole("button", { name: "Start board" }),
+    ).toBeEnabled();
+    await host.page.getByRole("button", { name: "Start board" }).click();
+    await Promise.all(
+      seats.map(async (seat) => {
+        await waitForProjection(
+          seat.frames,
+          (projection) =>
+            projection.roomPhase === "playing" && projection.board !== null,
+          "a seat did not receive the started Classic board",
+        );
+        await expect(
+          seat.page.getByRole("region", { name: "Classic board" }),
+        ).toBeVisible();
+      }),
+    );
+
+    return {
+      code,
+      host,
+      redOperative,
+      blueClueGiver,
+      blueOperative,
+      spectator,
+      seats,
+    };
+  } catch (error) {
+    await Promise.allSettled(seats.map((seat) => seat.context.close()));
+    throw error;
   }
-
-  await joinSeat(redOperative, code, "Rin", false);
-  await joinSeat(blueClueGiver, code, "Mina", false);
-  await joinSeat(blueOperative, code, "Kai", false);
-  await joinSeat(spectator, code, "Jules", true);
-  await waitForProjection(
-    host.frames,
-    (projection) => projection.seats.length === 5,
-    "the host did not observe all five isolated seats",
-  );
-
-  await updateAssignment(host, "Team for Avery", "red");
-  await updateAssignment(host, "Role for Avery", "clue-giver");
-  await updateAssignment(host, "Team for Rin", "red");
-  await updateAssignment(host, "Role for Rin", "operative");
-  await updateAssignment(host, "Team for Mina", "blue");
-  await updateAssignment(host, "Role for Mina", "clue-giver");
-  await updateAssignment(host, "Team for Kai", "blue");
-  await updateAssignment(host, "Role for Kai", "operative");
-
-  const beforeLock = latestProjection(host.frames)?.revision ?? -1;
-  await host.page.getByRole("button", { name: "Lock room" }).click();
-  await waitForProjection(
-    host.frames,
-    (projection) => projection.revision > beforeLock && projection.locked,
-  );
-  await expect(
-    host.page.getByText("Entry locked", { exact: true }),
-  ).toBeVisible();
-
-  await beforeStart?.(code);
-
-  await expect(
-    host.page.getByRole("button", { name: "Start board" }),
-  ).toBeEnabled();
-  await host.page.getByRole("button", { name: "Start board" }).click();
-  await Promise.all(
-    seats.map(async (seat) => {
-      await waitForProjection(
-        seat.frames,
-        (projection) =>
-          projection.roomPhase === "playing" && projection.board !== null,
-        "a seat did not receive the started Classic board",
-      );
-      await expect(
-        seat.page.getByRole("region", { name: "Classic board" }),
-      ).toBeVisible();
-    }),
-  );
-
-  return {
-    code,
-    host,
-    redOperative,
-    blueClueGiver,
-    blueOperative,
-    spectator,
-    seats,
-  };
 }
 
 export async function closeConnectedClassicRoom(
