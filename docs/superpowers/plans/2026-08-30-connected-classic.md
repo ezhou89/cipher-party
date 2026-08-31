@@ -742,7 +742,7 @@ Update the snapshot to Task 4.
 - Consumes: ClassicBoard, TeamId, PlayerId, and CardId.
 - Produces: ClassicGameState, GameAction, createClassicGame(board), applyGameAction(state, action), and GameTransitionError.
 
-- [ ] **Step 1: Write the failing happy-path reducer test**
+- [x] **Step 1: Write the failing happy-path reducer test**
 
 Build a fixed board fixture and test clue, nomination, confirmation, and turn continuation:
 
@@ -775,7 +775,7 @@ it("continues after revealing the active team's target", () => {
 });
 ~~~
 
-- [ ] **Step 2: Write the failing outcome table**
+- [x] **Step 2: Write the failing outcome table**
 
 Add explicit tests for:
 
@@ -791,7 +791,7 @@ Add explicit tests for:
 - Challenge: changes guess to challenged; accept restores guess; reject advances the challenged team.
 - Pause and resume: restore the exact prior playable phase.
 
-- [ ] **Step 3: Run reducer tests and observe missing exports**
+- [x] **Step 3: Run reducer tests and observe missing exports**
 
 ~~~bash
 npm run test -w @cipher-party/game-core -- reducer.test.ts
@@ -799,7 +799,7 @@ npm run test -w @cipher-party/game-core -- reducer.test.ts
 
 Expected: FAIL because createClassicGame and applyGameAction do not exist.
 
-- [ ] **Step 4: Define the reducer state and action union**
+- [x] **Step 4: Define the reducer state and action union**
 
 Use these exact phase and state fields:
 
@@ -830,7 +830,7 @@ export type GameAction =
   | { type: "resume" };
 ~~~
 
-- [ ] **Step 5: Implement transition helpers before the public reducer**
+- [x] **Step 5: Implement transition helpers before the public reducer**
 
 Implement:
 
@@ -860,7 +860,7 @@ function hasRevealedAllTargets(state: ClassicGameState, teamId: TeamId): boolean
 
 GameTransitionError carries one reason from wrong_phase, wrong_team, invalid_count, unknown_card, missing_nomination, nomination_mismatch, already_revealed, or board_complete.
 
-- [ ] **Step 6: Implement every GameAction branch**
+- [x] **Step 6: Implement every GameAction branch**
 
 applyGameAction must:
 
@@ -878,7 +878,7 @@ applyGameAction must:
 
 Use an exhaustive never check in the switch default so a future action cannot compile without a branch.
 
-- [ ] **Step 7: Run reducer and property tests**
+- [x] **Step 7: Run reducer and property tests**
 
 Add a fast-check action-sequence test that applies only generated legal actions and asserts:
 
@@ -897,7 +897,7 @@ npm run check
 
 Expected: all outcome-table and invariant tests pass.
 
-- [ ] **Step 8: Commit Task 4**
+- [x] **Step 8: Commit Task 4**
 
 ~~~bash
 git add packages/game-core/src
