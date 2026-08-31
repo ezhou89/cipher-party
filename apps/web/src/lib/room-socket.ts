@@ -115,14 +115,7 @@ export class RoomSocket {
     this.#inFlight = null;
     this.#awaitingFreshProjection = true;
     this.#setConnection("connecting");
-    try {
-      await this.#open(false);
-    } catch (error) {
-      if (!this.#manualClose) {
-        this.#setConnection("closed");
-      }
-      throw error;
-    }
+    await this.#open(false);
   }
 
   send(command: ClientCommand): string {
@@ -191,20 +184,32 @@ export class RoomSocket {
     if (reconnecting) {
       this.#setConnection("reconnecting");
     }
-    const ticket = await requestConnectionTicket(
-      credentials,
-      this.#dependencies.fetch,
-    );
+    let ticket: Awaited<ReturnType<typeof requestConnectionTicket>>;
+    try {
+      ticket = await requestConnectionTicket(
+        credentials,
+        this.#dependencies.fetch,
+      );
+    } catch (error) {
+      this.#handleOpenFailure(reconnecting, generation);
+      throw error;
+    }
     if (this.#manualClose || generation !== this.#generation) {
       return;
     }
-    const socket = this.#dependencies.createWebSocket(
-      roomWebSocketUrl(
-        credentials.code,
-        ticket.ticket,
-        this.#dependencies.location,
-      ),
-    );
+    let socket: RoomWebSocket;
+    try {
+      socket = this.#dependencies.createWebSocket(
+        roomWebSocketUrl(
+          credentials.code,
+          ticket.ticket,
+          this.#dependencies.location,
+        ),
+      );
+    } catch (error) {
+      this.#handleOpenFailure(reconnecting, generation);
+      throw error;
+    }
     this.#socket = socket;
     socket.onopen = () => {
       if (!this.#isCurrent(generation, socket)) {
@@ -317,8 +322,19 @@ export class RoomSocket {
     this.#cancelRetry();
     this.#retryTimer = this.#dependencies.setTimeout(() => {
       this.#retryTimer = null;
-      void this.#open(true).catch(() => this.#scheduleReconnect());
+      void this.#open(true).catch(() => undefined);
     }, delay);
+  }
+
+  #handleOpenFailure(reconnecting: boolean, generation: number): void {
+    if (this.#manualClose || generation !== this.#generation) {
+      return;
+    }
+    if (reconnecting) {
+      this.#scheduleReconnect();
+    } else {
+      this.#setConnection("closed");
+    }
   }
 
   #cancelRetry(): void {

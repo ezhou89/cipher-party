@@ -14,7 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashToken } from "../src/auth/token";
 import type { Env } from "../src/env";
 import worker from "../src/index";
-import type { RoomDurableObject } from "../src/room/room-durable-object";
+import {
+  PersistentRoomController,
+  type RoomDurableObject,
+} from "../src/room/room-durable-object";
 import type { RoomSocketAttachment } from "../src/room/room-websocket";
 import { createLobbyState, type RoomState } from "../src/room/room-state";
 import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
@@ -39,6 +42,16 @@ interface TicketResponse {
 type RoomsEnv = { ROOMS: DurableObjectNamespace<RoomDurableObject> };
 
 let commandSequence = 0;
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 class SocketProbe {
   readonly socket: WebSocket;
@@ -401,9 +414,99 @@ describe("room WebSocket admission", () => {
       expect(state.getWebSockets()).toHaveLength(0);
     });
     await expect(roomStub(room.code).getSnapshot()).resolves.toMatchObject({
-      revision: 2,
+      revision: 0,
       seats: [{ playerId: room.playerId, connected: false }],
       connectionTickets: [],
+    });
+  });
+
+  it("keeps a delayed replacement online when the older socket closes before acceptance", async () => {
+    const room = await createRoom();
+    const first = await connect(
+      room.code,
+      (await issueHttpTicket(room)).ticket,
+    );
+    await first.next();
+    const replacementTicket = (await issueHttpTicket(room)).ticket;
+    const disconnectStarted = deferred<void>();
+    const originalDisconnect = PersistentRoomController.prototype.disconnect;
+    vi.spyOn(
+      PersistentRoomController.prototype,
+      "disconnect",
+    ).mockImplementation(function (this: PersistentRoomController, ...args) {
+      disconnectStarted.resolve();
+      return originalDisconnect.apply(this, args);
+    });
+    const race = await runInDurableObject(
+      roomStub(room.code),
+      async (instance, state) => {
+        const oldServerSocket = state.getWebSockets(room.playerId)[0]!;
+        const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+        let delayed = false;
+        vi.spyOn(crypto.subtle, "digest").mockImplementation(
+          async (algorithm, data) => {
+            if (!delayed) {
+              delayed = true;
+              oldServerSocket.close(1000, "replaced during admission");
+              void instance.webSocketClose(oldServerSocket);
+              await disconnectStarted.promise;
+            }
+            return originalDigest(algorithm, data);
+          },
+        );
+        const response = await instance.fetch(
+          new Request(
+            `https://room.internal/api/rooms/${room.code}/connect?ticket=${replacementTicket}`,
+            { headers: { Upgrade: "websocket" } },
+          ),
+        );
+        const replacement = new SocketProbe(response.webSocket!);
+        const initial = await replacement.next();
+        if (initial.type !== "projection") {
+          throw new Error("expected replacement projection");
+        }
+        const snapshot = await instance.getSnapshot();
+        const commandId = replacement.send(
+          { type: "lock_room", locked: true },
+          initial.projection.revision,
+        );
+        const commandResult = await replacement.next();
+        replacement.close();
+        return {
+          status: response.status,
+          initial,
+          snapshot,
+          commandId,
+          commandResult,
+        };
+      },
+    );
+
+    expect(race.status).toBe(101);
+    const initial = race.initial;
+    expect(initial).toMatchObject({
+      type: "projection",
+      projection: {
+        viewer: { playerId: room.playerId, isHost: true },
+        seats: expect.arrayContaining([
+          expect.objectContaining({
+            playerId: room.playerId,
+            connected: true,
+          }),
+        ]),
+      },
+    });
+    if (initial.type !== "projection") {
+      throw new Error("expected replacement projection");
+    }
+    expect(race.snapshot).toMatchObject({
+      revision: initial.projection.revision,
+      seats: [{ playerId: room.playerId, connected: true }],
+    });
+    expect(race.commandResult).toEqual({
+      type: "command_result",
+      commandId: race.commandId,
+      result: { ok: true, revision: initial.projection.revision + 1 },
     });
   });
 });
@@ -577,6 +680,42 @@ describe("role-safe WebSocket command flow", () => {
       revision: 4,
       locked: true,
     });
+    host.close();
+    guest.close();
+  });
+
+  it("keeps an accepted command when only the sender command_result send throws", async () => {
+    const created = await createRoom();
+    const joined = await joinRoom(created.code);
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const guest = await connect(
+      created.code,
+      (await issueHttpTicket(joined)).ticket,
+    );
+    await Promise.all([guest.next(), host.next()]);
+    const senderSocket = await serverSocket(created.code, created.playerId);
+    const senderSend = vi.spyOn(senderSocket, "send");
+    senderSend.mockImplementationOnce(() => {
+      throw new Error("simulated command_result send failure");
+    });
+
+    host.send({ type: "lock_room", locked: true }, 3);
+
+    await expect(guest.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: { revision: 4, locked: true },
+    });
+    await expect(roomStub(created.code).getSnapshot()).resolves.toMatchObject({
+      revision: 4,
+      locked: true,
+    });
+    expect(senderSend).toHaveBeenCalledWith(
+      expect.stringContaining('"type":"command_result"'),
+    );
     host.close();
     guest.close();
   });

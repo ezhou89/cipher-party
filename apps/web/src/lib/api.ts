@@ -30,23 +30,26 @@ export async function requestConnectionTicket(
     throw new Error("Room connection ticket request failed");
   }
   const value: unknown = await response.json();
+  const record =
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
   if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
+    record === null ||
+    Object.keys(record).length !== 2 ||
+    !Object.hasOwn(record, "ticket") ||
+    !Object.hasOwn(record, "expiresAt") ||
     !TICKET_PATTERN.test(
-      typeof (value as Record<string, unknown>).ticket === "string"
-        ? ((value as Record<string, unknown>).ticket as string)
-        : "",
+      typeof record.ticket === "string" ? record.ticket : "",
     ) ||
-    typeof (value as Record<string, unknown>).expiresAt !== "number" ||
-    !Number.isFinite((value as Record<string, unknown>).expiresAt)
+    typeof record.expiresAt !== "number" ||
+    !Number.isFinite(record.expiresAt)
   ) {
     throw new Error("Room connection ticket response was malformed");
   }
   return {
-    ticket: (value as Record<string, unknown>).ticket as string,
-    expiresAt: (value as Record<string, unknown>).expiresAt as number,
+    ticket: record.ticket as string,
+    expiresAt: record.expiresAt,
   };
 }
 

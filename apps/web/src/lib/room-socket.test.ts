@@ -145,6 +145,23 @@ function stateOf(client: RoomSocket) {
   return { get: () => latest!, unsubscribe };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function ticketResponse(ticket: string): Response {
+  return Response.json({
+    ticket: ticket.padEnd(43, "x"),
+    expiresAt: Date.now() + 60_000,
+  });
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -224,6 +241,26 @@ describe("RoomSocket connection and strict projections", () => {
 
     await expect(client.connect(credentials)).rejects.toThrow(/malformed/u);
     expect(test.sockets).toEqual([]);
+  });
+
+  it("strictly rejects ticket responses with extra keys", async () => {
+    const fetchImpl: typeof fetch = vi.fn(async () =>
+      Response.json({
+        ticket: "ticket-extra".padEnd(43, "x"),
+        expiresAt: Date.now() + 60_000,
+        playerId: "must-not-be-accepted",
+      }),
+    );
+    const client = new RoomSocket({
+      fetch: fetchImpl,
+      createWebSocket: (url) => new FakeWebSocket(url),
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    });
+
+    await expect(client.connect(credentials)).rejects.toThrow(/malformed/u);
   });
 });
 
@@ -334,6 +371,109 @@ describe("RoomSocket authoritative command tracking", () => {
 });
 
 describe("RoomSocket reconnect lifecycle", () => {
+  it("ignores a stale explicit-connect rejection after newer credentials connect", async () => {
+    const firstTicket = deferred<Response>();
+    const secondTicket = deferred<Response>();
+    const sockets: FakeWebSocket[] = [];
+    const fetchImpl: typeof fetch = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(() => firstTicket.promise)
+      .mockImplementationOnce(() => secondTicket.promise);
+    const client = new RoomSocket({
+      fetch: fetchImpl,
+      createWebSocket(url) {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    });
+    const observed = stateOf(client);
+    const firstConnect = client.connect(credentials);
+    const replacementCredentials: SeatCredentials = {
+      code: "DEF456",
+      playerId: "player-2",
+      seatToken: "replacement-seat-token",
+    };
+    const secondConnect = client.connect(replacementCredentials);
+    secondTicket.resolve(ticketResponse("new-ticket"));
+    await secondConnect;
+    const replacement = sockets[0]!;
+    replacement.open();
+    replacement.receive({ type: "projection", projection: projection(1) });
+    expect(observed.get().connection).toBe("open");
+
+    firstTicket.reject(new Error("stale ticket rejection"));
+    await expect(firstConnect).rejects.toThrow("stale ticket rejection");
+
+    expect(observed.get().connection).toBe("open");
+    expect(sockets).toEqual([replacement]);
+    replacement.receive({ type: "projection", projection: projection(2) });
+    expect(observed.get().projection?.revision).toBe(2);
+    client.close();
+  });
+
+  it("ignores a stale reconnect-ticket rejection after a newer explicit connect", async () => {
+    vi.useFakeTimers();
+    const reconnectTicket = deferred<Response>();
+    const explicitTicket = deferred<Response>();
+    const sockets: FakeWebSocket[] = [];
+    const fetchImpl: typeof fetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ticketResponse("initial-ticket"))
+      .mockImplementationOnce(() => reconnectTicket.promise)
+      .mockImplementationOnce(() => explicitTicket.promise);
+    const client = new RoomSocket({
+      fetch: fetchImpl,
+      createWebSocket(url) {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    });
+    const observed = stateOf(client);
+    await client.connect(credentials);
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: "projection", projection: projection(1) });
+    sockets[0]!.failClose();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const replacementCredentials: SeatCredentials = {
+      code: "DEF456",
+      playerId: "player-2",
+      seatToken: "replacement-seat-token",
+    };
+    const explicitConnect = client.connect(replacementCredentials);
+    explicitTicket.resolve(ticketResponse("explicit-ticket"));
+    await explicitConnect;
+    const replacement = sockets[1]!;
+    replacement.open();
+    replacement.receive({ type: "projection", projection: projection(2) });
+
+    reconnectTicket.reject(new Error("stale reconnect rejection"));
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(sockets).toHaveLength(2);
+    expect(observed.get()).toMatchObject({
+      connection: "open",
+      projection: { revision: 2 },
+    });
+    replacement.receive({ type: "projection", projection: projection(3) });
+    expect(observed.get().projection?.revision).toBe(3);
+    client.close();
+  });
+
   it("guards stale callbacks, obtains a new ticket, and backs off 500ms/1s/2s/4s/5s capped", async () => {
     vi.useFakeTimers();
     const test = harness();

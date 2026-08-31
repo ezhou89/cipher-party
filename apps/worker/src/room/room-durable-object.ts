@@ -75,9 +75,7 @@ type ConsumeTicketResult =
   | { ok: true; playerId: string; hostAuthority: boolean }
   | { ok: false; code: "unauthorized" };
 
-type AdmitConnectionResult =
-  | { ok: true; playerId: string; hostAuthority: boolean }
-  | { ok: false; code: "unauthorized" };
+type MarkConnectedResult = { ok: true } | { ok: false };
 
 type PostPersistHook = (state: RoomState) => void | Promise<void>;
 
@@ -259,67 +257,42 @@ export class PersistentRoomController {
       return {
         ok: true,
         playerId: accepted.playerId,
-        hostAuthority: accepted.hostAuthority,
+        hostAuthority:
+          accepted.hostAuthority && accepted.playerId === current.hostPlayerId,
       };
     });
   }
 
-  admitConnection(input: ConsumeTicketInput): Promise<AdmitConnectionResult> {
+  markConnected(playerId: string, now: number): Promise<MarkConnectedResult> {
     return this.#serialize(async () => {
       const current = this.#state;
       if (current === undefined) {
-        return { ok: false, code: "unauthorized" };
+        return { ok: false };
       }
-      const unexpired = current.connectionTickets.filter(
-        (ticket) => ticket.expiresAt > input.now,
-      );
-      const verification = await Promise.all(
-        unexpired.map(async (ticket) => ({
-          ticket,
-          valid: await verifyToken(input.ticket, ticket.ticketHash),
-        })),
-      );
-      const accepted = verification.find(({ valid }) => valid)?.ticket;
       const next = clone(current);
-      next.connectionTickets =
-        accepted === undefined
-          ? clone(unexpired)
-          : unexpired.filter((ticket) => ticket !== accepted);
-      const seat =
-        accepted === undefined
-          ? undefined
-          : next.seats.find(({ playerId }) => playerId === accepted.playerId);
-      if (accepted === undefined || seat === undefined) {
-        if (
-          next.connectionTickets.length !== current.connectionTickets.length
-        ) {
-          await this.#storage.write(next);
-          this.#state = clone(next);
-        }
-        return { ok: false, code: "unauthorized" };
+      const seat = next.seats.find(
+        (candidate) => candidate.playerId === playerId,
+      );
+      if (seat === undefined) {
+        return { ok: false };
       }
 
       seat.connected = true;
       next.revision = current.revision + 1;
-      next.lastActivity = new Date(input.now).toISOString();
+      next.lastActivity = new Date(now).toISOString();
       await this.#storage.write(next);
       this.#state = clone(next);
-      return {
-        ok: true,
-        playerId: accepted.playerId,
-        hostAuthority:
-          accepted.hostAuthority && accepted.playerId === next.hostPlayerId,
-      };
+      return { ok: true };
     });
   }
 
   disconnect(
     playerId: string,
-    hasOtherOpenConnection: boolean,
+    hasOtherOpenConnection: () => boolean,
   ): Promise<{ changed: boolean }> {
     return this.#serialize(async () => {
       const current = this.#state;
-      if (current === undefined || hasOtherOpenConnection) {
+      if (current === undefined || hasOtherOpenConnection()) {
         return { changed: false };
       }
       const seat = current.seats.find(
@@ -514,11 +487,12 @@ export class RoomDurableObject extends DurableObject<Env> {
       return opaqueAdmissionFailure();
     }
 
-    let admission: AdmitConnectionResult;
+    const connectedAt = Date.now();
+    let admission: ConsumeTicketResult;
     try {
-      admission = await this.#controller.admitConnection({
+      admission = await this.#controller.consumeTicket({
         ticket,
-        now: Date.now(),
+        now: connectedAt,
       });
     } catch {
       return opaqueAdmissionFailure();
@@ -539,6 +513,13 @@ export class RoomDurableObject extends DurableObject<Env> {
         hostAuthority: admission.hostAuthority,
       };
       serverSocket.serializeAttachment(attachment);
+      const connected = await this.#controller.markConnected(
+        admission.playerId,
+        connectedAt,
+      );
+      if (!connected.ok) {
+        throw new Error("room connection is unavailable");
+      }
       if (!this.#sendProjection(serverSocket, attachment)) {
         throw new Error("initial projection send failed");
       }
@@ -554,6 +535,11 @@ export class RoomDurableObject extends DurableObject<Env> {
         await this.#disconnectIfLast(admission.playerId, undefined);
       } catch {
         // The connection is already closed and admission remains opaque.
+      }
+      try {
+        await this.#broadcastProjections();
+      } catch {
+        // Admission failures remain opaque even if a defensive resync fails.
       }
       return opaqueAdmissionFailure();
     }
@@ -655,9 +641,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     playerId: string,
     closingConnectionId: string | undefined,
   ): Promise<void> {
-    const hasOtherOpenConnection = this.ctx
-      .getWebSockets(playerId)
-      .some((candidate) => {
+    const hasOtherOpenConnection = () =>
+      this.ctx.getWebSockets(playerId).some((candidate) => {
         const attachment = parseRoomSocketAttachment(candidate);
         return (
           attachment !== null &&
@@ -669,7 +654,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       playerId,
       hasOtherOpenConnection,
     );
-    if (changed) {
+    if (changed && !hasOtherOpenConnection()) {
       await this.#broadcastProjections();
     }
   }
