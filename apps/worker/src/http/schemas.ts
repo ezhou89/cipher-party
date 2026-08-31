@@ -38,6 +38,19 @@ export const JoinRoomRequestSchema = z
   .strict();
 
 export function normalizeRoomCode(value: string): string | null {
+  if (
+    value.length !== 6 ||
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return !(
+        (code >= 0x30 && code <= 0x39) ||
+        (code >= 0x41 && code <= 0x5a) ||
+        (code >= 0x61 && code <= 0x7a)
+      );
+    })
+  ) {
+    return null;
+  }
   const normalized = value
     .toUpperCase()
     .replaceAll("O", "0")

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hashToken } from "../src/auth/token";
 import type { Env } from "../src/env";
 import worker from "../src/index";
+import { normalizeRoomCode } from "../src/http/schemas";
 import {
   PersistentRoomController,
   type RoomSnapshotStore,
@@ -419,6 +420,25 @@ describe("room bootstrap HTTP API", () => {
   });
 });
 
+describe("room-code input normalization", () => {
+  it.each([
+    ["lowercase Crockford input", "abc123", "ABC123"],
+    ["O/I/L aliases", "oilabc", "011ABC"],
+  ])("preserves %s", (_label, input, expected) => {
+    expect(normalizeRoomCode(input)).toBe(expected);
+  });
+
+  it.each([
+    ["Unicode long s", "ſ12345"],
+    ["Unicode dotless i", "ı12345"],
+    ["an original five-code-point ligature input", "ﬀ2345"],
+    ["uppercase ASCII U", "U12345"],
+    ["lowercase ASCII u", "u12345"],
+  ])("rejects %s before alias mapping", (_label, input) => {
+    expect(normalizeRoomCode(input)).toBeNull();
+  });
+});
+
 describe("strict bootstrap validation", () => {
   it.each([
     ["blank", " \t "],
@@ -611,6 +631,29 @@ describe("one-use connection ticket API", () => {
     });
   });
 
+  it("accepts a lowercase Bearer scheme with legal spaces and tabs", async () => {
+    const created = await createRoom();
+    const response = await request(`/api/rooms/${created.body.code}/tickets`, {
+      method: "POST",
+      headers: {
+        Authorization: `bearer\t  ${created.body.seatToken}`,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    const ticket = (await response.json()) as TicketResponse;
+    await expect(
+      room(created.body.code).consumeTicket({
+        ticket: ticket.ticket,
+        now: ticket.expiresAt - 1,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      playerId: created.body.playerId,
+      hostAuthority: false,
+    });
+  });
+
   it("persists ticket activity without a public revision and never stores the raw ticket", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(INITIAL_TIME);
@@ -663,22 +706,28 @@ describe("one-use connection ticket API", () => {
     const stub = room(created.body.code);
     const usable = await issueTicket(created.body.code, created.body.seatToken);
 
-    await expect(
-      stub.consumeTicket({
-        ticket: usable.body.ticket,
-        now: usable.body.expiresAt - 1,
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      playerId: created.body.playerId,
-      hostAuthority: false,
+    const firstConsumption = stub.consumeTicket({
+      ticket: usable.body.ticket,
+      now: usable.body.expiresAt - 1,
     });
-    await expect(
-      stub.consumeTicket({
-        ticket: usable.body.ticket,
-        now: usable.body.expiresAt - 1,
-      }),
-    ).resolves.toEqual({ ok: false, code: "unauthorized" });
+    const overlappingConsumption = stub.consumeTicket({
+      ticket: usable.body.ticket,
+      now: usable.body.expiresAt - 1,
+    });
+    const results = await Promise.all([
+      firstConsumption,
+      overlappingConsumption,
+    ]);
+    expect(results.filter((result) => result.ok)).toEqual([
+      {
+        ok: true,
+        playerId: created.body.playerId,
+        hostAuthority: false,
+      },
+    ]);
+    expect(results.filter((result) => !result.ok)).toEqual([
+      { ok: false, code: "unauthorized" },
+    ]);
 
     const expired = await issueTicket(
       created.body.code,
@@ -810,6 +859,82 @@ describe("trusted seat mutation persistence", () => {
         result.ticket,
       );
     }
+  });
+
+  it("rejects ticket issuance without changing cached activity or tickets when persistence fails", async () => {
+    const seatToken = "rejected-issue-seat-token";
+    const hostToken = "rejected-issue-host-token";
+    const state = fixtureState("ISSU23", {
+      hostTokenHash: await hashToken(hostToken),
+    });
+    state.seats[0]!.seatTokenHash = await hashToken(seatToken);
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(storage, () => JOIN_TIME);
+    await controller.initialize(state);
+    const before = controller.getSnapshot();
+    storage.writeImpl = async () => {
+      throw new Error("simulated issue persistence failure");
+    };
+
+    await expect(
+      controller.issueTicket({
+        seatToken,
+        hostToken,
+        now: JOIN_TIME.getTime(),
+      }),
+    ).rejects.toThrow("simulated issue persistence failure");
+    expect(controller.getSnapshot()).toEqual(before);
+    expect(storage.snapshot).toEqual(before);
+    expect(controller.getSnapshot()).toMatchObject({
+      revision: 0,
+      lastActivity: before?.lastActivity,
+      connectionTickets: [],
+    });
+  });
+
+  it("returns no consume success and retains a ticket when deletion persistence fails", async () => {
+    const seatToken = "consume-failure-seat-token";
+    const state = fixtureState("CONS23");
+    state.seats[0]!.seatTokenHash = await hashToken(seatToken);
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(storage, () => JOIN_TIME);
+    await controller.initialize(state);
+    const issued = await controller.issueTicket({
+      seatToken,
+      hostToken: null,
+      now: JOIN_TIME.getTime(),
+    });
+    expect(issued.ok).toBe(true);
+    if (!issued.ok) {
+      throw new Error("ticket fixture was not issued");
+    }
+    const before = controller.getSnapshot();
+    storage.writeImpl = async () => {
+      throw new Error("simulated consume persistence failure");
+    };
+
+    await expect(
+      controller.consumeTicket({
+        ticket: issued.ticket,
+        now: issued.expiresAt - 1,
+      }),
+    ).rejects.toThrow("simulated consume persistence failure");
+    expect(controller.getSnapshot()).toEqual(before);
+    expect(storage.snapshot).toEqual(before);
+    expect(controller.getSnapshot()?.connectionTickets).toHaveLength(1);
+
+    storage.writeImpl = undefined;
+    await expect(
+      controller.consumeTicket({
+        ticket: issued.ticket,
+        now: issued.expiresAt - 1,
+      }),
+    ).resolves.toEqual({
+      ok: true,
+      playerId: state.hostPlayerId,
+      hostAuthority: false,
+    });
+    expect(controller.getSnapshot()?.connectionTickets).toEqual([]);
   });
 });
 

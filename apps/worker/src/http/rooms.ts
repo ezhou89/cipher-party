@@ -123,8 +123,41 @@ export async function joinRoom(
 
 function bearerToken(request: Request): string | null {
   const authorization = request.headers.get("authorization");
-  const match = /^Bearer ([A-Za-z0-9_-]{43})$/u.exec(authorization ?? "");
-  return match?.[1] ?? null;
+  if (authorization === null) {
+    return null;
+  }
+  let separator = 0;
+  while (
+    separator < authorization.length &&
+    authorization[separator] !== " " &&
+    authorization[separator] !== "\t"
+  ) {
+    separator += 1;
+  }
+  const scheme = authorization.slice(0, separator);
+  if (scheme.length !== 6) {
+    return null;
+  }
+  const expectedScheme = "bearer";
+  for (let index = 0; index < expectedScheme.length; index += 1) {
+    const code = scheme.charCodeAt(index);
+    const asciiLower = code >= 0x41 && code <= 0x5a ? code + 0x20 : code;
+    if (asciiLower !== expectedScheme.charCodeAt(index)) {
+      return null;
+    }
+  }
+  let tokenStart = separator;
+  while (
+    authorization[tokenStart] === " " ||
+    authorization[tokenStart] === "\t"
+  ) {
+    tokenStart += 1;
+  }
+  if (tokenStart === separator) {
+    return null;
+  }
+  const token = authorization.slice(tokenStart);
+  return /^[A-Za-z0-9_-]{43}$/u.test(token) ? token : null;
 }
 
 export async function issueRoomTicket(
