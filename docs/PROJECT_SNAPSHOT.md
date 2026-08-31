@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 13
+**Snapshot revision:** 14
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-08-31
 
-**Project state:** Tasks 1–11 are accepted. The role-aware Classic route now renders an authoritative spatial board with structurally public cards, a default-closed clue-giver key, projection-owned nomination/reveal and turn controls, public history/results, and reconnect-safe accessible dialogs; Task 12 is ready.
+**Project state:** Tasks 1–12 are accepted. Five isolated browser clients now complete a real Connected Classic board across Chromium and mobile WebKit, including assignment, lock/start, Cancel/Confirm, refresh recovery, monotonic convergence, exactly-once results/history, responsive 320px layout, and value-free raw-frame hidden-data auditing; Task 13 is current.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,10 +55,10 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 11 — role-aware Classic game board UI at accepted head `6e30668` (`a98f4f3` implementation plus review fixes `bcc1e11` and `6e30668`).
-- **Current task:** Task 12 — multiplayer browser E2E and hidden-data regression.
-- **Next task after review:** Task 13 — release preflight, documentation, and playtest handoff.
-- **Blocked by:** Nothing.
+- **Last accepted implementation task:** Task 12 — multiplayer browser E2E and hidden-data regression at accepted head `7badb94` (`3b16324` implementation plus review fixes `130f408`, `6305f54`, `935a30c`, and `7badb94`).
+- **Current task:** Task 13 — release preflight, documentation, and playtest handoff.
+- **Next task after review:** Close Connected Classic and hand off to Milestone 2 Pack Studio planning.
+- **Blocked by:** Nothing; the required four-player human playtest remains an explicit Task 13 exit gate.
 
 ## Verified baseline
 
@@ -74,6 +74,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 9 commits: `29e1255` and review fix `4f4ea4f`.
 - Task 10 commits: `2022230` and review fix `abd09bc`.
 - Task 11 commits: `a98f4f3` and review fixes `bcc1e11`, `6e30668`.
+- Task 12 commits: `3b16324` and review fixes `130f408`, `6305f54`, `935a30c`, `7badb94`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -121,6 +122,13 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 11 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 402 tests with no failures.
 - Task 11 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
 - Task 11 cumulative and fix-only `git diff --check`: passed with no output.
+- Task 12 focused security regressions: 7/7 passed in Chromium; HomePage repeat-error focus: 9/9 passed.
+- Task 12 `npm run test:e2e -- --project=chromium`: 18/18 passed.
+- Task 12 `npm run test:e2e`: 36/36 passed across Chromium and WebKit Mobile, including the isolated five-client full-board flow.
+- Task 12 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 403/403 tests (web 120, Worker 118, game-core 67, protocol 95, root 3).
+- Task 12 `npm run build`: passed package/app typechecks, the Vite production build, and Worker dry-run build.
+- Task 12 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and resolved four web assets plus the expected Durable Object/environment bindings.
+- Task 12 cumulative and fix-only `git diff --check`: passed with no output; tracked status was clean. Public-only desktop and 320px screenshots were visually inspected in both browser projects, and the generated test artifact contained only a passing `.last-run.json`.
 
 ## Decisions agents must preserve
 
@@ -146,6 +154,8 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Public game roles never read a clue-giver key or infer hidden target denominators; only the default-closed clue-giver branch can mount per-card key indicators, while revealed ownership remains public.
 - Reveal and End Turn confirmation use one identity-scoped, projection-validated modal owner. Local Cancel remains available during reconnect, with enabled-trigger focus return or an explicit Turn status fallback; destructive confirmation remains transport-gated.
 - Game announcements use allowlisted public data and compose simultaneous reveal, turn/phase, and board-result changes without making the 25-card grid live.
+- Every received room WebSocket frame in the E2E privacy harness receives a persistent value-free outcome before strict schema handling; public raw projections are recursively audited before parsing, and later valid frames cannot erase earlier violations.
+- The credential/hidden-data E2E spec disables automatic trace and screenshot capture. Explicit screenshots use public roles only, and clue-giver-derived target labels, IDs, and positions stay inside caught page-side interactions with fixed value-free diagnostics until the authoritative reveal makes them public.
 
 ## Known risks
 

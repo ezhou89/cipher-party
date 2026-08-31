@@ -2111,7 +2111,7 @@ Update the snapshot to Task 12.
 - Consumes: all Milestone 1 HTTP, WebSocket, lobby, and game interfaces.
 - Produces: one automated full-board proof across isolated browser contexts and a captured-frame hidden-data regression.
 
-- [ ] **Step 1: Configure a deterministic local E2E environment**
+- [x] **Step 1: Configure a deterministic local E2E environment**
 
 Playwright webServer runs npm run dev and waits for http://127.0.0.1:5173/api/health through the Vite proxy. Use:
 
@@ -2143,7 +2143,7 @@ Install the two planned local browser engines once before the first E2E run:
 npx playwright install chromium webkit
 ~~~
 
-- [ ] **Step 2: Write the failing room-setup helper**
+- [x] **Step 2: Write the failing room-setup helper**
 
 e2e/helpers/room.ts creates isolated contexts for:
 
@@ -2155,7 +2155,7 @@ e2e/helpers/room.ts creates isolated contexts for:
 
 It creates the room, joins each context, uses host controls to assign teams/roles, locks, and starts. Return pages and room code.
 
-- [ ] **Step 3: Write the failing full-board test**
+- [x] **Step 3: Write the failing full-board test**
 
 The test:
 
@@ -2169,7 +2169,7 @@ The test:
 8. Asserts one command result exists per reveal command ID.
 9. Asserts public history contains one public card_revealed entry per reveal and no duplicate entries after refresh.
 
-- [ ] **Step 4: Add failure-path browser cases**
+- [x] **Step 4: Add failure-path browser cases**
 
 Cover:
 
@@ -2179,7 +2179,7 @@ Cover:
 - Canceling a reveal leaves the card unrevealed.
 - Refreshing after a socket disconnect requests a new ticket and restores the same seat.
 
-- [ ] **Step 5: Run E2E and observe the first real failure**
+- [x] **Step 5: Run E2E and observe the first real failure**
 
 ~~~bash
 npm run test:e2e -- --project=chromium
@@ -2187,11 +2187,11 @@ npm run test:e2e -- --project=chromium
 
 Expected: FAIL at the first missing selector, proxy, presence, or synchronization behavior. Record the exact failure in the task handoff before changing implementation.
 
-- [ ] **Step 6: Make only the minimal integration fixes**
+- [x] **Step 6: Make only the minimal integration fixes**
 
 Fix the observed failures without changing protocol or rule semantics. Add stable accessible labels before adding test-only selectors. If a test-only identifier is unavoidable, use data-testid only on the room code and connection revision, never on hidden ownership.
 
-- [ ] **Step 7: Run desktop and mobile E2E**
+- [x] **Step 7: Run desktop and mobile E2E**
 
 ~~~bash
 npm run test:e2e
@@ -2199,7 +2199,7 @@ npm run test:e2e
 
 Expected: complete flow and failure paths pass in Chromium and mobile WebKit.
 
-- [ ] **Step 8: Run the full milestone gate**
+- [x] **Step 8: Run the full milestone gate**
 
 ~~~bash
 npm run check
@@ -2211,7 +2211,7 @@ git diff --check
 
 Expected: every command exits 0.
 
-- [ ] **Step 9: Commit Task 12**
+- [x] **Step 9: Commit Task 12**
 
 ~~~bash
 git add playwright.config.ts e2e apps package.json package-lock.json
