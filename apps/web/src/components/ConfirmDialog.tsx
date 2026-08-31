@@ -13,6 +13,7 @@ interface ConfirmDialogProps {
   cancelLabel: string;
   confirmDisabled: boolean;
   returnFocus: HTMLElement | null;
+  fallbackFocus: HTMLElement | null;
   children?: ReactNode;
   onConfirm(): void;
   onCancel(): void;
@@ -25,6 +26,7 @@ export function ConfirmDialog({
   cancelLabel,
   confirmDisabled,
   returnFocus,
+  fallbackFocus,
   children,
   onConfirm,
   onCancel,
@@ -42,11 +44,11 @@ export function ConfirmDialog({
   useEffect(() => {
     cancelRef.current?.focus();
     return () => {
-      if (returnFocus?.isConnected === true) {
-        returnFocus.focus();
+      if (!focusIfAvailable(returnFocus)) {
+        focusIfAvailable(fallbackFocus);
       }
     };
-  }, [returnFocus]);
+  }, [fallbackFocus, returnFocus]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -117,4 +119,17 @@ export function ConfirmDialog({
       </div>
     </div>
   );
+}
+
+function focusIfAvailable(target: HTMLElement | null): boolean {
+  if (
+    target === null ||
+    !target.isConnected ||
+    target.matches(":disabled") ||
+    target.getAttribute("aria-disabled") === "true"
+  ) {
+    return false;
+  }
+  target.focus();
+  return document.activeElement === target;
 }

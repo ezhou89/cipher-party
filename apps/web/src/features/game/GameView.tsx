@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -207,12 +208,18 @@ function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
 
 interface GameStatusProps {
   board: GameBoard;
+  focusFallbackRef: RefObject<HTMLElement | null>;
 }
 
-function GameStatus({ board }: GameStatusProps) {
+function GameStatus({ board, focusFallbackRef }: GameStatusProps) {
   const team = TEAM[board.activeTeam];
   return (
-    <section className="game-status-strip" aria-label="Turn status">
+    <section
+      className="game-status-strip"
+      ref={focusFallbackRef}
+      tabIndex={-1}
+      aria-label="Turn status"
+    >
       <TeamScore board={board} />
       <div className="turn-status">
         <strong>
@@ -364,6 +371,7 @@ function GameWorkspace({
   ownTeam,
   send,
 }: GameWorkspaceProps) {
+  const focusFallbackRef = useRef<HTMLElement>(null);
   const [confirmation, setConfirmation] = useState<ConfirmationIntent | null>(
     null,
   );
@@ -454,7 +462,7 @@ function GameWorkspace({
   return (
     <>
       <GameEventAnnouncer projection={projection} board={board} />
-      <GameStatus board={board} />
+      <GameStatus board={board} focusFallbackRef={focusFallbackRef} />
       {board.phase === "board_complete" ||
       projection.roomPhase === "complete" ? (
         <BoardResult board={board} />
@@ -509,6 +517,7 @@ function GameWorkspace({
           cancelLabel="Cancel reveal"
           confirmDisabled={gameActionsDisabled}
           returnFocus={revealIntent.returnFocus}
+          fallbackFocus={focusFallbackRef.current}
           onCancel={() => setConfirmation(null)}
           onConfirm={() => {
             const currentCard = board.cards.find(
@@ -534,6 +543,7 @@ function GameWorkspace({
           cancelLabel="Keep guessing"
           confirmDisabled={gameActionsDisabled}
           returnFocus={endTurnIntent.returnFocus}
+          fallbackFocus={focusFallbackRef.current}
           onCancel={() => setConfirmation(null)}
           onConfirm={() => {
             if (

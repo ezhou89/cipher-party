@@ -1421,9 +1421,13 @@ describe("GameView operative and moderation interactions", () => {
     expect(
       within(dialog).getByRole("button", { name: "Confirm reveal" }),
     ).toBeDisabled();
+    const focusFallback = screen.getByRole("region", {
+      name: "Turn status",
+    });
     await user.click(cancel);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(send).not.toHaveBeenCalled();
+    expect(focusFallback).toHaveFocus();
   });
 
   it("keeps end-turn cancellation clickable through reconnect while confirm stays disabled", async () => {
@@ -1459,9 +1463,13 @@ describe("GameView operative and moderation interactions", () => {
     expect(cancel).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(cancel).toHaveFocus();
+    const focusFallback = screen.getByRole("region", {
+      name: "Turn status",
+    });
     await user.click(cancel);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(send).not.toHaveBeenCalled();
+    expect(focusFallback).toHaveFocus();
   });
 
   it("contains forward and reverse Tab when focus is forced outside the modal", async () => {
@@ -1735,6 +1743,7 @@ describe("ConfirmDialog committed listener lifecycle", () => {
             cancelLabel="Cancel"
             confirmDisabled={false}
             returnFocus={null}
+            fallbackFocus={null}
             onConfirm={() => {}}
             onCancel={interrupt ? interruptedCancel : committedCancel}
           >
@@ -1758,6 +1767,97 @@ describe("ConfirmDialog committed listener lifecycle", () => {
     view.unmount();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(committedCancel).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { unavailable: "native disabled", nativeDisabled: true },
+    { unavailable: "ARIA disabled", nativeDisabled: false },
+  ])(
+    "uses the explicit fallback when the $unavailable primary cannot receive focus",
+    ({ nativeDisabled }) => {
+      const primary = document.createElement("button");
+      primary.disabled = nativeDisabled;
+      if (!nativeDisabled) {
+        primary.setAttribute("aria-disabled", "true");
+      }
+      const fallback = document.createElement("section");
+      fallback.tabIndex = -1;
+      document.body.append(primary, fallback);
+
+      const view = render(
+        <ConfirmDialog
+          title="Focus restoration"
+          description="Unavailable primary targets use the explicit fallback."
+          confirmLabel="Confirm"
+          cancelLabel="Cancel"
+          confirmDisabled={false}
+          returnFocus={primary}
+          fallbackFocus={fallback}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      view.unmount();
+
+      expect(fallback).toHaveFocus();
+      primary.remove();
+      fallback.remove();
+    },
+  );
+
+  it("uses the fallback when a connected primary focus attempt does not succeed", () => {
+    const primary = document.createElement("div");
+    const fallback = document.createElement("section");
+    fallback.tabIndex = -1;
+    document.body.append(primary, fallback);
+
+    const view = render(
+      <ConfirmDialog
+        title="Focus restoration"
+        description="A failed primary focus attempt uses the explicit fallback."
+        confirmLabel="Confirm"
+        cancelLabel="Cancel"
+        confirmDisabled={false}
+        returnFocus={primary}
+        fallbackFocus={fallback}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    view.unmount();
+
+    expect(fallback).toHaveFocus();
+    primary.remove();
+    fallback.remove();
+  });
+
+  it("does not focus either restoration target after both disconnect", () => {
+    const primary = document.createElement("button");
+    const fallback = document.createElement("section");
+    fallback.tabIndex = -1;
+    document.body.append(primary, fallback);
+    const primaryFocus = vi.spyOn(primary, "focus");
+    const fallbackFocus = vi.spyOn(fallback, "focus");
+
+    const view = render(
+      <ConfirmDialog
+        title="Focus restoration"
+        description="Disconnected targets stay untouched."
+        confirmLabel="Confirm"
+        cancelLabel="Cancel"
+        confirmDisabled={false}
+        returnFocus={primary}
+        fallbackFocus={fallback}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    primary.remove();
+    fallback.remove();
+    view.unmount();
+
+    expect(primaryFocus).not.toHaveBeenCalled();
+    expect(fallbackFocus).not.toHaveBeenCalled();
   });
 });
 
