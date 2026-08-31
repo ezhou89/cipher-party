@@ -1,0 +1,37 @@
+{
+  "name": "cipher-party",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build -w @cipher-party/game-core && npm run build -w @cipher-party/protocol && npm run build -w @cipher-party/web && npm run build -w @cipher-party/worker",
+    "check": "npm run check:docs && npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "check:docs": "node scripts/check-project-docs.mjs",
+    "dev": "concurrently -k -n worker,web \"npm run dev -w @cipher-party/worker\" \"npm run dev -w @cipher-party/web\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "test": "npm run test --workspaces --if-present && vitest run --config vitest.config.ts",
+    "test:e2e": "playwright test",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.4.0",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.9.1",
+    "fast-check": "^4.9.0",
+    "jsonc-parser": "^3.3.1",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^4.1.11"
+  }
+}

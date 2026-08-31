@@ -1,0 +1,10 @@
+AGENTS.md
+docs/PROJECT_SNAPSHOT.md
+docs/superpowers/
+node_modules/
+dist/
+coverage/
+.wrangler/
+playwright-report/
+test-results/
+package-lock.json
