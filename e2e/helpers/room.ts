@@ -6,6 +6,7 @@ import {
 } from "@playwright/test";
 import {
   ClientProjectionSchema,
+  ServerMessageSchema,
   type ClientProjection,
   type CommandEnvelope,
   type CommandResult,
@@ -33,10 +34,26 @@ export interface ObservedHttpFailure {
   status: number;
 }
 
+export interface ObservedServerFrameOutcome {
+  outcome:
+    | "projection_accepted"
+    | "command_result_accepted"
+    | "error_accepted"
+    | "invalid_projection_payload"
+    | "invalid_server_message"
+    | "malformed_json"
+    | "non_object_message"
+    | "non_text_frame";
+  socketIndex: number;
+  socketProjectionIndex?: number;
+}
+
 export interface RoomFrameObserver {
   projections: ClientProjection[];
   projectionFrames: ObservedProjectionFrame[];
   projectionViolations: string[];
+  serverMessageViolations: string[];
+  serverFrameOutcomes: ObservedServerFrameOutcome[];
   sentCommands: CommandEnvelope[];
   commandResults: ObservedCommandResult[];
   privacyViolations: string[];
@@ -110,7 +127,7 @@ function safePathname(value: string): string | null {
 }
 
 export function auditPublicProjection(
-  projection: JsonRecord,
+  projection: unknown,
   observer: RoomFrameObserver,
   expectedViewRole?: "operative" | "spectator",
 ): void {
@@ -119,6 +136,7 @@ export function auditPublicProjection(
   }
 
   if (
+    isRecord(projection) &&
     (projection.roomPhase === "playing" ||
       projection.roomPhase === "complete") &&
     projection.viewRole !== expectedViewRole
@@ -179,29 +197,12 @@ export function auditPublicProjection(
 }
 
 function recordProjection(
-  rawProjection: JsonRecord,
+  projection: ClientProjection,
   observer: RoomFrameObserver,
   options: ObserveRoomPageOptions,
   socketIndex: number,
   socketProjectionIndex: number,
 ): void {
-  if (options.publicObserver === true) {
-    auditPublicProjection(
-      rawProjection,
-      observer,
-      options.expectedViewRole === "operative" ||
-        options.expectedViewRole === "spectator"
-        ? options.expectedViewRole
-        : undefined,
-    );
-  }
-
-  const parsed = ClientProjectionSchema.safeParse(rawProjection);
-  if (!parsed.success) {
-    observer.projectionViolations.push("projection_schema_invalid");
-    return;
-  }
-  const projection = parsed.data;
   if (
     options.expectedViewRole !== undefined &&
     (projection.roomPhase === "playing" ||
@@ -218,6 +219,119 @@ function recordProjection(
   });
 }
 
+function recordReceivedRoomFrame(
+  payload: string | Buffer,
+  observer: RoomFrameObserver,
+  options: ObserveRoomPageOptions,
+  socketIndex: number,
+  socketProjectionIndex: number,
+): number {
+  if (typeof payload !== "string") {
+    observer.serverMessageViolations.push("non_text_server_frame");
+    observer.serverFrameOutcomes.push({
+      outcome: "non_text_frame",
+      socketIndex,
+    });
+    return socketProjectionIndex;
+  }
+
+  let rawMessage: unknown;
+  try {
+    rawMessage = JSON.parse(payload);
+  } catch {
+    observer.serverMessageViolations.push("malformed_json_server_frame");
+    observer.serverFrameOutcomes.push({
+      outcome: "malformed_json",
+      socketIndex,
+    });
+    return socketProjectionIndex;
+  }
+
+  if (!isRecord(rawMessage)) {
+    observer.serverMessageViolations.push("non_object_server_message");
+    observer.serverFrameOutcomes.push({
+      outcome: "non_object_message",
+      socketIndex,
+    });
+    return socketProjectionIndex;
+  }
+
+  if (rawMessage.type === "projection") {
+    const rawProjectionIndex = socketProjectionIndex;
+    const nextProjectionIndex = socketProjectionIndex + 1;
+    const rawProjection = rawMessage.projection;
+    if (options.publicObserver === true) {
+      auditPublicProjection(
+        rawProjection,
+        observer,
+        options.expectedViewRole === "operative" ||
+          options.expectedViewRole === "spectator"
+          ? options.expectedViewRole
+          : undefined,
+      );
+    }
+
+    const parsedProjection = ClientProjectionSchema.safeParse(rawProjection);
+    if (!parsedProjection.success) {
+      observer.projectionViolations.push("projection_schema_invalid");
+    }
+    const parsedMessage = ServerMessageSchema.safeParse(rawMessage);
+    if (!parsedMessage.success) {
+      observer.serverMessageViolations.push("invalid_server_message");
+    }
+    if (!parsedProjection.success || !parsedMessage.success) {
+      observer.serverFrameOutcomes.push({
+        outcome: "invalid_projection_payload",
+        socketIndex,
+        socketProjectionIndex: rawProjectionIndex,
+      });
+      return nextProjectionIndex;
+    }
+
+    recordProjection(
+      parsedProjection.data,
+      observer,
+      options,
+      socketIndex,
+      rawProjectionIndex,
+    );
+    observer.serverFrameOutcomes.push({
+      outcome: "projection_accepted",
+      socketIndex,
+      socketProjectionIndex: rawProjectionIndex,
+    });
+    return nextProjectionIndex;
+  }
+
+  const parsedMessage = ServerMessageSchema.safeParse(rawMessage);
+  if (!parsedMessage.success) {
+    observer.serverMessageViolations.push("invalid_server_message");
+    observer.serverFrameOutcomes.push({
+      outcome: "invalid_server_message",
+      socketIndex,
+    });
+    return socketProjectionIndex;
+  }
+
+  if (parsedMessage.data.type === "command_result") {
+    observer.commandResults.push({
+      commandId: parsedMessage.data.commandId,
+      result: parsedMessage.data.result,
+    });
+    observer.serverFrameOutcomes.push({
+      outcome: "command_result_accepted",
+      socketIndex,
+    });
+    return socketProjectionIndex;
+  }
+
+  observer.serverFrameOutcomes.push({
+    outcome: "error_accepted",
+    socketIndex,
+  });
+  return socketProjectionIndex;
+}
+
 export function observeRoomPage(
   page: Page,
   options: ObserveRoomPageOptions = {},
@@ -226,6 +340,8 @@ export function observeRoomPage(
     projections: [],
     projectionFrames: [],
     projectionViolations: [],
+    serverMessageViolations: [],
+    serverFrameOutcomes: [],
     sentCommands: [],
     commandResults: [],
     privacyViolations: [],
@@ -285,28 +401,13 @@ export function observeRoomPage(
       }
     });
     socket.on("framereceived", ({ payload }) => {
-      const frame = parseJsonFrame(payload);
-      if (frame?.type === "projection" && isRecord(frame.projection)) {
-        recordProjection(
-          frame.projection,
-          observer,
-          options,
-          socketIndex,
-          socketProjectionIndex,
-        );
-        socketProjectionIndex += 1;
-        return;
-      }
-      if (
-        frame?.type === "command_result" &&
-        typeof frame.commandId === "string" &&
-        isRecord(frame.result)
-      ) {
-        observer.commandResults.push({
-          commandId: frame.commandId,
-          result: frame.result as unknown as CommandResult,
-        });
-      }
+      socketProjectionIndex = recordReceivedRoomFrame(
+        payload,
+        observer,
+        options,
+        socketIndex,
+        socketProjectionIndex,
+      );
     });
   });
 
@@ -327,7 +428,7 @@ async function createObservedSeat(
     const frames = observeRoomPage(page, options);
     return { context, page, frames };
   } catch (error) {
-    await context.close();
+    await Promise.allSettled([context.close()]);
     throw error;
   }
 }

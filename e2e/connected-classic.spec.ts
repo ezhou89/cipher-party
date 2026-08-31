@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import type { ClientProjection } from "@cipher-party/protocol";
 
 import {
@@ -27,6 +27,8 @@ function emptyFrameObserver(): RoomFrameObserver {
     projections: [],
     projectionFrames: [],
     projectionViolations: [],
+    serverMessageViolations: [],
+    serverFrameOutcomes: [],
     sentCommands: [],
     commandResults: [],
     privacyViolations: [],
@@ -35,6 +37,71 @@ function emptyFrameObserver(): RoomFrameObserver {
     consoleIssues: [],
     consoleIssuePaths: [],
     httpFailures: [],
+  };
+}
+
+function observeSyntheticRoomFrames(
+  options: {
+    expectedViewRole?: "operative" | "spectator";
+    publicObserver?: boolean;
+  } = {},
+) {
+  const pageListeners = new Map<string, (event: unknown) => void>();
+  const socketListeners = new Map<string, (event: unknown) => void>();
+  const fakePage = {
+    on(event: string, listener: (event: unknown) => void) {
+      pageListeners.set(event, listener);
+      return fakePage;
+    },
+  } as unknown as Page;
+  const observer = observeRoomPage(fakePage, options);
+  const fakeSocket = {
+    url: () => "ws://room.test/api/rooms/ABC123/connect",
+    on(event: string, listener: (event: unknown) => void) {
+      socketListeners.set(event, listener);
+      return fakeSocket;
+    },
+  };
+  pageListeners.get("websocket")?.(fakeSocket);
+
+  return {
+    observer,
+    receive(payload: string | Buffer) {
+      socketListeners.get("framereceived")?.({ payload });
+    },
+  };
+}
+
+function validSpectatorProjection(revision: number): ClientProjection {
+  return {
+    protocolVersion: 1,
+    revision,
+    code: "ABC123",
+    inviteUrl: "http://room.test/room/ABC123",
+    roomPhase: "playing",
+    locked: true,
+    viewer: {
+      playerId: "spectator",
+      teamId: null,
+      role: "spectator",
+      isHost: false,
+    },
+    permissions: {
+      configure: false,
+      moderate: false,
+      submitClue: false,
+      challengeClue: false,
+      nominate: false,
+      confirmReveal: false,
+      endTurn: false,
+      resolveChallenge: false,
+      pause: false,
+      resume: false,
+    },
+    seats: [],
+    publicHistory: [],
+    board: null,
+    viewRole: "spectator",
   };
 }
 
@@ -60,15 +127,25 @@ function unexpectedConsoleIssues(
   expected?: ExpectedHttpFailure,
 ): string[] {
   if (expected === undefined) {
-    return [...observer.consoleIssues];
+    return observer.httpFailures.length === 0
+      ? [...observer.consoleIssues]
+      : [...observer.consoleIssues, "unexpected_http_failure"];
   }
 
-  let correlatedResponses = observer.httpFailures.filter(
+  const exactExpectedResponses = observer.httpFailures.filter(
     (failure) =>
       failure.method === expected.method &&
       failure.path === expected.path &&
       failure.status === expected.status,
   ).length;
+  if (
+    observer.httpFailures.length !== 1 ||
+    exactExpectedResponses !== observer.httpFailures.length
+  ) {
+    return [...observer.consoleIssues, "unexpected_http_failure"];
+  }
+
+  let correlatedResponses = exactExpectedResponses;
   return observer.consoleIssues.filter((issue, index) => {
     const status = Number(REJECTION_CONSOLE_STATUS.exec(issue)?.[1]);
     const locationPath = observer.consoleIssuePaths[index] ?? null;
@@ -425,6 +502,66 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
   ]);
 });
 
+test("room observer audits and indexes every raw projection before strict validation", () => {
+  const { observer, receive } = observeSyntheticRoomFrames({
+    expectedViewRole: "spectator",
+    publicObserver: true,
+  });
+
+  receive(
+    JSON.stringify({
+      type: "projection",
+      projection: [{ nested: { key: {} } }, { owner: "synthetic" }],
+    }),
+  );
+  receive(
+    JSON.stringify({
+      type: "projection",
+      projection: validSpectatorProjection(1),
+    }),
+  );
+
+  expect(observer.privacyViolations).toEqual([
+    "forbidden_hidden_field",
+    "owner_outside_public_reveal",
+  ]);
+  expect(observer.projectionViolations).toEqual(["projection_schema_invalid"]);
+  expect(observer.serverMessageViolations).toEqual(["invalid_server_message"]);
+  expect(observer.serverFrameOutcomes).toEqual([
+    {
+      outcome: "invalid_projection_payload",
+      socketIndex: 1,
+      socketProjectionIndex: 0,
+    },
+    {
+      outcome: "projection_accepted",
+      socketIndex: 1,
+      socketProjectionIndex: 1,
+    },
+  ]);
+  expect(observer.projectionFrames).toHaveLength(1);
+  expect(observer.projectionFrames[0]!.socketProjectionIndex).toBe(1);
+});
+
+test("room observer records malformed, non-object, and non-text frame outcomes", () => {
+  const { observer, receive } = observeSyntheticRoomFrames();
+
+  receive("{");
+  receive("[]");
+  receive(Buffer.from("binary-room-frame"));
+
+  expect(observer.serverMessageViolations).toEqual([
+    "malformed_json_server_frame",
+    "non_object_server_message",
+    "non_text_server_frame",
+  ]);
+  expect(observer.serverFrameOutcomes).toEqual([
+    { outcome: "malformed_json", socketIndex: 1 },
+    { outcome: "non_object_message", socketIndex: 1 },
+    { outcome: "non_text_frame", socketIndex: 1 },
+  ]);
+});
+
 test("convergence rejects a regressing raw projection sequence", () => {
   const seatWithRevisions = (revisions: number[]): ObservedSeat => {
     const frames = emptyFrameObserver();
@@ -462,10 +599,11 @@ test("console filtering suppresses only the correlated endpoint failure", () => 
     "error: Failed to load resource: the server responded with a status of 409";
   observer.consoleIssues.push(genericFailure, genericFailure);
   observer.consoleIssuePaths.push(null, "/unrelated.css");
-  observer.httpFailures.push(
-    { method: "POST", path: "/api/rooms/ABC123/join", status: 409 },
-    { method: "GET", path: "/unrelated.css", status: 409 },
-  );
+  observer.httpFailures.push({
+    method: "POST",
+    path: "/api/rooms/ABC123/join",
+    status: 409,
+  });
   expect(
     unexpectedConsoleIssues(observer, {
       method: "POST",
@@ -473,6 +611,26 @@ test("console filtering suppresses only the correlated endpoint failure", () => 
       status: 409,
     }),
   ).toEqual([genericFailure]);
+});
+
+test("console filtering rejects an ambiguous extra same-status HTTP failure", () => {
+  const observer = emptyFrameObserver();
+  const genericFailure =
+    "error: Failed to load resource: the server responded with a status of 409";
+  observer.consoleIssues.push(genericFailure);
+  observer.consoleIssuePaths.push(null);
+  observer.httpFailures.push(
+    { method: "POST", path: "/api/rooms/ABC123/join", status: 409 },
+    { method: "GET", path: "/unrelated.css", status: 409 },
+  );
+
+  expect(
+    unexpectedConsoleIssues(observer, {
+      method: "POST",
+      path: "/api/rooms/ABC123/join",
+      status: 409,
+    }),
+  ).toEqual([genericFailure, "unexpected_http_failure"]);
 });
 
 test("room setup failure closes every helper-created context", async ({
@@ -509,6 +667,37 @@ test("room setup failure closes every helper-created context", async ({
         .map((context) => context.close()),
     );
   }
+});
+
+test("seat setup preserves its original error when context cleanup also fails", async () => {
+  const setupError = new Error("synthetic page setup failure");
+  let closeAttempts = 0;
+  const browser = {
+    async newContext() {
+      return {
+        async newPage() {
+          throw setupError;
+        },
+        async close() {
+          closeAttempts += 1;
+          throw new Error("synthetic context close failure");
+        },
+      };
+    },
+  } as unknown as Browser;
+
+  let receivedError: unknown;
+  try {
+    await createConnectedClassicRoom({
+      browser,
+      baseURL: "http://room.test",
+    });
+  } catch (error) {
+    receivedError = error;
+  }
+
+  expect(receivedError).toBe(setupError);
+  expect(closeAttempts).toBe(1);
 });
 
 test("wrong room code reports a focused public error", async ({ page }) => {
@@ -764,6 +953,8 @@ test("five isolated clients complete Connected Classic without hidden-data or du
     for (const [seat, expectedRole] of expectedRoles) {
       expectPlayingAndCompleteRole(seat, expectedRole);
       expect(seat.frames.projectionViolations).toEqual([]);
+      expect(seat.frames.serverMessageViolations).toEqual([]);
+      expect(seat.frames.serverFrameOutcomes.length).toBeGreaterThan(0);
     }
     for (const publicSeat of [
       room.redOperative,
@@ -774,7 +965,8 @@ test("five isolated clients complete Connected Classic without hidden-data or du
     }
     expect(room.spectator.frames.sentCommands).toHaveLength(0);
     for (const seat of room.seats) {
-      expect(seat.frames.consoleIssues).toEqual([]);
+      expect(unexpectedConsoleIssues(seat.frames)).toEqual([]);
+      expect(seat.frames.httpFailures).toEqual([]);
     }
   } finally {
     if (room !== undefined) {
