@@ -80,6 +80,16 @@ export interface ConnectedClassicRoom {
   seats: ObservedSeat[];
 }
 
+export function unexpectedServerOutcomes(
+  observer: RoomFrameObserver,
+): string[] {
+  return observer.serverFrameOutcomes.flatMap(({ outcome }) =>
+    outcome === "projection_accepted" || outcome === "command_result_accepted"
+      ? []
+      : ["unexpected_server_outcome"],
+  );
+}
+
 interface CreateConnectedClassicRoomOptions {
   browser: Browser;
   baseURL: string;

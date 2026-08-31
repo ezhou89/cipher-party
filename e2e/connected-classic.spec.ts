@@ -7,6 +7,7 @@ import {
   createConnectedClassicRoom,
   latestProjection,
   observeRoomPage,
+  unexpectedServerOutcomes,
   waitForProjection,
   waitForNewerProjection,
   type ConnectedClassicRoom,
@@ -20,7 +21,7 @@ const REJECTION_CONSOLE_STATUS =
 
 // Room creation returns durable browser-local credentials. Keep the repository
 // default for other tests, but never record this credential-bearing flow.
-test.use({ trace: "off" });
+test.use({ trace: "off", screenshot: "off" });
 
 function emptyFrameObserver(): RoomFrameObserver {
   return {
@@ -203,24 +204,173 @@ async function endTurn(seat: ObservedSeat): Promise<void> {
   await waitForNewerProjection(seat.frames, before);
 }
 
-async function readRedTargetLabels(page: Page): Promise<string[]> {
-  await page.getByRole("button", { name: "Show secret key" }).click();
-  await expect(
-    page.getByText("Secret ownership is visible.", { exact: true }),
-  ).toBeVisible();
-  const items = page
-    .getByRole("region", { name: "Classic board" })
-    .getByRole("listitem");
-  await expect(items).toHaveCount(25);
-  const labels: string[] = [];
-  for (let index = 0; index < 25; index += 1) {
-    const item = items.nth(index);
-    if ((await item.getByText(/Red key$/u).count()) === 1) {
-      labels.push(await item.locator(".board-card-label").innerText());
+type SecretExtraction<T> = { ok: true; value: T } | { ok: false };
+
+interface SecretReadActions<T> {
+  reveal(): Promise<boolean>;
+  extract(): Promise<SecretExtraction<T>>;
+  conceal(): Promise<boolean>;
+  makeArtifactSafe(): Promise<void>;
+}
+
+async function readWithSecretConcealed<T>(
+  actions: SecretReadActions<T>,
+): Promise<T> {
+  let completed = false;
+  let value: T | undefined;
+  let initiatingError: unknown;
+  try {
+    if (!(await actions.reveal())) {
+      throw new Error("secret_key_reveal_failed");
     }
+    const extraction = await actions.extract();
+    if (!extraction.ok) {
+      throw new Error("secret_key_extraction_failed");
+    }
+    value = extraction.value;
+    completed = true;
+  } catch (error) {
+    initiatingError = error;
   }
-  expect(labels.length === 8 || labels.length === 9).toBe(true);
-  return labels;
+
+  let concealed: boolean;
+  try {
+    concealed = await actions.conceal();
+  } catch {
+    concealed = false;
+  }
+  if (!concealed) {
+    await Promise.allSettled([
+      Promise.resolve().then(() => actions.makeArtifactSafe()),
+    ]);
+  }
+
+  if (!completed) {
+    throw initiatingError;
+  }
+  if (!concealed) {
+    throw new Error("secret_key_conceal_failed");
+  }
+  return value as T;
+}
+
+async function toggleSecretKeyWithoutLocatorFailure(
+  page: Page,
+  label: "Show secret key" | "Hide secret key",
+): Promise<boolean> {
+  return page
+    .evaluate((expectedLabel) => {
+      const button = Array.from(document.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent?.trim() === expectedLabel,
+      );
+      if (!(button instanceof HTMLButtonElement) || button.disabled) {
+        return false;
+      }
+      button.click();
+      return true;
+    }, label)
+    .catch(() => false);
+}
+
+async function waitForSecretKeyDomState(
+  page: Page,
+  state: "visible" | "concealed",
+): Promise<boolean> {
+  const deadline = Date.now() + 2_000;
+  do {
+    const matches = await page
+      .evaluate((expectedState) => {
+        const buttons = Array.from(document.querySelectorAll("button"));
+        const ownerCount = document.querySelectorAll(".key-owner").length;
+        const statusTexts = Array.from(
+          document.querySelectorAll<HTMLElement>("p"),
+        ).map((element) => element.textContent?.trim());
+        if (expectedState === "visible") {
+          return statusTexts.includes("Secret ownership is visible.");
+        }
+        return (
+          buttons.some(
+            (button) => button.textContent?.trim() === "Show secret key",
+          ) && ownerCount === 0
+        );
+      }, state)
+      .catch(() => false);
+    if (matches) {
+      return true;
+    }
+    await page.waitForTimeout(25).catch(() => {});
+  } while (Date.now() < deadline);
+  return false;
+}
+
+async function makeSecretPageArtifactSafe(page: Page): Promise<void> {
+  const blanked = await page
+    .evaluate(() => {
+      const head = document.createElement("head");
+      const body = document.createElement("body");
+      document.documentElement.replaceChildren(head, body);
+      return document.body.childElementCount === 0;
+    })
+    .catch(() => false);
+  if (!blanked) {
+    await Promise.allSettled([page.close({ runBeforeUnload: false })]);
+  }
+}
+
+async function extractRedTargetsWithoutAssertions(
+  page: Page,
+): Promise<SecretExtraction<string[]>> {
+  return page
+    .evaluate((): SecretExtraction<string[]> => {
+      const board = document.querySelector('[aria-label="Classic board"]');
+      const items = board?.querySelectorAll("li");
+      if (items === undefined || items.length !== 25) {
+        return { ok: false };
+      }
+      const labels: string[] = [];
+      for (const item of items) {
+        const isRedTarget = Array.from(
+          item.querySelectorAll<HTMLElement>(".key-owner"),
+        ).some((owner) => owner.textContent?.trim().endsWith("Red key"));
+        if (!isRedTarget) {
+          continue;
+        }
+        const label = item
+          .querySelector<HTMLElement>(".board-card-label")
+          ?.textContent?.trim();
+        if (label === undefined || label === "") {
+          return { ok: false };
+        }
+        labels.push(label);
+      }
+      return labels.length === 8 || labels.length === 9
+        ? { ok: true, value: labels }
+        : { ok: false };
+    })
+    .catch(() => ({ ok: false }));
+}
+
+async function readRedTargetLabels(page: Page): Promise<string[]> {
+  return readWithSecretConcealed({
+    reveal: async () => {
+      if (
+        !(await toggleSecretKeyWithoutLocatorFailure(page, "Show secret key"))
+      ) {
+        return false;
+      }
+      return waitForSecretKeyDomState(page, "visible");
+    },
+    extract: () => extractRedTargetsWithoutAssertions(page),
+    conceal: async () => {
+      if (
+        !(await toggleSecretKeyWithoutLocatorFailure(page, "Hide secret key"))
+      ) {
+        return false;
+      }
+      return waitForSecretKeyDomState(page, "concealed");
+    },
+    makeArtifactSafe: () => makeSecretPageArtifactSafe(page),
+  });
 }
 
 async function expectPublicDomHasNoHiddenOwnership(page: Page): Promise<void> {
@@ -463,6 +613,150 @@ async function expectHealthyRenderedPage(seat: ObservedSeat): Promise<void> {
   ).toHaveCount(0);
 }
 
+async function installSyntheticSecretKeyPage(
+  page: Page,
+  cardCount: number,
+  concealUnavailable = false,
+): Promise<void> {
+  await page.setContent(`
+    <button type="button">Show secret key</button>
+    <p data-secret-status>Secret ownership is hidden.</p>
+    <section aria-label="Classic board">
+      <ul>
+        ${Array.from(
+          { length: cardCount },
+          (_, index) =>
+            `<li><span class="board-card-label">Synthetic card ${index + 1}</span></li>`,
+        ).join("")}
+      </ul>
+    </section>
+  `);
+  await page.evaluate((shouldDisableConceal) => {
+    const button = document.querySelector("button")!;
+    const status = document.querySelector<HTMLElement>("[data-secret-status]")!;
+    document.body.dataset.concealAttempts = "0";
+    button.addEventListener("click", () => {
+      if (button.textContent === "Show secret key") {
+        button.textContent = "Hide secret key";
+        status.textContent = "Secret ownership is visible.";
+        document.querySelectorAll("li").forEach((item, index) => {
+          const owner = document.createElement("span");
+          owner.className = "key-owner";
+          owner.textContent = index < 9 ? "Red key" : "Blue key";
+          item.append(owner);
+        });
+        if (shouldDisableConceal) {
+          button.setAttribute("disabled", "");
+        }
+        return;
+      }
+      document.body.dataset.concealAttempts = String(
+        Number(document.body.dataset.concealAttempts ?? "0") + 1,
+      );
+      button.textContent = "Show secret key";
+      status.textContent = "Secret ownership is hidden.";
+      document
+        .querySelectorAll(".key-owner")
+        .forEach((owner) => owner.remove());
+    });
+  }, concealUnavailable);
+}
+
+async function syntheticSecretKeyState(page: Page): Promise<{
+  concealAttempts: number;
+  hidden: boolean;
+}> {
+  return page.evaluate(() => ({
+    concealAttempts: Number(document.body.dataset.concealAttempts ?? "0"),
+    hidden:
+      document.querySelector("button")?.textContent === "Show secret key" &&
+      document.querySelector("[data-secret-status]")?.textContent ===
+        "Secret ownership is hidden." &&
+      document.querySelectorAll(".key-owner").length === 0,
+  }));
+}
+
+async function blankIfSecretKeyVisible(
+  page: Page,
+  state: { hidden: boolean },
+): Promise<void> {
+  if (!state.hidden) {
+    await page.evaluate(() => document.body.replaceChildren());
+  }
+}
+
+test("sensitive multiplayer spec disables automatic failure artifacts", ({
+  trace,
+  screenshot,
+}) => {
+  expect(trace).toBe("off");
+  expect(screenshot).toBe("off");
+});
+
+test("secret-key reader conceals the veil before returning targets", async ({
+  page,
+}) => {
+  await installSyntheticSecretKeyPage(page, 25);
+
+  const labels = await readRedTargetLabels(page);
+  const state = await syntheticSecretKeyState(page);
+  await blankIfSecretKeyVisible(page, state);
+
+  expect(state).toEqual({ concealAttempts: 1, hidden: true });
+  expect(labels.length).toBe(9);
+});
+
+test("secret-key reader conceals the veil and keeps diagnostics value-free after extraction failure", async ({
+  page,
+}) => {
+  await installSyntheticSecretKeyPage(page, 0);
+
+  let extractionError: unknown;
+  try {
+    await readRedTargetLabels(page);
+  } catch (error) {
+    extractionError = error;
+  }
+  const state = await syntheticSecretKeyState(page);
+  await blankIfSecretKeyVisible(page, state);
+  const diagnostic =
+    extractionError instanceof Error ? extractionError.message : "no_error";
+
+  expect({ ...state, diagnostic }).toEqual({
+    concealAttempts: 1,
+    hidden: true,
+    diagnostic: "secret_key_extraction_failed",
+  });
+  expect(diagnostic).not.toMatch(/Synthetic card|(?:Red|Blue) key/u);
+});
+
+test("secret-key reader makes the page artifact-safe when concealment fails during extraction failure", async ({
+  page,
+}) => {
+  await installSyntheticSecretKeyPage(page, 0, true);
+
+  let extractionError: unknown;
+  try {
+    await readRedTargetLabels(page);
+  } catch (error) {
+    extractionError = error;
+  }
+  const artifactSafe = await page.evaluate(
+    () => document.body.childElementCount === 0,
+  );
+  if (!artifactSafe) {
+    await page.evaluate(() => document.body.replaceChildren());
+  }
+  const diagnostic =
+    extractionError instanceof Error ? extractionError.message : "no_error";
+
+  expect({ artifactSafe, diagnostic }).toEqual({
+    artifactSafe: true,
+    diagnostic: "secret_key_extraction_failed",
+  });
+  expect(diagnostic).not.toMatch(/Synthetic card|(?:Red|Blue) key/u);
+});
+
 test("public projection auditing ignores a frame's claimed role and rejects nested ownership", () => {
   const observer = emptyFrameObserver();
 
@@ -560,6 +854,29 @@ test("room observer records malformed, non-object, and non-text frame outcomes",
     { outcome: "non_object_message", socketIndex: 1 },
     { outcome: "non_text_frame", socketIndex: 1 },
   ]);
+});
+
+test("live success validation rejects a valid server error before a later projection", async () => {
+  const { observer, receive } = observeSyntheticRoomFrames();
+  receive(
+    JSON.stringify({
+      type: "error",
+      code: "internal_error",
+      message: "synthetic public error",
+    }),
+  );
+  receive(
+    JSON.stringify({
+      type: "projection",
+      projection: validSpectatorProjection(2),
+    }),
+  );
+  expect(unexpectedServerOutcomes(observer)).toEqual([
+    "unexpected_server_outcome",
+  ]);
+  expect(observer.serverFrameOutcomes.at(-1)?.outcome).toBe(
+    "projection_accepted",
+  );
 });
 
 test("convergence rejects a regressing raw projection sequence", () => {
@@ -760,6 +1077,14 @@ test("five isolated clients complete Connected Classic without hidden-data or du
     });
 
     const redTargets = await readRedTargetLabels(room.host.page);
+    const hostKeyConcealed = await waitForSecretKeyDomState(
+      room.host.page,
+      "concealed",
+    );
+    if (!hostKeyConcealed) {
+      await makeSecretPageArtifactSafe(room.host.page);
+    }
+    expect(hostKeyConcealed).toBe(true);
     await expectPublicDomHasNoHiddenOwnership(room.redOperative.page);
     await expectPublicDomHasNoHiddenOwnership(room.blueOperative.page);
     await expectPublicDomHasNoHiddenOwnership(room.spectator.page);
@@ -955,6 +1280,7 @@ test("five isolated clients complete Connected Classic without hidden-data or du
       expect(seat.frames.projectionViolations).toEqual([]);
       expect(seat.frames.serverMessageViolations).toEqual([]);
       expect(seat.frames.serverFrameOutcomes.length).toBeGreaterThan(0);
+      expect(unexpectedServerOutcomes(seat.frames)).toEqual([]);
     }
     for (const publicSeat of [
       room.redOperative,
