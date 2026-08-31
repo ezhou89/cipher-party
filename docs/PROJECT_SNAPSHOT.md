@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 12
+**Snapshot revision:** 13
 
 **Last updated:** 2026-08-30
 
-**Project state:** Tasks 1–10 are accepted. Account-free create and invite joins persist canonical credentials before navigation, route generations own asynchronous recovery and socket lifecycles, and the responsive lobby renders only authoritative role-safe projections; Task 11 is ready.
+**Project state:** Tasks 1–11 are accepted. The role-aware Classic route now renders an authoritative spatial board with structurally public cards, a default-closed clue-giver key, projection-owned nomination/reveal and turn controls, public history/results, and reconnect-safe accessible dialogs; Task 12 is ready.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 10 — landing, join, and authoritative lobby UI at accepted head `abd09bc` (`2022230` implementation plus `abd09bc` review fix).
-- **Current task:** Task 11 — role-aware Classic game board UI.
-- **Next task after review:** Task 12 — multiplayer browser E2E and hidden-data regression.
+- **Last accepted implementation task:** Task 11 — role-aware Classic game board UI at accepted head `6e30668` (`a98f4f3` implementation plus review fixes `bcc1e11` and `6e30668`).
+- **Current task:** Task 12 — multiplayer browser E2E and hidden-data regression.
+- **Next task after review:** Task 13 — release preflight, documentation, and playtest handoff.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -73,6 +73,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 8 commits: `f0ac58c` and review fix `fc49865`.
 - Task 9 commits: `29e1255` and review fix `4f4ea4f`.
 - Task 10 commits: `2022230` and review fix `abd09bc`.
+- Task 11 commits: `a98f4f3` and review fixes `bcc1e11`, `6e30668`.
 - `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
 - `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
 - `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
@@ -115,6 +116,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 10 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 337 tests with no failures.
 - Task 10 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
 - Task 10 cumulative and fix-only `git diff --check`: passed with no output.
+- Task 11 focused GameView suite: 1 file, 65 tests passed after review fixes.
+- Task 11 full web suite: 5 files, 119 tests passed.
+- Task 11 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 402 tests with no failures.
+- Task 11 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
+- Task 11 cumulative and fix-only `git diff --check`: passed with no output.
 
 ## Decisions agents must preserve
 
@@ -137,6 +143,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Durable credentials live only in IndexedDB and HTTP headers; reconnect attempts and callbacks are generation-guarded and retain the same idempotent in-flight envelope until authoritative resync.
 - Landing and invite flows persist server-canonical credentials before navigation; route/unmount generations guard every asynchronous join and credential-recovery continuation so stale work cannot reclaim current UI, navigation, or socket ownership.
 - The lobby renders authoritative projections only, maps command failures to exhaustive local public copy, disables commands while pending or reconnecting, and uses one restrained polite region for other-seat presence transitions.
+- Public game roles never read a clue-giver key or infer hidden target denominators; only the default-closed clue-giver branch can mount per-card key indicators, while revealed ownership remains public.
+- Reveal and End Turn confirmation use one identity-scoped, projection-validated modal owner. Local Cancel remains available during reconnect, with enabled-trigger focus return or an explicit Turn status fallback; destructive confirmation remains transport-gated.
+- Game announcements use allowlisted public data and compose simultaneous reveal, turn/phase, and board-result changes without making the 25-card grid live.
 
 ## Known risks
 
