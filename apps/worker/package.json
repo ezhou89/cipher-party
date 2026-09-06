@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@cipher-party/game-core": "workspace:*",
-    "@cipher-party/protocol": "workspace:*"
+    "@cipher-party/protocol": "workspace:*",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.1.4",
