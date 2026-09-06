@@ -921,7 +921,7 @@ Update the snapshot to Task 5.
 - Consumes: ClassicGameState, PlayerId, TeamId, SeatRole, Ownership, and CardId.
 - Produces: PublicHistoryEntry, RoomProjectionSource, ViewerContext, PublicProjection, UnassignedProjection, OperativeProjection, ClueGiverProjection, SpectatorProjection, ClientProjectionSchema, and projectRoomForSeat(source, viewer).
 
-- [ ] **Step 1: Write failing hidden-information tests**
+- [x] **Step 1: Write failing hidden-information tests**
 
 Create a source with unrevealed red, blue, neutral, and hazard cards. Assert:
 
@@ -956,7 +956,7 @@ it("gives a clue-giver the complete key", () => {
 
 Also test that a revealed public card exposes only its now-public owner and that host permission flags can coexist with any viewRole without adding a key.
 
-- [ ] **Step 2: Run projection tests and observe missing exports**
+- [x] **Step 2: Run projection tests and observe missing exports**
 
 ~~~bash
 npm run test -w @cipher-party/protocol -- projections.test.ts
@@ -964,7 +964,7 @@ npm run test -w @cipher-party/protocol -- projections.test.ts
 
 Expected: FAIL because projectRoomForSeat is not defined.
 
-- [ ] **Step 3: Define the projection source and public card types**
+- [x] **Step 3: Define the projection source and public card types**
 
 ~~~ts
 export interface SeatSummary {
@@ -1012,7 +1012,7 @@ export interface ViewerContext {
 
 Only assign PublicCard.owner when revealed is true.
 
-- [ ] **Step 4: Implement strict discriminated projection schemas**
+- [x] **Step 4: Implement strict discriminated projection schemas**
 
 Every projection shares:
 
@@ -1064,15 +1064,15 @@ Export ClientProjection as the union of the four view-role variants and PublicPr
 
 Derive every permission from current phase, active team, current seat role/team, connection state, and host authority. Rendering may hide controls based on these booleans, but RoomSession independently repeats authorization for every command.
 
-- [ ] **Step 5: Implement projectRoomForSeat as an allowlist builder**
+- [x] **Step 5: Implement projectRoomForSeat as an allowlist builder**
 
 Construct a fresh DTO field by field. Do not spread RoomProjectionSource, ClassicGameState, or BoardCard into the result. Add a key only inside the clue-giver branch. Host powers set permissions.configure and permissions.moderate but do not alter viewRole.
 
-- [ ] **Step 6: Add compile-time negative assertions**
+- [x] **Step 6: Add compile-time negative assertions**
 
 Use @ts-expect-error in a type-only fixture to prove an OperativeProjection cannot be constructed with key and a ClueGiverProjection cannot be constructed without key. Run typecheck so both assertions are exercised.
 
-- [ ] **Step 7: Run focused security and repository gates**
+- [x] **Step 7: Run focused security and repository gates**
 
 ~~~bash
 npm run test -w @cipher-party/protocol -- projections.test.ts
@@ -1082,7 +1082,7 @@ npm run check
 
 Expected: all role cases pass; no non-clue-giver payload contains unrevealed ownership.
 
-- [ ] **Step 8: Commit Task 5**
+- [x] **Step 8: Commit Task 5**
 
 ~~~bash
 git add packages/protocol/src

@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 7
+**Snapshot revision:** 8
 
 **Last updated:** 2026-09-05
 
-**Project state:** Task 4 pure two-team Classic reducer with comprehensive outcome table, transition errors, and fast-check invariant test suite completed. Ready for Task 5.
+**Project state:** Task 5 role-safe client projections with strict Zod schemas, compile-time negative assertions, and allowlist builder completed. Ready for Task 6.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 4 — Pure two-team Classic reducer.
-- **Current task:** Task 4 complete; ready for Task 5.
-- **Next task after selection:** Task 5 — Role-safe client projections.
+- **Last accepted implementation task:** Task 5 — Role-safe client projections.
+- **Current task:** Task 5 complete; ready for Task 6.
+- **Next task after selection:** Task 6 — Authoritative room aggregate and lobby rules.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -65,7 +65,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Design commit: ba2c612.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, and 4 complete: 29/29 steps verified).
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, and 5 complete: 37/37 steps verified).
 - Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm exec wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`, `git diff --check`.
 
 ## Decisions agents must preserve
