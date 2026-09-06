@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 9
+**Snapshot revision:** 10
 
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
 
-**Project state:** Task 6 authoritative room aggregate, lobby preconditions, role enforcement, and idempotent RoomSession dispatch completed. Ready for Task 7.
+**Project state:** Task 7 SQLite-backed Durable Object persistence, configuration parity, and 24-hour alarm lifecycle completed. Ready for Task 8.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 6 — Authoritative room aggregate and lobby rules.
-- **Current task:** Task 6 complete; ready for Task 7.
-- **Next task after selection:** Task 7 — SQLite-backed Durable Object persistence.
+- **Last accepted implementation task:** Task 7 — SQLite-backed Durable Object persistence.
+- **Current task:** Task 7 complete; ready for Task 8.
+- **Next task after selection:** Task 8 — Account-free room, seat-token, and ticket HTTP APIs.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -65,7 +65,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Design commit: ba2c612.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, and 6 complete: 46/46 steps verified).
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, and 7 complete: 54/54 steps verified).
 - Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm exec wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`, `git diff --check`.
 
 ## Decisions agents must preserve

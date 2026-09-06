@@ -14,7 +14,8 @@ export default tseslint.config(
       ".superpowers/**",
       "**/.superpowers/**",
       "test-results/**",
-      "playwright-report/**"
+      "playwright-report/**",
+      "**/worker-configuration.d.ts"
     ]
   },
   {
