@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=../../.wrangler wrangler dev --config wrangler.dev.jsonc",
     "build": "WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=../../.wrangler wrangler deploy --dry-run --config wrangler.jsonc",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
