@@ -400,7 +400,7 @@ Update docs/PROJECT_SNAPSHOT.md with the accepted commit, passing commands, and 
 - Consumes: no earlier runtime interface.
 - Produces: TeamId, PlayerId, CardId, SeatRole, Ownership, CommandEnvelopeSchema, CommandResultSchema, CommandEnvelope, ClientCommand, and PROTOCOL_VERSION.
 
-- [ ] **Step 1: Write failing domain and command-schema tests**
+- [x] **Step 1: Write failing domain and command-schema tests**
 
 Test exact IDs and schema rejection:
 
@@ -436,7 +436,7 @@ describe("CommandEnvelopeSchema", () => {
 });
 ~~~
 
-- [ ] **Step 2: Run the protocol tests and observe missing exports**
+- [x] **Step 2: Run the protocol tests and observe missing exports**
 
 Run:
 
@@ -446,7 +446,7 @@ npm run test -w @cipher-party/protocol -- commands.test.ts
 
 Expected: FAIL because CommandEnvelopeSchema and PROTOCOL_VERSION are not exported.
 
-- [ ] **Step 3: Implement the shared domain vocabulary**
+- [x] **Step 3: Implement the shared domain vocabulary**
 
 Define these exact unions in packages/game-core/src/domain.ts:
 
@@ -468,7 +468,7 @@ export interface TextCard {
 
 Export them through packages/game-core/src/index.ts.
 
-- [ ] **Step 4: Implement the discriminated command schema**
+- [x] **Step 4: Implement the discriminated command schema**
 
 In packages/protocol/src/commands.ts define:
 
@@ -549,7 +549,7 @@ export type CommandErrorCode = z.infer<typeof CommandErrorCodeSchema>;
 export type CommandResult = z.infer<typeof CommandResultSchema>;
 ~~~
 
-- [ ] **Step 5: Run protocol and game-core tests**
+- [x] **Step 5: Run protocol and game-core tests**
 
 Remove --passWithNoTests from the game-core and protocol test scripts now that both workspaces contain tests.
 

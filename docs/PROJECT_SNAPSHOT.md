@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 4
+**Snapshot revision:** 5
 
 **Last updated:** 2026-09-05
 
-**Project state:** Task 1 scaffolded and verified with pnpm workspaces, TypeScript strict quality gates, Vite web client shell, Cloudflare Worker gateway, and document verification tests.
+**Project state:** Task 2 domain IDs and validated command protocol schemas completed and tested. Ready for Task 3.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,16 +55,17 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 1 — Repository scaffold and executable quality gate.
-- **Current task:** Task 1 complete; ready for Task 2.
-- **Next task after selection:** Task 2 — Domain IDs and validated command protocol.
+- **Last accepted implementation task:** Task 2 — Domain IDs and validated command protocol.
+- **Current task:** Task 2 complete; ready for Task 3.
+- **Next task after selection:** Task 3 — Deterministic 5×5 Classic board generator.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
 
 - Design commit: ba2c612.
+- Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Task 1 complete: 8/8 steps verified).
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1 and 2 complete: 14/14 steps verified).
 - Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm exec wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`, `git diff --check`.
 
 ## Decisions agents must preserve
