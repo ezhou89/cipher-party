@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 6
+**Snapshot revision:** 7
 
 **Last updated:** 2026-09-05
 
-**Project state:** Task 3 deterministic 5×5 Classic board generator with 3-tier randomizer and property-based invariant test suite completed. Ready for Task 4.
+**Project state:** Task 4 pure two-team Classic reducer with comprehensive outcome table, transition errors, and fast-check invariant test suite completed. Ready for Task 5.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 3 — Deterministic 5×5 Classic board generator.
-- **Current task:** Task 3 complete; ready for Task 4.
-- **Next task after selection:** Task 4 — Pure two-team Classic reducer.
+- **Last accepted implementation task:** Task 4 — Pure two-team Classic reducer.
+- **Current task:** Task 4 complete; ready for Task 5.
+- **Next task after selection:** Task 5 — Role-safe client projections.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -65,7 +65,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Design commit: ba2c612.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, and 3 complete: 21/21 steps verified).
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, and 4 complete: 29/29 steps verified).
 - Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm exec wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`, `git diff --check`.
 
 ## Decisions agents must preserve
