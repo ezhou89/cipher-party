@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 2
+**Snapshot revision:** 4
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-05
 
-**Project state:** Approved design, master roadmap, and detailed Milestone 1 plan are written; implementation has not started and execution strategy is awaiting selection.
+**Project state:** Task 1 scaffolded and verified with pnpm workspaces, TypeScript strict quality gates, Vite web client shell, Cloudflare Worker gateway, and document verification tests.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,21 +55,21 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** None; implementation has not started.
-- **Current task:** Select an execution strategy for the reviewed Milestone 1 plan.
-- **Next task after selection:** Task 1 — repository scaffold and executable quality gate.
+- **Last accepted implementation task:** Task 1 — Repository scaffold and executable quality gate.
+- **Current task:** Task 1 complete; ready for Task 2.
+- **Next task after selection:** Task 2 — Domain IDs and validated command protocol.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
 
 - Design commit: ba2c612.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps.
-- Planning-artifact whitespace and unresolved-marker checks pass; ellipses found by the broad scan are TypeScript spread syntax only.
-- Application test/build commands do not exist yet.
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Task 1 complete: 8/8 steps verified).
+- Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm exec wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`, `git diff --check`.
 
 ## Decisions agents must preserve
 
+- Package manager: Use `pnpm` (v11 with pnpm workspaces, strict isolation, and build script allowlists) for supply chain security.
 - Working title and directory: Cipher Party / cipher-party.
 - Cloudflare-native hosting and realtime architecture.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
@@ -80,6 +80,13 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Clue-givers rotate only between campaign boards.
 - Multi-team hazard behavior eliminates the team that revealed it.
 - Canonical invite URLs come from validated server configuration, never the incoming Host header.
+- Aesthetic theme: Neo 8-Bit Retro Arcade (Balatro + Celeste inspired).
+- The Balatro Rule: Pixel fonts (Press Start 2P) for arcade chrome/HUD/badges only; ultra-crisp bold modern sans (Plus Jakarta Sans) for card words.
+- 16 Collectible Monopoly-Style Arcade Tokens for player nomination stamps; team mascot crests for card reveals.
+- Quad-Indicator colorblind accessibility (Hue, Glyph, Texture, Semantic label).
+- Synthesized Web Audio API 8-bit sound effects (zero external sound files).
+- Gameplay board modes locked to 3 explicit host options: (1) Text-based only (25 words), (2) Image-based only (25 pictures), (3) Combination text and images (50/50 mixed board).
+- Board randomization & anti-memorization: 3-tier independent seed derivation (crypto.getRandomValues -> seed + '/cards', '/grid-order', '/ownership', '/starting-team') with decoupled keycard assignments (9/8/7/1) and a 50-image minimum starter pool for Pictures Only mode (yielding >1.26e14 unique 25-card boards).
 
 ## Known risks
 

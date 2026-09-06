@@ -159,7 +159,7 @@ packages/pack-format is intentionally absent until Milestone 2 creates the first
 - Consumes: AGENTS.md, docs/PROJECT_SNAPSHOT.md, roadmap, and approved spec.
 - Produces: npm run check, npm run build, npm run dev, npm run test:e2e, and an HTTP GET /api/health endpoint.
 
-- [ ] **Step 1: Create the workspace manifests and shared configuration**
+- [x] **Step 1: Create the workspace manifests and shared configuration**
 
 Use this root manifest:
 
@@ -224,7 +224,7 @@ Use these workspace scripts:
 
 All four workspace manifests use version 0.0.0, private true, type module, and source exports where applicable. Declare internal dependencies explicitly so npm links the workspaces: protocol depends on @cipher-party/game-core "*"; worker depends on @cipher-party/game-core "*" and @cipher-party/protocol "*"; web depends on @cipher-party/protocol "*". game-core and protocol export ./src/index.ts. Do not rely on undeclared transitive workspace imports.
 
-- [ ] **Step 2: Install the planned dependencies and commit the lockfile**
+- [x] **Step 2: Install the planned dependencies and commit the lockfile**
 
 Run:
 
@@ -238,7 +238,7 @@ npm install -D -w @cipher-party/worker wrangler @cloudflare/workers-types @cloud
 
 Expected: package-lock.json records one resolved dependency graph and npm reports no unresolved workspace.
 
-- [ ] **Step 3: Write the failing canonical-document test**
+- [x] **Step 3: Write the failing canonical-document test**
 
 Create scripts/check-project-docs.test.ts:
 
@@ -259,7 +259,7 @@ describe("verifyProjectDocs", () => {
 });
 ~~~
 
-- [ ] **Step 4: Run the document test and observe the missing module failure**
+- [x] **Step 4: Run the document test and observe the missing module failure**
 
 Run:
 
@@ -269,7 +269,7 @@ npx vitest run scripts/check-project-docs.test.ts
 
 Expected: FAIL because scripts/check-project-docs.mjs does not exist.
 
-- [ ] **Step 5: Implement the context-document checker**
+- [x] **Step 5: Implement the context-document checker**
 
 Create scripts/check-project-docs.mjs:
 
@@ -314,7 +314,7 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename
 }
 ~~~
 
-- [ ] **Step 6: Run the document test and checker**
+- [x] **Step 6: Run the document test and checker**
 
 Run:
 
@@ -325,7 +325,7 @@ npm run check:docs
 
 Expected: one passing test and Canonical project documents verified.
 
-- [ ] **Step 7: Add the minimal web and worker shells**
+- [x] **Step 7: Add the minimal web and worker shells**
 
 The web App renders a heading and calls no game logic:
 
@@ -357,7 +357,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 ~~~
 
-- [ ] **Step 8: Run the complete scaffold gate**
+- [x] **Step 8: Run the complete scaffold gate**
 
 Run:
 

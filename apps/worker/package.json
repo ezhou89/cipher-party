@@ -1,0 +1,21 @@
+{
+  "name": "@cipher-party/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=../../.wrangler wrangler dev --config wrangler.dev.jsonc",
+    "build": "WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=../../.wrangler wrangler deploy --dry-run --config wrangler.jsonc",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cipher-party/game-core": "workspace:*",
+    "@cipher-party/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.1.4",
+    "@cloudflare/workers-types": "^5.20260904.1",
+    "wrangler": "^4.129.0"
+  }
+}
