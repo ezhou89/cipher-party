@@ -29,7 +29,7 @@ async function createCanonicalFixture(snapshotContents: string) {
     "# Roadmap\n",
   );
   await writeFile(
-    root + "/docs/superpowers/plans/2026-08-30-connected-classic.md",
+    root + "/docs/superpowers/plans/2026-09-07-creative-integration.md",
     "# Plan\n",
   );
   await writeFile(
@@ -54,7 +54,7 @@ describe("verifyProjectDocs", () => {
     const root = await createCanonicalFixture(
       [
         "docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md",
-        "docs/superpowers/plans/2026-08-30-connected-classic.md",
+        "docs/superpowers/specs/2026-08-30-cipher-party-design.md",
       ].join("\n"),
     );
 

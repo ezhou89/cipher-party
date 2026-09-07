@@ -1,0 +1,3 @@
+creative/source/** whitespace=-trailing-space
+docs/DESIGN_SYSTEM.md whitespace=-trailing-space
+docs/SCAFFOLDING_HANDOFF.md whitespace=-trailing-space

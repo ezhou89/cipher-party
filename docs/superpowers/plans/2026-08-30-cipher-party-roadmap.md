@@ -6,7 +6,7 @@
 
 **Architecture:** A React/TypeScript DOM client sends validated commands to a Cloudflare Worker and one authoritative Durable Object per room. Pure rules, wire projections, and pack formats live in focused workspace packages; R2 and Workers AI enter only when Pack Studio needs them.
 
-**Tech Stack:** npm workspaces, React, TypeScript, Vite, Cloudflare Workers, Durable Objects with SQLite storage, R2, Workers AI, Zod, Vitest, fast-check, Testing Library, and Playwright.
+**Tech Stack:** pnpm workspaces, React, TypeScript, Vite, Cloudflare Workers, Durable Objects with SQLite storage, R2, Workers AI, Zod, Vitest, fast-check, Testing Library, and Playwright.
 
 **Spec:** docs/superpowers/specs/2026-08-30-cipher-party-design.md
 
@@ -60,7 +60,7 @@ The coordinator refreshes the snapshot after every accepted task and writes the 
 - Refreshing an operative preserves the seat and current turn.
 - An operative and spectator payload inspection contains no unrevealed ownership field.
 - Durable Object integration coverage proves room expiry and alarm rescheduling.
-- npm run check, npm run test:e2e, and git diff --check pass.
+- pnpm run check, pnpm run test:e2e, and git diff --check pass.
 
 ## Milestone 2: Pack Studio
 

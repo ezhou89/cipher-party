@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
   },
   "dependencies": {
-    "@cipher-party/game-core": "*",
-    "@cipher-party/protocol": "*",
+    "@cipher-party/game-core": "workspace:*",
+    "@cipher-party/protocol": "workspace:*",
     "zod": "^4.5.4"
   },
   "devDependencies": {

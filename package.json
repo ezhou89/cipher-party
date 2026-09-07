@@ -2,26 +2,23 @@
   "name": "cipher-party",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "packageManager": "pnpm@11.23.0",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "npm run build -w @cipher-party/game-core && npm run build -w @cipher-party/protocol && npm run build -w @cipher-party/web && npm run build -w @cipher-party/worker",
-    "check": "npm run check:docs && npm run format:check && npm run lint && npm run typecheck && npm run test",
-    "check:release": "npm run check && npm run build && npm run preflight && npm run test:e2e",
+    "build": "pnpm --filter @cipher-party/game-core run build && pnpm --filter @cipher-party/protocol run build && pnpm --filter @cipher-party/web run build && pnpm --filter @cipher-party/worker run build",
+    "check": "pnpm run check:docs && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "check:release": "pnpm run check && pnpm run build && pnpm run preflight && pnpm run test:e2e",
     "check:docs": "node scripts/check-project-docs.mjs",
-    "dev": "concurrently -k -n worker,web \"npm run dev -w @cipher-party/worker\" \"npm run dev -w @cipher-party/web\"",
+    "dev": "concurrently -k -n worker,web \"pnpm --filter @cipher-party/worker run dev\" \"pnpm --filter @cipher-party/web run dev\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "preflight": "node scripts/preflight.mjs",
-    "test": "npm run test --workspaces --if-present && vitest run --config vitest.config.ts",
+    "test": "pnpm -r --if-present run test && vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "pnpm -r --if-present run typecheck"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

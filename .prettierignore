@@ -7,4 +7,5 @@ coverage/
 .wrangler/
 playwright-report/
 test-results/
-package-lock.json
+creative/source/**
+pnpm-lock.yaml

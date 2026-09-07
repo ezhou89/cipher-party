@@ -41,6 +41,11 @@ interface TicketResponse {
 
 type RoomsEnv = { ROOMS: DurableObjectNamespace<RoomDurableObject> };
 
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIAL_TIME = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
 let commandSequence = 0;
 
 function deferred<T>() {
@@ -210,7 +215,7 @@ async function configuredRoom(code: string): Promise<{
     displayName: "Red Clue",
     seatTokenHash: hostHash,
     hostTokenHash,
-    createdAt: "2026-08-30T08:00:00.000Z",
+    createdAt: new Date(REAL_PROCESS_TIME_MS).toISOString(),
   });
   state.startingTeam = "red";
   state.seats = [
@@ -297,7 +302,7 @@ afterEach(() => {
 describe("room WebSocket admission", () => {
   it("consumes a valid one-use ticket, persists presence, and sends a role-safe first frame", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-30T10:00:00.000Z"));
+    vi.setSystemTime(INITIAL_TIME);
     const room = await createRoom();
     const { ticket } = await issueHttpTicket(room);
 
@@ -317,7 +322,7 @@ describe("room WebSocket admission", () => {
     expect(JSON.stringify(message)).not.toContain('"key"');
     await expect(roomStub(room.code).getSnapshot()).resolves.toMatchObject({
       revision: 1,
-      lastActivity: "2026-08-30T10:00:00.000Z",
+      lastActivity: INITIAL_TIME.toISOString(),
       seats: [{ playerId: room.playerId, connected: true }],
       connectionTickets: [],
     });
@@ -345,10 +350,10 @@ describe("room WebSocket admission", () => {
 
   it("returns the same opaque response for unavailable, malformed, expired, and non-upgrade admission", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-30T10:00:00.000Z"));
+    vi.setSystemTime(INITIAL_TIME);
     const room = await createRoom();
     const { ticket } = await issueHttpTicket(room);
-    vi.setSystemTime(new Date("2026-08-30T10:01:00.001Z"));
+    vi.setSystemTime(INITIAL_TIME.getTime() + 60_001);
 
     const responses = await Promise.all([
       connectResponse(room.code, ticket),
@@ -886,7 +891,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
 
   it("does not extend activity on close and treats expiry-triggered closes as no-ops", async () => {
     vi.useFakeTimers();
-    const connectedAt = new Date("2026-08-30T10:00:00.000Z");
+    const connectedAt = INITIAL_TIME;
     vi.setSystemTime(connectedAt);
     const created = await createRoom();
     const host = await connect(

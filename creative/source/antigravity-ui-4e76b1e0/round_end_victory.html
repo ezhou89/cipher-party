@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cipher Party — Round End & Victory Fanfare</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Plus+Jakarta+Sans:wght@700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --color-canvas: #0e0c1a;
+      --color-surface: #161324;
+      --color-surface-high: #211c36;
+      --color-ruby: #ff2a5f;
+      --color-cobalt: #00d2ff;
+      --color-emerald: #00f5a0;
+      --color-amber: #ffbe0b;
+      --color-card-face: #fbf6ec;
+      --shadow-pixel: 4px 4px 0px #000000;
+      --shadow-pixel-sm: 2px 2px 0px #000000;
+      --pixel-corners: polygon(
+        0px 4px, 4px 4px, 4px 0px,
+        calc(100% - 4px) 0px, calc(100% - 4px) 4px, 100% 4px,
+        100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%,
+        4px 100%, 4px calc(100% - 4px), 0px calc(100% - 4px)
+      );
+    }
+    body {
+      background-color: var(--color-canvas);
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-corners { clip-path: var(--pixel-corners); }
+    
+    .pixel-box {
+      background-color: var(--color-surface);
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0px #000;
+      clip-path: var(--pixel-corners);
+    }
+    .pixel-btn {
+      border: 3px solid #000;
+      box-shadow: 3px 3px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(255, 190, 11, 0.6)); }
+      50% { transform: scale(1.08); filter: drop-shadow(0 0 18px rgba(255, 190, 11, 1)); }
+    }
+    .animate-glow {
+      animation: pulseGlow 1.5s infinite ease-in-out;
+    }
+
+    @keyframes pipFlash {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.2); }
+    }
+    .animate-new-pip {
+      animation: pipFlash 1.2s infinite ease-in-out;
+    }
+
+    .mini-card {
+      border: 1.5px solid #000;
+      transition: transform 0.1s ease;
+    }
+    .mini-card:hover {
+      transform: scale(1.25);
+      z-index: 20;
+      box-shadow: 0 0 6px #fff;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6 pb-28">
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#ffbe0b] text-black font-arcade text-xs px-4 py-2.5 border-4 border-black shadow-[4px_4px_0_#000] pixel-corners hidden transition-all">
+    <span id="toast-text">📋 MATCH REPORT COPIED TO CLIPBOARD!</span>
+  </div>
+
+  <div class="max-w-3xl mx-auto space-y-5">
+
+    <!-- Top Header: Room & Sound FX -->
+    <div class="flex justify-between items-center text-[10px] font-arcade">
+      <div class="flex items-center gap-2 text-slate-400">
+        <span>ROOM: <span class="text-[#ffbe0b] font-bold">882D4F</span></span>
+        <span>•</span>
+        <span>ROUND 03 COMPLETE</span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="audio-toggle" class="pixel-btn px-2.5 py-1 bg-[#211c36] text-[#ffbe0b] flex items-center gap-1.5 cursor-pointer hover:bg-[#2b2447]">
+          <span id="audio-icon">🔊</span> <span id="audio-label">FX: ON</span>
+        </button>
+        <button id="replay-fanfare" class="pixel-btn px-2.5 py-1 bg-[#ffbe0b] text-black cursor-pointer hover:brightness-110 flex items-center gap-1">
+          <span>🎺</span> REPLAY FANFARE
+        </button>
+      </div>
+    </div>
+
+    <!-- Win Condition Mode Selector (Interactive Debugger / Showcase) -->
+    <div class="pixel-box p-2.5 bg-black/60 border border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <span class="text-[9px] font-arcade text-slate-400">DEMO OUTCOME CONDITION:</span>
+      <div class="flex items-center gap-1">
+        <button id="btn-mode-sweep" class="pixel-btn px-2.5 py-1 bg-[#ff2a5f] text-white font-arcade text-[8px] cursor-pointer">
+          🏆 TARGET SWEEP (RUBY)
+        </button>
+        <button id="btn-mode-hazard" class="pixel-btn px-2.5 py-1 bg-[#211c36] text-slate-300 font-arcade text-[8px] cursor-pointer hover:text-white">
+          ☠️ HAZARD K.O. (COBALT)
+        </button>
+      </div>
+    </div>
+
+    <!-- SECTION 1: Giant Victory Marquee -->
+    <section id="victory-marquee" class="pixel-box p-6 bg-gradient-to-b from-[#2a1733] to-[#161324] border-4 border-[#ff2a5f] shadow-[0_0_24px_rgba(255,42,95,0.4),6px_6px_0_#000] text-center space-y-3 relative overflow-hidden">
+      
+      <!-- Scanline Overlay Line -->
+      <div class="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.5)_100%)]"></div>
+
+      <!-- Victory Badge -->
+      <div class="inline-flex items-center gap-2 px-3 py-1 bg-black/80 border-2 border-[#ffbe0b] text-[#ffbe0b] font-arcade text-[10px] tracking-wider pixel-corners animate-glow">
+        <span>👑</span> <span id="marquee-badge-text">ROUND 03 VICTORY</span> <span>👑</span>
+      </div>
+
+      <!-- Main Headline -->
+      <div class="space-y-1">
+        <h1 id="marquee-winner-title" class="text-xl sm:text-2xl md:text-3xl font-arcade text-white tracking-tight leading-tight">
+          TEAM RUBY WINS!
+        </h1>
+        <p id="marquee-winner-sub" class="text-xs sm:text-sm font-arcade text-[#ff2a5f] tracking-wide">
+          ★ TARGET SWEEP // 8 OF 8 WORDS CLAIMED ★
+        </p>
+      </div>
+
+      <!-- Winning Squad Chips -->
+      <div class="pt-2 flex flex-wrap items-center justify-center gap-2 text-xs font-mono">
+        <span class="px-2.5 py-1 bg-[#ff2a5f]/20 border border-[#ff2a5f] text-white pixel-corners flex items-center gap-1.5">
+          <span>👑</span> Alex <span class="text-[9px] text-[#ffbe0b] font-arcade">SPY</span>
+        </span>
+        <span class="px-2.5 py-1 bg-[#ff2a5f]/40 border-2 border-white text-white font-bold pixel-corners flex items-center gap-1.5 shadow-[2px_2px_0_#000]">
+          <span>🎩</span> Sarah (You) <span class="text-[9px] text-[#00f5a0] font-arcade">MVP OP</span>
+        </span>
+        <span class="px-2.5 py-1 bg-[#ff2a5f]/20 border border-[#ff2a5f] text-white pixel-corners flex items-center gap-1.5">
+          <span>🏎️</span> Marcus <span class="text-[9px] text-slate-300 font-arcade">OP</span>
+        </span>
+      </div>
+    </section>
+
+    <!-- SECTION 2: Best-of-7 Series Tracker (Fighting Game Win Pips) -->
+    <section class="pixel-box p-5 space-y-4">
+      <div class="flex justify-between items-center">
+        <div>
+          <h2 class="text-xs font-arcade text-[#ffbe0b] flex items-center gap-2">
+            <span>🏆</span> BEST-OF-7 CAMPAIGN STANDINGS
+          </h2>
+          <p class="text-[9px] font-mono text-slate-400 mt-0.5">First team to 4 round victories wins the Grand Trophy.</p>
+        </div>
+        <span class="px-2 py-1 bg-black border border-[#ffbe0b] text-[#ffbe0b] font-arcade text-[8px] animate-pulse">
+          MATCH POINT!
+        </span>
+      </div>
+
+      <!-- Standings Cards Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        
+        <!-- Team Ruby Series Card -->
+        <div class="p-4 bg-[#211c36] border-2 border-[#ff2a5f] pixel-corners shadow-[0_0_14px_rgba(255,42,95,0.3),3px_3px_0_#000] space-y-3">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-2xl">👑</span>
+              <div>
+                <span class="text-xs font-arcade text-[#ff2a5f] block">TEAM RUBY</span>
+                <span class="text-[8px] font-mono text-slate-400">P1 // MATCH LEADER</span>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 bg-[#ff2a5f] text-white font-arcade text-[9px] pixel-corners font-bold">
+              3 WINS
+            </span>
+          </div>
+
+          <!-- Pips Row -->
+          <div class="bg-black/70 p-3 border-2 border-black pixel-corners flex items-center justify-between">
+            <span class="text-[9px] font-mono text-slate-400">SERIES PIPS:</span>
+            <div class="flex items-center gap-2 text-base">
+              <span class="text-[#ff2a5f]">●</span>
+              <span class="text-[#ff2a5f]">●</span>
+              <!-- New 3rd Win Pip with Gold Sparkle Animation -->
+              <span class="text-[#ffbe0b] animate-new-pip relative">
+                ●
+                <span class="absolute -top-3 -right-2 text-[8px] font-arcade text-[#ffbe0b]">NEW!</span>
+              </span>
+              <span class="text-slate-600">○</span>
+            </div>
+          </div>
+
+          <p class="text-[9px] font-arcade text-[#ffbe0b] text-center">
+            ★ 1 MORE WIN NEEDED TO CLINCH CHAMPIONSHIP ★
+          </p>
+        </div>
+
+        <!-- Team Cobalt Series Card -->
+        <div class="p-4 bg-[#211c36] border-2 border-[#00d2ff] pixel-corners shadow-[3px_3px_0_#000] space-y-3 opacity-90">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-2xl">🚀</span>
+              <div>
+                <span class="text-xs font-arcade text-[#00d2ff] block">TEAM COBALT</span>
+                <span class="text-[8px] font-mono text-slate-400">P2 // TRAILING</span>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 bg-[#00d2ff]/20 text-[#00d2ff] border border-[#00d2ff]/40 font-arcade text-[9px] pixel-corners font-bold">
+              2 WINS
+            </span>
+          </div>
+
+          <!-- Pips Row -->
+          <div class="bg-black/70 p-3 border-2 border-black pixel-corners flex items-center justify-between">
+            <span class="text-[9px] font-mono text-slate-400">SERIES PIPS:</span>
+            <div class="flex items-center gap-2 text-base">
+              <span class="text-[#00d2ff]">●</span>
+              <span class="text-[#00d2ff]">●</span>
+              <span class="text-slate-600">○</span>
+              <span class="text-slate-600">○</span>
+            </div>
+          </div>
+
+          <p class="text-[9px] font-mono text-slate-400 text-center">
+            Must win Round 04 to force Game 5 tiebreaker.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 3: Round 03 Highlights & Statistics Reel -->
+    <section class="pixel-box p-5 space-y-4">
+      <h2 class="text-xs font-arcade text-[#00f3ff] flex items-center gap-2">
+        <span>📊</span> ROUND 03 HIGHLIGHTS & STATS
+      </h2>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        
+        <!-- Highlight 1: Clue of Match -->
+        <div class="p-3 bg-[#211c36] border-2 border-black pixel-corners space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400">CLUE OF THE MATCH</span>
+          <div class="text-sm font-arcade text-[#ffbe0b] flex items-center gap-1.5">
+            <span>🎯</span> "ORBIT 3"
+          </div>
+          <p class="text-[9px] font-mono text-slate-300">Alex's clue scored 3 cards in 1 turn (SATELLITE, GRAVITY, COMET)!</p>
+        </div>
+
+        <!-- Highlight 2: MVP Guess -->
+        <div class="p-3 bg-[#211c36] border-2 border-black pixel-corners space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400">MVP NOMINATOR</span>
+          <div class="text-sm font-arcade text-[#00f5a0] flex items-center gap-1.5">
+            <span>🎩</span> Sarah (You)
+          </div>
+          <p class="text-[9px] font-mono text-slate-300">4 correct nominations with 1.4s average trigger speed.</p>
+        </div>
+
+        <!-- Highlight 3: Time & Accuracy -->
+        <div class="p-3 bg-[#211c36] border-2 border-black pixel-corners space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400">ROUND DURATION</span>
+          <div class="text-sm font-arcade text-white flex items-center gap-1.5">
+            <span>⏱️</span> 04:12 (6 TURNS)
+          </div>
+          <p class="text-[9px] font-mono text-slate-300">Accuracy: Ruby 89% (8/9) // Cobalt 75% (6/8).</p>
+        </div>
+
+      </div>
+
+      <!-- Post-Match 5x5 Mini Board Map -->
+      <div class="pt-3 border-t-2 border-black space-y-2">
+        <div class="flex justify-between items-center">
+          <span class="text-[9px] font-arcade text-slate-400">FINAL 5×5 BOARD STATE:</span>
+          <div class="flex items-center gap-3 text-[8px] font-arcade">
+            <span class="flex items-center gap-1 text-[#ff2a5f]"><span class="w-2 h-2 bg-[#ff2a5f]"></span> RUBY (8)</span>
+            <span class="flex items-center gap-1 text-[#00d2ff]"><span class="w-2 h-2 bg-[#00d2ff]"></span> COBALT (6)</span>
+            <span class="flex items-center gap-1 text-[#d4c5a9]"><span class="w-2 h-2 bg-[#d4c5a9]"></span> BYSTANDER</span>
+            <span class="flex items-center gap-1 text-red-500"><span class="w-2 h-2 bg-black border border-red-500"></span> HAZARD</span>
+          </div>
+        </div>
+
+        <!-- 5x5 Mini Matrix -->
+        <div id="mini-board" class="grid grid-cols-5 gap-1.5 p-3 bg-black/60 border-2 border-black pixel-corners">
+          <!-- 25 mini tiles generated dynamically in script -->
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: Spymaster Rotation Announcement -->
+    <section class="pixel-box p-4 bg-[#1b172e] border-2 border-[#00f5a0]/40 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-base">🔄</span>
+          <h2 class="text-xs font-arcade text-[#00f5a0]">NEXT ROUND SPYMASTER ROTATION</h2>
+        </div>
+        <span class="text-[8px] font-mono px-2 py-0.5 bg-[#00f5a0]/20 text-[#00f5a0] border border-[#00f5a0]/40 font-bold">
+          RULE ENFORCED
+        </span>
+      </div>
+
+      <p class="text-[9px] font-mono text-slate-300">
+        To ensure fair play across campaigns, clue givers automatically rotate between boards:
+      </p>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+        
+        <!-- Team Ruby Rotation -->
+        <div class="p-2.5 bg-black/50 border border-[#ff2a5f]/40 pixel-corners flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🎩</span>
+            <div>
+              <span class="font-arcade text-[9px] text-white block">Sarah (You)</span>
+              <span class="text-[8px] font-mono text-slate-400">Promoted from Operative</span>
+            </div>
+          </div>
+          <span class="text-[9px] font-arcade px-2 py-1 bg-[#ff2a5f] text-white pixel-corners font-bold animate-pulse">
+            NEW SPYMASTER!
+          </span>
+        </div>
+
+        <!-- Team Cobalt Rotation -->
+        <div class="p-2.5 bg-black/50 border border-[#00d2ff]/40 pixel-corners flex items-center justify-between text-xs">
+          <div class="flex items-center gap-2">
+            <span class="text-base">⚡</span>
+            <div>
+              <span class="font-arcade text-[9px] text-white block">Jason</span>
+              <span class="text-[8px] font-mono text-slate-400">Promoted from Operative</span>
+            </div>
+          </div>
+          <span class="text-[9px] font-arcade px-2 py-1 bg-[#00d2ff] text-black pixel-corners font-bold">
+            NEW SPYMASTER
+          </span>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Pinned Bottom Navigation Action Bar -->
+  <div class="fixed bottom-0 left-0 w-full bg-[#161324]/95 backdrop-blur border-t-4 border-black p-3 shadow-[0_-4px_0_0_#000] z-40">
+    <div class="max-w-3xl mx-auto flex items-center gap-3">
+      
+      <!-- Copy Summary Report Button -->
+      <button id="btn-copy-report" class="pixel-btn bg-[#231e3b] text-slate-300 hover:text-white font-arcade text-[9px] sm:text-[10px] px-3.5 py-3 cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
+        <span>📋</span> SHARE RECAP
+      </button>
+
+      <!-- Advance to Next Round Button -->
+      <button id="btn-advance-round" class="pixel-btn flex-1 bg-gradient-to-r from-[#ffbe0b] to-[#ff9100] text-black font-arcade text-xs sm:text-sm py-3 tracking-widest flex items-center justify-center gap-2 cursor-pointer hover:brightness-110 shadow-[0_0_16px_rgba(255,190,11,0.6),4px_4px_0_#000]">
+        <span>🕹️</span> ADVANCE TO ROUND 04 (MATCH POINT) ▶
+      </button>
+
+    </div>
+  </div>
+
+  <!-- Interactive Logic & Web Audio Synthesizer -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // 1. Web Audio Synthesizer for Fanfares & Blips
+      let soundEnabled = true;
+      let audioCtx = null;
+
+      function getAudioContext() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+
+      function playVictoryChords() {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          // Arpeggio: C4, E4, G4, C5, E5, G5, High C6 Chord
+          const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99, 1046.50];
+          notes.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq, now + i * 0.09);
+            gain.gain.setValueAtTime(0.12, now + i * 0.09);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.35);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.09);
+            osc.stop(now + i * 0.09 + 0.38);
+          });
+        } catch (e) {}
+      }
+
+      function playHazardDetonation() {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          // Low menacing descending notes
+          [350, 280, 190, 110].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, now + i * 0.12);
+            gain.gain.setValueAtTime(0.15, now + i * 0.12);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.12);
+            osc.stop(now + i * 0.12 + 0.28);
+          });
+        } catch (e) {}
+      }
+
+      function playBlip(freq = 440) {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          gain.gain.setValueAtTime(0.1, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.07);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.08);
+        } catch (e) {}
+      }
+
+      // 2. Audio Toggle
+      const audioToggle = document.getElementById('audio-toggle');
+      const audioIcon = document.getElementById('audio-icon');
+      const audioLabel = document.getElementById('audio-label');
+      const replayFanfare = document.getElementById('replay-fanfare');
+
+      audioToggle.addEventListener('click', () => {
+        soundEnabled = !soundEnabled;
+        if (soundEnabled) {
+          audioIcon.textContent = '🔊';
+          audioLabel.textContent = 'FX: ON';
+          playVictoryChords();
+        } else {
+          audioIcon.textContent = '🔇';
+          audioLabel.textContent = 'FX: OFF';
+        }
+      });
+
+      replayFanfare.addEventListener('click', () => {
+        playVictoryChords();
+      });
+
+      // 3. Mini Board Generator (5x5 final layout)
+      const miniBoard = document.getElementById('mini-board');
+      const sampleBoard = [
+        { word: 'SATELLITE', role: 'ruby', label: 'RUBY (Sarah)' },
+        { word: 'ORBIT', role: 'cobalt', label: 'COBALT (Jason)' },
+        { word: 'DESERT', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'GRAVITY', role: 'ruby', label: 'RUBY (Marcus)' },
+        { word: 'COMET', role: 'ruby', label: 'RUBY (Sarah)' },
+
+        { word: 'PENGUIN', role: 'cobalt', label: 'COBALT (Elena)' },
+        { word: 'VOLCANO', role: 'hazard', label: '☠ HAZARD' },
+        { word: 'TELESCOPE', role: 'ruby', label: 'RUBY (Sarah)' },
+        { word: 'SHADOW', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'ROBOT', role: 'cobalt', label: 'COBALT (Jason)' },
+
+        { word: 'LASER', role: 'ruby', label: 'RUBY (Marcus)' },
+        { word: 'CLIFF', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'NEBULA', role: 'ruby', label: 'RUBY (Sarah)' },
+        { word: 'SUBMARINE', role: 'cobalt', label: 'COBALT (David)' },
+        { word: 'FOREST', role: 'neutral', label: 'BYSTANDER' },
+
+        { word: 'CASTLE', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'CYPHER', role: 'ruby', label: 'RUBY (Marcus)' },
+        { word: 'DRAGON', role: 'cobalt', label: 'COBALT (Elena)' },
+        { word: 'DIAMOND', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'ROCKET', role: 'cobalt', label: 'COBALT (Jason)' },
+
+        { word: 'MATRIX', role: 'ruby', label: 'RUBY (Sarah - WIN)' },
+        { word: 'RIVER', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'PYRAMID', role: 'neutral', label: 'BYSTANDER' },
+        { word: 'KNIGHT', role: 'cobalt', label: 'COBALT (David)' },
+        { word: 'OCTOPUS', role: 'neutral', label: 'BYSTANDER' }
+      ];
+
+      function renderMiniBoard() {
+        miniBoard.innerHTML = '';
+        sampleBoard.forEach(tile => {
+          const div = document.createElement('div');
+          div.className = 'mini-card p-1 text-center font-mono text-[7px] truncate pixel-corners cursor-pointer select-none';
+          div.title = `${tile.word} — ${tile.label}`;
+
+          if (tile.role === 'ruby') {
+            div.className += ' bg-[#ff2a5f] text-white font-bold';
+            div.textContent = tile.word;
+          } else if (tile.role === 'cobalt') {
+            div.className += ' bg-[#00d2ff] text-black font-bold';
+            div.textContent = tile.word;
+          } else if (tile.role === 'hazard') {
+            div.className += ' bg-black text-red-500 border border-red-500 font-bold';
+            div.textContent = '☠ ' + tile.word;
+          } else {
+            div.className += ' bg-[#f0ebd9] text-slate-700';
+            div.textContent = tile.word;
+          }
+
+          div.addEventListener('click', () => {
+            playBlip(600);
+            showToast(`${tile.word}: ${tile.label}`);
+          });
+
+          miniBoard.appendChild(div);
+        });
+      }
+      renderMiniBoard();
+
+      // 4. Mode Toggle (Target Sweep vs Hazard Detonation)
+      const btnModeSweep = document.getElementById('btn-mode-sweep');
+      const btnModeHazard = document.getElementById('btn-mode-hazard');
+      const victoryMarquee = document.getElementById('victory-marquee');
+      const marqueeWinnerTitle = document.getElementById('marquee-winner-title');
+      const marqueeWinnerSub = document.getElementById('marquee-winner-sub');
+      const marqueeBadgeText = document.getElementById('marquee-badge-text');
+
+      btnModeSweep.addEventListener('click', () => {
+        btnModeSweep.className = 'pixel-btn px-2.5 py-1 bg-[#ff2a5f] text-white font-arcade text-[8px] cursor-pointer';
+        btnModeHazard.className = 'pixel-btn px-2.5 py-1 bg-[#211c36] text-slate-300 font-arcade text-[8px] cursor-pointer hover:text-white';
+
+        victoryMarquee.className = 'pixel-box p-6 bg-gradient-to-b from-[#2a1733] to-[#161324] border-4 border-[#ff2a5f] shadow-[0_0_24px_rgba(255,42,95,0.4),6px_6px_0_#000] text-center space-y-3 relative overflow-hidden';
+        marqueeBadgeText.textContent = 'ROUND 03 VICTORY';
+        marqueeWinnerTitle.textContent = 'TEAM RUBY WINS!';
+        marqueeWinnerTitle.className = 'text-xl sm:text-2xl md:text-3xl font-arcade text-white tracking-tight leading-tight';
+        marqueeWinnerSub.textContent = '★ TARGET SWEEP // 8 OF 8 WORDS CLAIMED ★';
+        marqueeWinnerSub.className = 'text-xs sm:text-sm font-arcade text-[#ff2a5f] tracking-wide';
+
+        playVictoryChords();
+        showToast('🏆 PREVIEWING TARGET SWEEP VICTORY');
+      });
+
+      btnModeHazard.addEventListener('click', () => {
+        btnModeHazard.className = 'pixel-btn px-2.5 py-1 bg-red-600 text-white font-arcade text-[8px] cursor-pointer';
+        btnModeSweep.className = 'pixel-btn px-2.5 py-1 bg-[#211c36] text-slate-300 font-arcade text-[8px] cursor-pointer hover:text-white';
+
+        victoryMarquee.className = 'pixel-box p-6 bg-gradient-to-b from-[#330f14] to-[#161324] border-4 border-red-500 shadow-[0_0_28px_rgba(239,68,68,0.5),6px_6px_0_#000] text-center space-y-3 relative overflow-hidden';
+        marqueeBadgeText.textContent = '☠️ SUDDEN DEATH K.O.';
+        marqueeWinnerTitle.textContent = 'HAZARD DETONATED!';
+        marqueeWinnerTitle.className = 'text-xl sm:text-2xl md:text-3xl font-arcade text-red-400 tracking-tight leading-tight';
+        marqueeWinnerSub.textContent = 'COBALT HIT "VOLCANO" — RUBY AWARDED ROUND 03!';
+        marqueeWinnerSub.className = 'text-xs sm:text-sm font-arcade text-[#ffbe0b] tracking-wide';
+
+        playHazardDetonation();
+        showToast('☠️ PREVIEWING HAZARD DETONATION (K.O.)');
+      });
+
+      // 5. Toast & Copy Recap
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      const btnCopyReport = document.getElementById('btn-copy-report');
+      const btnAdvanceRound = document.getElementById('btn-advance-round');
+
+      function showToast(msg) {
+        toastText.textContent = msg;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 2200);
+      }
+
+      btnCopyReport.addEventListener('click', () => {
+        const recap = "🏆 CIPHER PARTY MATCH RECAP (ROOM: 882D4F)\nRound 03: Team Ruby Wins! (Target Sweep 8/8)\nSeries Standings: Ruby 3 - 2 Cobalt (Best of 7)\nNext Round Spymaster: Sarah (Ruby) vs Jason (Cobalt)";
+        navigator.clipboard?.writeText(recap);
+        playBlip(680);
+        showToast('📋 MATCH RECAP COPIED TO CLIPBOARD!');
+      });
+
+      btnAdvanceRound.addEventListener('click', () => {
+        playVictoryChords();
+        showToast('🕹️ PREPARING ROUND 04 (MATCH POINT)...');
+        setTimeout(() => {
+          alert('🎮 [ROUND 04 LAUNCHING]\nNew Spymaster: Sarah (You)\nObjective: Clinch the Grand Championship for Team Ruby!\nLoading 5x5 board...');
+        }, 400);
+      });
+    });
+  </script>
+</body>
+</html>

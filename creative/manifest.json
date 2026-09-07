@@ -1,0 +1,225 @@
+{
+  "schemaVersion": 1,
+  "sourceRoots": [
+    {
+      "id": "antigravity-ui-4e76b1e0",
+      "owner": "Gemini / Antigravity",
+      "originalPath": "/Users/eugenezhou/.gemini/antigravity/brain/4e76b1e0-20d3-437b-a8bf-73fb82b1fc7b"
+    },
+    {
+      "id": "antigravity-content-648bd5c6",
+      "owner": "Gemini / Antigravity",
+      "originalPath": "/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772"
+    }
+  ],
+  "artifacts": [
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "arcade_lobby.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/arcade_lobby.html",
+      "originalSha256": "4cc4be9f84516074890613acfbeff9a03c1da76bcd823cd2c24fc575aa734b54",
+      "byteLength": 43234,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "cipher_party_stitch_board.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/cipher_party_stitch_board.html",
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "byteLength": 0,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "clue_giver_view.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/clue_giver_view.html",
+      "originalSha256": "65211e3931f84ab0731c59639b3da87e2b86893e6fa1aaf3df406e3e06efd626",
+      "byteLength": 25906,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "round_end_victory.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/round_end_victory.html",
+      "originalSha256": "eb7ff4b961345f633cddc672c816e1e6a86ac44acbedb38b0be4b3ae11f57643",
+      "byteLength": 27789,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "stitch_game_board.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/stitch_game_board.html",
+      "originalSha256": "6541bda60f4f25cbf00e1a193f60828de85b5f618fe44ab13fc2048302cf6015",
+      "byteLength": 24038,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "team_token_customizer.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/team_token_customizer.html",
+      "originalSha256": "c1c0f22f70a26ee63e8b2fced641457e82d478f1ead04a2e76bf1be4dddc7f94",
+      "byteLength": 29272,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "token_showcase.html",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/token_showcase.html",
+      "originalSha256": "79d92ba782b2107528415bcfdd7cbd830de14247f1fc1779164882c75c2be610",
+      "byteLength": 12303,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "cipher_party_design_hub.md",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/cipher_party_design_hub.md",
+      "originalSha256": "c4bf2bf5d04cc67638092f7f1220213286089f2c1196dcfa0be473a6153a11ca",
+      "byteLength": 6138,
+      "status": "historical-notes"
+    },
+    {
+      "sourceRoot": "antigravity-ui-4e76b1e0",
+      "originalFilename": "scaffolding_handoff.md",
+      "repositoryPath": "creative/source/antigravity-ui-4e76b1e0/scaffolding_handoff.md",
+      "originalSha256": "8873ee5d266005c36df3d31a9bc4985a5e126799c44cf9aa73a3dd978f3310d8",
+      "byteLength": 8126,
+      "status": "historical-notes"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "image_card_system_demo.html",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/image_card_system_demo.html",
+      "originalSha256": "8a63e78c220a8330b0234b7871978cb194bc11ff860e31b716a669ef68e14029",
+      "byteLength": 37873,
+      "status": "prototype"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "core_pack_master_wordlist.md",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/core_pack_master_wordlist.md",
+      "originalSha256": "6d98a0d387ecdde2a2578d8632f3aff7ba516c04b756ce5404bcb0d094feae0f",
+      "byteLength": 26614,
+      "status": "content-draft"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "expansion_packs_wordlists.md",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/expansion_packs_wordlists.md",
+      "originalSha256": "9d0a947d9ba57e0a6973cad73a711a6571c8aae6f4956768a9638d14e3faf60e",
+      "byteLength": 61954,
+      "status": "content-draft"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "image_cards_gallery.md",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/image_cards_gallery.md",
+      "originalSha256": "34dbc9e888e7a96d406538f7d961eb656d66823936df63e34fb1a75d39ee5f15",
+      "byteLength": 8432,
+      "status": "historical-notes"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "image_cards_system_spec.md",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/image_cards_system_spec.md",
+      "originalSha256": "f5547d507f38ae0c5aaee1f0de7cfe15f94c299e96cfc80e3108aaacdcef64d4",
+      "byteLength": 36306,
+      "status": "historical-notes"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "alchemist_attic_card_1788651397962.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/alchemist_attic_card_1788651397962.jpg",
+      "originalSha256": "6968004953df0133039dde9b892e89ee70f59c3afd3c9ebc8f9523fa57b3bf57",
+      "byteLength": 908931,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "bonfire_shrine_card_1788650422938.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/bonfire_shrine_card_1788650422938.jpg",
+      "originalSha256": "bcbdef7f66f7574cfb3666f8a5f90bff41c7ce4792fe309eb9f8b46947334f80",
+      "byteLength": 841973,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "clockmaker_desk_card_1788652840292.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/clockmaker_desk_card_1788652840292.jpg",
+      "originalSha256": "fe2d70d85b99a77e9b731b3ddfeb6b23aa3ccb57d4cc8808ba8fcb7ade14fa9b",
+      "byteLength": 898900,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "concert_stage_card_1788650408785.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/concert_stage_card_1788650408785.jpg",
+      "originalSha256": "f13031904847ebe70a62b3068d9ef1bdf7d70f8aab2d1940d9a9f1b5d23b70e4",
+      "byteLength": 958616,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "gargoyle_vigil_card_1788650658129.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/gargoyle_vigil_card_1788650658129.jpg",
+      "originalSha256": "802df15da1baf7df8b648ada7fc45c59ca06c790b5fe461319b93ce6ecadc870",
+      "byteLength": 947461,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "glitched_island_card_1788651516492.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/glitched_island_card_1788651516492.jpg",
+      "originalSha256": "c00a2c06f477bc2adeca2679e2a35e53c3f00a8a8a2b36ae7a1dc75aa9501bf5",
+      "byteLength": 788390,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "greenhouse_ruin_card_1788651339171.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/greenhouse_ruin_card_1788651339171.jpg",
+      "originalSha256": "2d55fbc5dea743dea898081c04b89092c35c348dcd2e6a1a4f5e09d3066b75b4",
+      "byteLength": 1120572,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "lighthouse_spiral_card_1788652534771.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/lighthouse_spiral_card_1788652534771.jpg",
+      "originalSha256": "360720d0fca2ad697e63ec15ef44d9449fbd1ebed22db14e13915bbea6eee664",
+      "byteLength": 925741,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "mecha_shrine_card_1788650352539.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/mecha_shrine_card_1788650352539.jpg",
+      "originalSha256": "90a0082603a8abe2a5a609cde37e256632866c39b15b5c99207484327336ece5",
+      "byteLength": 947113,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "midnight_diner_card_1788650325844.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/midnight_diner_card_1788650325844.jpg",
+      "originalSha256": "f38ca5e9498116d9e50cb0fb6fa8bb25621e8328c27f877d20ea4723a5396b9e",
+      "byteLength": 813663,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "mutagen_breach_card_1788651554592.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/mutagen_breach_card_1788651554592.jpg",
+      "originalSha256": "4365614e5ceb0ede185d308c991c983c452ca9af810714b3a5d43d469c3d06f9",
+      "byteLength": 979381,
+      "status": "sample-art"
+    },
+    {
+      "sourceRoot": "antigravity-content-648bd5c6",
+      "originalFilename": "saturday_morning_card_1788650542163.jpg",
+      "repositoryPath": "creative/source/antigravity-content-648bd5c6/saturday_morning_card_1788650542163.jpg",
+      "originalSha256": "c75f6afd72d1b9e1ac25d07970dbc872fa3141e9b5c50a30cfd2caa923591610",
+      "byteLength": 1257999,
+      "status": "sample-art"
+    }
+  ]
+}

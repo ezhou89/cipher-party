@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cipher Party — Monopoly-Style Arcade Token Roster</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Plus+Jakarta+Sans:wght@700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --color-canvas: #0e0c1a;
+      --color-surface: #161324;
+      --color-surface-high: #211c36;
+      --color-card-face: #fbf6ec;
+      --shadow-pixel: 4px 4px 0px #000000;
+      --shadow-pixel-sm: 2px 2px 0px #000000;
+      --pixel-corners: polygon(
+        0px 4px, 4px 4px, 4px 0px,
+        calc(100% - 4px) 0px, calc(100% - 4px) 4px, 100% 4px,
+        100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%,
+        4px 100%, 4px calc(100% - 4px), 0px calc(100% - 4px)
+      );
+    }
+    body {
+      background-color: var(--color-canvas);
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-corners { clip-path: var(--pixel-corners); }
+    
+    .pixel-box {
+      background-color: var(--color-surface);
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0px #000;
+      clip-path: var(--pixel-corners);
+    }
+    .pixel-btn {
+      border: 3px solid #000;
+      box-shadow: 3px 3px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+    .token-chip {
+      border: 2px solid #000;
+      box-shadow: 2px 2px 0px #000;
+      transition: all 0.12s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+    .token-chip:hover {
+      transform: translateY(-3px) scale(1.03);
+      box-shadow: 0 0 12px rgba(255, 190, 11, 0.4), 3px 3px 0px #000;
+    }
+    .token-chip.selected {
+      border-color: #ffbe0b !important;
+      box-shadow: 0 0 14px rgba(255, 190, 11, 0.9), 3px 3px 0px #000 !important;
+      transform: translateY(-2px);
+      background-color: #2b2348 !important;
+    }
+
+    @keyframes coinPulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px #ffbe0b); }
+      50% { transform: scale(1.15); filter: drop-shadow(0 0 10px #ffbe0b); }
+    }
+    .animate-pulse-coin {
+      animation: coinPulse 1.4s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6 pb-24">
+  <div class="max-w-4xl mx-auto space-y-6">
+
+    <!-- Header Banner -->
+    <header class="pixel-box p-4 flex flex-col md:flex-row justify-between items-center gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-2xl text-[#ffbe0b] font-arcade">🎲</span>
+          <h1 class="text-sm sm:text-base font-arcade text-white tracking-tight">ARCADE TOKENS & TEAM PIECES</h1>
+        </div>
+        <p class="text-[10px] font-mono text-slate-400 mt-1">MONOPOLY-STYLE COLLECTIBLE PIECES FOR OPERATIVES & TEAM CRESTS</p>
+      </div>
+      
+      <div class="flex items-center gap-2">
+        <button id="audio-toggle" class="pixel-btn px-2.5 py-1.5 bg-[#211c36] text-[#ffbe0b] text-[9px] font-arcade flex items-center gap-1.5 cursor-pointer hover:bg-[#2b2447]">
+          <span id="audio-icon">🔊</span> <span id="audio-label">FX: ON</span>
+        </button>
+        <div class="px-3 py-1.5 bg-black border-2 border-[#ffbe0b] text-[#ffbe0b] font-arcade text-[10px]">
+          2–4 TEAMS
+        </div>
+      </div>
+    </header>
+
+    <!-- SECTION 1: Monopoly-Style Token Roster -->
+    <section class="pixel-box p-5 space-y-4">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <div>
+          <h2 class="text-xs font-arcade text-[#00f3ff] flex items-center gap-2">
+            <span>👾</span> 1. CHOOSE YOUR ARCADE PIECE (16 COLLECTIBLES)
+          </h2>
+          <p class="text-[9px] font-mono text-slate-400 mt-0.5">Operatives drop this piece onto cards when nominating. Teams claim cards with this crest.</p>
+        </div>
+        
+        <!-- Category Filter -->
+        <div class="flex items-center gap-1 bg-black p-1 border border-slate-700 pixel-corners text-[8px] font-arcade">
+          <button class="filter-tab px-2 py-1 bg-[#ffbe0b] text-black cursor-pointer" data-filter="all">ALL</button>
+          <button class="filter-tab px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-filter="classic">CLASSIC</button>
+          <button class="filter-tab px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-filter="retro">ARCADE</button>
+          <button class="filter-tab px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-filter="whimsical">PARTY</button>
+        </div>
+      </div>
+
+      <!-- 16 Arcade Tokens Grid -->
+      <div id="tokens-grid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5">
+        
+        <!-- 1. Crown -->
+        <div class="token-chip selected p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="👑" data-name="CROWN" data-desc="Royal Sovereign">
+          <span class="text-2xl">👑</span>
+          <span class="text-[9px] font-arcade text-white mt-1">CROWN</span>
+          <span class="text-[7px] font-mono text-slate-400">Classic</span>
+        </div>
+
+        <!-- 2. Top Hat -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="🎩" data-name="TOP HAT" data-desc="The Monopoly OG">
+          <span class="text-2xl">🎩</span>
+          <span class="text-[9px] font-arcade text-white mt-1">TOP HAT</span>
+          <span class="text-[7px] font-mono text-slate-400">Original</span>
+        </div>
+
+        <!-- 3. Racecar -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="🏎️" data-name="RACECAR" data-desc="Speed Demon">
+          <span class="text-2xl">🏎️</span>
+          <span class="text-[9px] font-arcade text-white mt-1">RACECAR</span>
+          <span class="text-[7px] font-mono text-slate-400">Pace</span>
+        </div>
+
+        <!-- 4. Battleship / Rocket -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🚀" data-name="ROCKET" data-desc="Cosmic Cruiser">
+          <span class="text-2xl">🚀</span>
+          <span class="text-[9px] font-arcade text-white mt-1">ROCKET</span>
+          <span class="text-[7px] font-mono text-slate-400">Space</span>
+        </div>
+
+        <!-- 5. Invader -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="👾" data-name="INVADER" data-desc="8-Bit Menace">
+          <span class="text-2xl">👾</span>
+          <span class="text-[9px] font-arcade text-white mt-1">INVADER</span>
+          <span class="text-[7px] font-mono text-slate-400">Glitch</span>
+        </div>
+
+        <!-- 6. Joystick -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🕹️" data-name="JOYSTICK" data-desc="Arcade Cabinet">
+          <span class="text-2xl">🕹️</span>
+          <span class="text-[9px] font-arcade text-white mt-1">JOYSTICK</span>
+          <span class="text-[7px] font-mono text-slate-400">Cabinet</span>
+        </div>
+
+        <!-- 7. Bolt -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="⚡" data-name="BOLT" data-desc="Turbo Boost">
+          <span class="text-2xl">⚡</span>
+          <span class="text-[9px] font-arcade text-white mt-1">BOLT</span>
+          <span class="text-[7px] font-mono text-slate-400">Shock</span>
+        </div>
+
+        <!-- 8. Sword -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="🗡️" data-name="SWORD" data-desc="Vanguard Duelist">
+          <span class="text-2xl">🗡️</span>
+          <span class="text-[9px] font-arcade text-white mt-1">SWORD</span>
+          <span class="text-[7px] font-mono text-slate-400">Melee</span>
+        </div>
+
+        <!-- 9. Diamond Gem -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="💎" data-name="GEM" data-desc="Diamond Hands">
+          <span class="text-2xl">💎</span>
+          <span class="text-[9px] font-arcade text-white mt-1">GEM</span>
+          <span class="text-[7px] font-mono text-slate-400">Treasure</span>
+        </div>
+
+        <!-- 10. Cherries -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🍒" data-name="CHERRY" data-desc="1UP Bonus">
+          <span class="text-2xl">🍒</span>
+          <span class="text-[9px] font-arcade text-white mt-1">CHERRY</span>
+          <span class="text-[7px] font-mono text-slate-400">1UP</span>
+        </div>
+
+        <!-- 11. Ghost -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="👻" data-name="GHOST" data-desc="Phantom Chaser">
+          <span class="text-2xl">👻</span>
+          <span class="text-[9px] font-arcade text-white mt-1">GHOST</span>
+          <span class="text-[7px] font-mono text-slate-400">Spooky</span>
+        </div>
+
+        <!-- 12. Rubber Duck -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="whimsical" data-glyph="🦆" data-name="DUCK" data-desc="The Quack Agent">
+          <span class="text-2xl">🦆</span>
+          <span class="text-[9px] font-arcade text-white mt-1">DUCK</span>
+          <span class="text-[7px] font-mono text-slate-400">Quack</span>
+        </div>
+
+        <!-- 13. Pizza Slice -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="whimsical" data-glyph="🍕" data-name="PIZZA" data-desc="Party Fuel">
+          <span class="text-2xl">🍕</span>
+          <span class="text-[9px] font-arcade text-white mt-1">PIZZA</span>
+          <span class="text-[7px] font-mono text-slate-400">Snack</span>
+        </div>
+
+        <!-- 14. Retro Shroom -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🍄" data-name="SHROOM" data-desc="Power Up">
+          <span class="text-2xl">🍄</span>
+          <span class="text-[9px] font-arcade text-white mt-1">SHROOM</span>
+          <span class="text-[7px] font-mono text-slate-400">Power</span>
+        </div>
+
+        <!-- 15. T-Rex -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="whimsical" data-glyph="🦖" data-name="DINO" data-desc="No Internet Dino">
+          <span class="text-2xl">🦖</span>
+          <span class="text-[9px] font-arcade text-white mt-1">DINO</span>
+          <span class="text-[7px] font-mono text-slate-400">Jurassic</span>
+        </div>
+
+        <!-- 16. Bomb -->
+        <div class="token-chip p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="💣" data-name="BOMB" data-desc="Demolition Hazard">
+          <span class="text-2xl">💣</span>
+          <span class="text-[9px] font-arcade text-white mt-1">BOMB</span>
+          <span class="text-[7px] font-mono text-slate-400">Danger</span>
+        </div>
+
+      </div>
+
+      <!-- Colorway Bar & Active Selection Detail -->
+      <div class="pt-3 border-t-2 border-black flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-[9px] font-arcade text-slate-400">ASSIGN TO COLORWAY:</span>
+          <div class="flex items-center gap-1.5">
+            <button class="w-6 h-6 rounded-full bg-[#ff2a5f] border-2 border-white cursor-pointer color-btn ring-2 ring-[#ff2a5f]" data-color="#ff2a5f" data-team="RUBY" title="Ruby (P1)"></button>
+            <button class="w-6 h-6 rounded-full bg-[#00d2ff] border-2 border-black cursor-pointer color-btn" data-color="#00d2ff" data-team="COBALT" title="Cobalt (P2)"></button>
+            <button class="w-6 h-6 rounded-full bg-[#00f5a0] border-2 border-black cursor-pointer color-btn" data-color="#00f5a0" data-team="EMERALD" title="Emerald (P3)"></button>
+            <button class="w-6 h-6 rounded-full bg-[#ffbe0b] border-2 border-black cursor-pointer color-btn" data-color="#ffbe0b" data-team="AMBER" title="Amber (P4)"></button>
+            <button class="w-6 h-6 rounded-full bg-[#b5179e] border-2 border-black cursor-pointer color-btn" data-color="#b5179e" data-team="AMETHYST" title="Amethyst (Special)"></button>
+            <button class="w-6 h-6 rounded-full bg-[#ff6b00] border-2 border-black cursor-pointer color-btn" data-color="#ff6b00" data-team="SOLAR" title="Solar Flare"></button>
+          </div>
+        </div>
+
+        <div class="text-[10px] font-arcade text-white bg-black/60 px-3 py-1.5 border border-[#3f3565] pixel-corners">
+          CURRENT PIECE: <span id="active-piece-label" class="text-[#ff2a5f] font-bold">👑 CROWN (RUBY)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 2: 4-Way Team Arena & Series Tracker -->
+    <section class="pixel-box p-5 space-y-4">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <h2 class="text-xs font-arcade text-[#ffbe0b] flex items-center gap-2">
+          <span>🏆</span> 2. 4-WAY BATTLE ROYALE (BEST OF 7 SERIES)
+        </h2>
+        <span class="text-[9px] font-arcade text-slate-400">ROUND 03 // 4 ACTIVE TEAMS</span>
+      </div>
+
+      <!-- 4 Team Standings Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+
+        <!-- Team 1: Ruby (P1) -->
+        <div id="card-team-p1" class="p-3.5 bg-[#211c36] border-2 border-[#ff2a5f] pixel-corners shadow-[0_0_12px_rgba(255,42,95,0.25),3px_3px_0_#000] space-y-2">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-1.5">
+              <span id="p1-glyph" class="text-xl">👑</span>
+              <span class="text-xs font-arcade text-[#ff2a5f]">RUBY</span>
+            </div>
+            <span class="text-[8px] font-mono px-1 py-0.5 bg-[#ff2a5f]/20 text-[#ff2a5f] border border-[#ff2a5f]/40 font-bold">P1</span>
+          </div>
+          <!-- Win Pips -->
+          <div class="bg-black/70 p-2 border border-black pixel-corners flex justify-between items-center text-[10px]">
+            <span class="font-mono text-[9px] text-slate-400">WINS (2):</span>
+            <span class="text-[#ff2a5f] tracking-widest font-mono">● ● ○ ○</span>
+          </div>
+          <!-- Targets Left -->
+          <div class="text-[9px] font-arcade text-slate-300 flex justify-between">
+            <span>TARGETS:</span>
+            <span class="text-[#ff2a5f] font-bold">5 / 7 LEFT</span>
+          </div>
+          <div class="text-[8px] font-mono text-slate-400 truncate">👑 Alex, 🕵️ Sarah, 🕵️ Marcus</div>
+        </div>
+
+        <!-- Team 2: Cobalt (P2) -->
+        <div class="p-3.5 bg-[#211c36] border-2 border-[#00d2ff] pixel-corners shadow-[0_0_12px_rgba(0,210,255,0.25),3px_3px_0_#000] space-y-2">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xl">🚀</span>
+              <span class="text-xs font-arcade text-[#00d2ff]">COBALT</span>
+            </div>
+            <span class="text-[8px] font-mono px-1 py-0.5 bg-[#00d2ff]/20 text-[#00d2ff] border border-[#00d2ff]/40 font-bold">P2</span>
+          </div>
+          <div class="bg-black/70 p-2 border border-black pixel-corners flex justify-between items-center text-[10px]">
+            <span class="font-mono text-[9px] text-slate-400">WINS (1):</span>
+            <span class="text-[#00d2ff] tracking-widest font-mono">● ○ ○ ○</span>
+          </div>
+          <div class="text-[9px] font-arcade text-slate-300 flex justify-between">
+            <span>TARGETS:</span>
+            <span class="text-[#00d2ff] font-bold">6 / 7 LEFT</span>
+          </div>
+          <div class="text-[8px] font-mono text-slate-400 truncate">🎯 David, 🕵️ Elena, 🕵️ Jason</div>
+        </div>
+
+        <!-- Team 3: Emerald (P3) -->
+        <div class="p-3.5 bg-[#211c36] border-2 border-[#00f5a0] pixel-corners shadow-[0_0_12px_rgba(0,245,160,0.25),3px_3px_0_#000] space-y-2">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xl">👾</span>
+              <span class="text-xs font-arcade text-[#00f5a0]">EMERALD</span>
+            </div>
+            <span class="text-[8px] font-mono px-1 py-0.5 bg-[#00f5a0]/20 text-[#00f5a0] border border-[#00f5a0]/40 font-bold">P3</span>
+          </div>
+          <div class="bg-black/70 p-2 border border-black pixel-corners flex justify-between items-center text-[10px]">
+            <span class="font-mono text-[9px] text-slate-400">WINS (0):</span>
+            <span class="text-[#00f5a0] tracking-widest font-mono">○ ○ ○ ○</span>
+          </div>
+          <div class="text-[9px] font-arcade text-slate-300 flex justify-between">
+            <span>TARGETS:</span>
+            <span class="text-[#00f5a0] font-bold">7 / 7 LEFT</span>
+          </div>
+          <div class="text-[8px] font-mono text-slate-400 truncate">🎯 Maya, 🕵️ Kenji, 🕵️ Liam</div>
+        </div>
+
+        <!-- Team 4: Amber (P4) -->
+        <div class="p-3.5 bg-[#211c36] border-2 border-[#ffbe0b] pixel-corners shadow-[0_0_12px_rgba(255,190,11,0.25),3px_3px_0_#000] space-y-2">
+          <div class="flex justify-between items-center">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xl">⚡</span>
+              <span class="text-xs font-arcade text-[#ffbe0b]">AMBER</span>
+            </div>
+            <span class="text-[8px] font-mono px-1 py-0.5 bg-[#ffbe0b]/20 text-[#ffbe0b] border border-[#ffbe0b]/40 font-bold">P4</span>
+          </div>
+          <div class="bg-black/70 p-2 border border-black pixel-corners flex justify-between items-center text-[10px]">
+            <span class="font-mono text-[9px] text-slate-400">WINS (0):</span>
+            <span class="text-[#ffbe0b] tracking-widest font-mono">○ ○ ○ ○</span>
+          </div>
+          <div class="text-[9px] font-arcade text-slate-300 flex justify-between">
+            <span>TARGETS:</span>
+            <span class="text-[#ffbe0b] font-bold">7 / 7 LEFT</span>
+          </div>
+          <div class="text-[8px] font-mono text-slate-400 truncate">🎯 Chloe, 🕵️ Sam, 🕵️ Jordan</div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 3: Live Card Interaction Simulation -->
+    <section class="pixel-box p-5 space-y-4">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+        <div>
+          <h2 class="text-xs font-arcade text-[#00f5a0] flex items-center gap-2">
+            <span>🎴</span> 3. HOW PIECES WORK ON CARDS (NOMINATION & REVEAL)
+          </h2>
+          <p class="text-[9px] font-mono text-slate-400 mt-0.5">Operative pieces sit as nomination stamps; upon confirmation, the team crest seals the card.</p>
+        </div>
+        <span class="text-[8px] font-arcade text-[#ffbe0b] px-2 py-1 bg-black border border-[#ffbe0b] pixel-corners">
+          TRY CLICKING CARDS BELOW
+        </span>
+      </div>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        
+        <!-- Card 1: Interactive Nomination Demo -->
+        <div id="sim-nominate-card" class="p-3 bg-[#fbf6ec] text-black border-4 border-black shadow-[4px_4px_0_#000] pixel-corners flex flex-col justify-between items-center aspect-[4/3] cursor-pointer hover:brightness-105 transition-all relative">
+          <!-- Top Header Strip -->
+          <div class="w-full flex justify-between items-center text-[9px] font-arcade">
+            <span class="text-slate-400 font-mono">01</span>
+            <span id="sim-nom-badge" class="px-1.5 py-0.5 bg-[#ffbe0b] text-black font-bold text-[8px] border border-black flex items-center gap-1 animate-pulse-coin">
+              <span id="sim-nom-glyph">👑</span> 1UP
+            </span>
+          </div>
+          <span class="font-black text-sm text-slate-900 tracking-wider uppercase my-auto font-sans">SATELLITE</span>
+          <span class="text-[8px] font-mono text-slate-500">Sarah's Nomination</span>
+        </div>
+
+        <!-- Card 2: P2 Cobalt Claimed -->
+        <div class="p-3 bg-[#00d2ff] border-4 border-black shadow-[4px_4px_0_#000] pixel-corners flex flex-col justify-between items-center aspect-[4/3]">
+          <div class="w-full flex justify-between items-center">
+            <span class="text-black text-base">🚀</span>
+            <span class="text-[8px] font-arcade text-black/80">COBALT #1</span>
+          </div>
+          <span class="font-black text-xs text-black tracking-wider uppercase my-auto font-sans">ORBIT</span>
+          <span class="text-[8px] font-arcade text-black font-bold">REVEALED</span>
+        </div>
+
+        <!-- Card 3: P3 Emerald Claimed -->
+        <div class="p-3 bg-[#00f5a0] border-4 border-black shadow-[4px_4px_0_#000] pixel-corners flex flex-col justify-between items-center aspect-[4/3]">
+          <div class="w-full flex justify-between items-center">
+            <span class="text-black text-base">👾</span>
+            <span class="text-[8px] font-arcade text-black/80">EMERALD #1</span>
+          </div>
+          <span class="font-black text-xs text-black tracking-wider uppercase my-auto font-sans">GLACIER</span>
+          <span class="text-[8px] font-arcade text-black font-bold">REVEALED</span>
+        </div>
+
+        <!-- Card 4: Hazard Skull (Sudden Death) -->
+        <div class="p-3 bg-[#111111] text-white border-4 border-[#ff2a5f] shadow-[0_0_12px_rgba(255,42,95,0.4),4px_4px_0_#000] pixel-corners flex flex-col justify-between items-center aspect-[4/3]">
+          <div class="w-full flex justify-between items-center">
+            <span class="text-[#ff2a5f] text-base">☠️</span>
+            <span class="text-[8px] font-arcade text-[#ff2a5f]">HAZARD</span>
+          </div>
+          <span class="font-black text-xs text-red-400 tracking-wider uppercase my-auto line-through font-sans">VOLCANO</span>
+          <span class="text-[8px] font-arcade text-red-500">ELIMINATES TEAM</span>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Interactive Logic & Web Audio Synthesizer -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const tokenChips = document.querySelectorAll('.token-chip');
+      const colorBtns = document.querySelectorAll('.color-btn');
+      const filterTabs = document.querySelectorAll('.filter-tab');
+      const activePieceLabel = document.getElementById('active-piece-label');
+      const p1Glyph = document.getElementById('p1-glyph');
+      const cardTeamP1 = document.getElementById('card-team-p1');
+      const simNomGlyph = document.getElementById('sim-nom-glyph');
+      const simNomCard = document.getElementById('sim-nominate-card');
+      const audioToggle = document.getElementById('audio-toggle');
+      const audioIcon = document.getElementById('audio-icon');
+      const audioLabel = document.getElementById('audio-label');
+
+      let soundEnabled = true;
+      let audioCtx = null;
+
+      function getAudioContext() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+
+      function play8BitBlip(freq = 440, type = 'square', duration = 0.08) {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + duration);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + duration);
+        } catch (e) {
+          // Audio blocked by browser policy until interaction
+        }
+      }
+
+      function playCoinJingle() {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          [987.77, 1318.51].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+            gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.16);
+          });
+        } catch (e) {}
+      }
+
+      audioToggle.addEventListener('click', () => {
+        soundEnabled = !soundEnabled;
+        if (soundEnabled) {
+          audioIcon.textContent = '🔊';
+          audioLabel.textContent = 'FX: ON';
+          playCoinJingle();
+        } else {
+          audioIcon.textContent = '🔇';
+          audioLabel.textContent = 'FX: OFF';
+        }
+      });
+
+      let currentGlyph = '👑';
+      let currentName = 'CROWN';
+      let currentColor = '#ff2a5f';
+      let currentTeam = 'RUBY';
+
+      function updatePiece() {
+        activePieceLabel.textContent = `${currentGlyph} ${currentName} (${currentTeam})`;
+        activePieceLabel.style.color = currentColor;
+        p1Glyph.textContent = currentGlyph;
+        simNomGlyph.textContent = currentGlyph;
+        cardTeamP1.style.borderColor = currentColor;
+        cardTeamP1.style.boxShadow = `0 0 12px ${currentColor}40, 3px 3px 0 #000`;
+      }
+
+      // 1. Token Selection
+      tokenChips.forEach(chip => {
+        chip.addEventListener('click', () => {
+          tokenChips.forEach(c => c.classList.remove('selected'));
+          chip.classList.add('selected');
+          currentGlyph = chip.getAttribute('data-glyph');
+          currentName = chip.getAttribute('data-name');
+          updatePiece();
+          play8BitBlip(520, 'triangle', 0.09);
+        });
+      });
+
+      // 2. Color Selection
+      colorBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          colorBtns.forEach(b => b.classList.remove('ring-2', 'ring-white'));
+          btn.classList.add('ring-2', 'ring-white');
+          currentColor = btn.getAttribute('data-color');
+          currentTeam = btn.getAttribute('data-team');
+          updatePiece();
+          play8BitBlip(680, 'square', 0.07);
+        });
+      });
+
+      // 3. Category Filter
+      filterTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          filterTabs.forEach(t => {
+            t.classList.remove('bg-[#ffbe0b]', 'text-black');
+            t.classList.add('text-slate-400');
+          });
+          tab.classList.add('bg-[#ffbe0b]', 'text-black');
+          tab.classList.remove('text-slate-400');
+          
+          const filter = tab.getAttribute('data-filter');
+          tokenChips.forEach(chip => {
+            const cat = chip.getAttribute('data-category');
+            if (filter === 'all' || cat === filter) {
+              chip.style.display = 'flex';
+            } else {
+              chip.style.display = 'none';
+            }
+          });
+          play8BitBlip(380, 'sine', 0.06);
+        });
+      });
+
+      // 4. Click Simulation on Card
+      simNomCard.addEventListener('click', () => {
+        playCoinJingle();
+        simNomCard.classList.toggle('ring-4');
+        simNomCard.classList.toggle('ring-[#ffbe0b]');
+      });
+    });
+  </script>
+</body>
+</html>

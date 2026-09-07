@@ -23,11 +23,11 @@ Assign the seats so both teams have exactly one clue-giver and one operative:
 Before inviting players, run the release gate from the repository:
 
 ```bash
-npm install
-npm run check:release
+pnpm install --frozen-lockfile
+pnpm run check:release
 ```
 
-If `npm run check:release` reveals a critical defect, stop and apply the regression rule below before scheduling the human session. For the host-local option, also run `npm run dev` and open the one assigned window in each of Profiles A–D at <http://127.0.0.1:5173>. For the authorized distributed staging option, no local server is required; open <https://staging.oddlyuseful.studio> on the one assigned device/browser for each participant.
+If `pnpm run check:release` reveals a critical defect, stop and apply the regression rule below before scheduling the human session. For the host-local option, also run `pnpm run dev` and open the one assigned window in each of Profiles A–D at <http://127.0.0.1:5173>. For the authorized distributed staging option, no local server is required; open <https://staging.oddlyuseful.studio> on the one assigned device/browser for each participant.
 
 Do not use the apex `oddlyuseful.studio`, expose the loopback development server, or improvise a LAN or production deployment.
 
@@ -98,5 +98,5 @@ If a critical defect appears:
 
 1. Stop the exit gate. Keep **Human playtest: NOT YET RUN** or mark the attempted session `FAIL`; do not mark Task 13 or the milestone complete.
 2. Add and run a new failing automated regression test that reproduces the concrete defect before changing implementation.
-3. Make the minimum fix, run the focused regression GREEN, then run `npm run check:release` and the Worker dry run again.
+3. Make the minimum fix, run the focused regression GREEN, then run `pnpm run check:release` and the Worker dry run again.
 4. Repeat the affected human steps with four humans in the four distinct named profiles, using one assigned window per profile, and record the new evidence. The milestone can close only when the relevant human playtest has no critical blocker.

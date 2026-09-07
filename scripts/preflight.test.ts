@@ -115,7 +115,7 @@ async function createPreflightFixture(options: FixtureOptions = {}) {
       join(root, "docs/PROJECT_SNAPSHOT.md"),
       [
         "docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md",
-        "docs/superpowers/plans/2026-08-30-connected-classic.md",
+        "docs/superpowers/plans/2026-09-07-creative-integration.md",
         "docs/superpowers/specs/2026-08-30-cipher-party-design.md",
       ].join("\n"),
     ),
@@ -124,7 +124,7 @@ async function createPreflightFixture(options: FixtureOptions = {}) {
       "# Roadmap\n",
     ),
     writeFile(
-      join(root, "docs/superpowers/plans/2026-08-30-connected-classic.md"),
+      join(root, "docs/superpowers/plans/2026-09-07-creative-integration.md"),
       "# Plan\n",
     ),
     writeFile(
@@ -171,7 +171,7 @@ async function createPreflightFixture(options: FixtureOptions = {}) {
   ]);
 
   if (options.includeLockfile ?? true) {
-    await writeFile(join(root, "package-lock.json"), "{}\n");
+    await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
   }
 
   return root;
@@ -254,7 +254,7 @@ describe("runPreflight", () => {
       "Could not parse Node.js version",
     );
     await expect(run(root, "v22.0.0")).rejects.toThrow(
-      "package-lock.json is required",
+      "pnpm-lock.yaml is required",
     );
   });
 
@@ -379,7 +379,7 @@ describe("runPreflight", () => {
     const { run } = fixturePreflight();
 
     await expect(run(root, "v22.0.0")).rejects.toThrow(
-      "Worker static assets are missing; run npm run build",
+      "Worker static assets are missing; run pnpm run build",
     );
   });
 

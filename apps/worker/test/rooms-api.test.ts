@@ -19,8 +19,12 @@ import type { RoomDurableObject } from "../src/room/room-durable-object";
 import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
 
 const TEST_ORIGIN = "http://127.0.0.1:5173";
-const INITIAL_TIME = new Date("2026-08-30T10:00:00.000Z");
-const JOIN_TIME = new Date("2026-08-30T11:00:00.000Z");
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIAL_TIME = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
+const JOIN_TIME = new Date(INITIAL_TIME.getTime() + 60 * 60 * 1000);
 
 interface CreateRoomResponse {
   code: string;

@@ -5,7 +5,7 @@ const paths = {
   agentInstructions: "AGENTS.md",
   snapshot: "docs/PROJECT_SNAPSHOT.md",
   roadmap: "docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md",
-  activePlan: "docs/superpowers/plans/2026-08-30-connected-classic.md",
+  activePlan: "docs/superpowers/plans/2026-09-07-creative-integration.md",
   approvedSpec: "docs/superpowers/specs/2026-08-30-cipher-party-design.md",
 };
 

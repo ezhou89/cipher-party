@@ -227,7 +227,7 @@ async function verifyStaticAssets(root, configs) {
   }
   await requireFile(
     resolve(expectedPath, "index.html"),
-    "Worker static assets are missing; run npm run build",
+    "Worker static assets are missing; run pnpm run build",
   );
   return "apps/web/dist/index.html";
 }
@@ -259,9 +259,12 @@ function verifyMilestoneBindings(configs) {
 
 async function executeExpiryTestProcess(root) {
   const { stdout } = await execFileAsync(
-    process.execPath,
+    "pnpm",
     [
-      resolve(root, "node_modules/vitest/vitest.mjs"),
+      "--filter",
+      "@cipher-party/worker",
+      "exec",
+      "vitest",
       "run",
       "test/room-durable-object.test.ts",
       "--config",
@@ -269,7 +272,7 @@ async function executeExpiryTestProcess(root) {
       "--reporter=json",
     ],
     {
-      cwd: resolve(root, "apps/worker"),
+      cwd: root,
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
     },
@@ -403,10 +406,10 @@ export function createPreflight({
     });
     await runCheck(results, "Lockfile", async () => {
       await requireFile(
-        resolve(root, "package-lock.json"),
-        "package-lock.json is required",
+        resolve(root, "pnpm-lock.yaml"),
+        "pnpm-lock.yaml is required",
       );
-      return "package-lock.json";
+      return "pnpm-lock.yaml";
     });
     await runCheck(results, "Wrangler parity", () =>
       verifyWranglerParity(requireConfigSnapshot()),
