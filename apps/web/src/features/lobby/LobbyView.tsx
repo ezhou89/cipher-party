@@ -5,6 +5,7 @@ import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { CopyInviteButton } from "../../components/CopyInviteButton";
 import { TeamPanel, type TeamPanelIdentity } from "../../components/TeamPanel";
 import type { RoomConnectionState } from "../../lib/room-socket";
+import { TEAM_PRESENTATION } from "../../lib/team-presentation";
 
 interface LobbyViewProps {
   projection: ClientProjection;
@@ -14,14 +15,14 @@ interface LobbyViewProps {
 }
 
 const RED_TEAM: TeamPanelIdentity = {
+  ...TEAM_PRESENTATION.red,
   id: "red",
   label: "Red team",
-  symbol: "◆",
 };
 const BLUE_TEAM: TeamPanelIdentity = {
+  ...TEAM_PRESENTATION.blue,
   id: "blue",
   label: "Blue team",
-  symbol: "●",
 };
 const WAITING_TEAM: TeamPanelIdentity = {
   id: "waiting",
@@ -191,7 +192,7 @@ export function LobbyView({
     <main className="app-shell room-shell">
       <header className="room-identity-strip">
         <div>
-          <p className="eyebrow">Private archive table</p>
+          <p className="eyebrow">Private arcade · Lobby</p>
           <h1>Room {projection.code}</h1>
         </div>
         <div className="identity-status">
@@ -202,7 +203,7 @@ export function LobbyView({
 
       <section className="invite-strip" aria-labelledby="invite-heading">
         <div>
-          <p className="card-index">Invite file</p>
+          <p className="card-index">Squad invite</p>
           <h2 id="invite-heading">Bring your crew to the table</h2>
         </div>
         <CopyInviteButton inviteUrl={projection.inviteUrl} />
@@ -216,7 +217,7 @@ export function LobbyView({
         />
         <header className="section-heading">
           <div>
-            <p className="card-index">Seat manifest</p>
+            <p className="card-index">Player select</p>
             <h2 id="lobby-heading">Teams at a glance</h2>
           </div>
           <span className="lock-status">

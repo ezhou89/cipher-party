@@ -739,7 +739,7 @@ describe("RoomPage invite and socket lifecycle", () => {
     await router.navigate("/");
     expect(
       await screen.findByRole("heading", {
-        name: "Open the archive. Find the connection.",
+        name: "Gather your crew. Find the connection.",
       }),
     ).toBeVisible();
 

@@ -27,8 +27,12 @@ export function createClassicBoard(input: {
 
   const selectedCards = shuffled(
     input.cards,
-    createSeededRandom(input.seed),
+    createSeededRandom(`${input.seed}/cards`),
   ).slice(0, 25);
+  const orderedCards = shuffled(
+    selectedCards,
+    createSeededRandom(`${input.seed}/grid-order`),
+  );
   const otherTeam: TeamId = input.startingTeam === "red" ? "blue" : "red";
   const owners = shuffled<Ownership>(
     [
@@ -42,7 +46,7 @@ export function createClassicBoard(input: {
   const boardCards: Record<CardId, BoardCard> = Object.create(null);
   const order: CardId[] = [];
 
-  for (const [index, card] of selectedCards.entries()) {
+  for (const [index, card] of orderedCards.entries()) {
     const owner = owners[index]!;
     boardCards[card.id] = { ...card, owner, revealed: false };
     order.push(card.id);

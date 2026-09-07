@@ -122,7 +122,7 @@ export function HomePage({ seatStore }: HomePageProps) {
 
       <section className="hero" aria-labelledby="home-title">
         <p className="eyebrow">Private word-association games</p>
-        <h1 id="home-title">Open the archive. Find the connection.</h1>
+        <h1 id="home-title">Gather your crew. Find the connection.</h1>
         <p className="lede">
           Bring your friends, split into two teams, and uncover a shared field
           of clues. Your invite stays private and your seat stays on this
@@ -150,7 +150,7 @@ export function HomePage({ seatStore }: HomePageProps) {
         >
           <div>
             <p className="card-index" aria-hidden="true">
-              File 01
+              Player 01
             </p>
             <h2 id="create-room-title">Create Room</h2>
             <p>
@@ -176,7 +176,7 @@ export function HomePage({ seatStore }: HomePageProps) {
         >
           <div>
             <p className="card-index" aria-hidden="true">
-              File 02
+              Player 02
             </p>
             <h2 id="join-room-title">Join Room</h2>
             <p>Enter the six-character code a host shared with you.</p>

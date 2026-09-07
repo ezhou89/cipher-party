@@ -63,6 +63,56 @@ describe("createClassicBoard", () => {
     );
   });
 
+  it("replays card membership, grid order, and ownership from independent streams", () => {
+    const board = createClassicBoard({
+      cards,
+      seed: "independent-streams",
+      startingTeam: "red",
+    });
+    // Fixed vectors for /cards, then /grid-order, and the existing /ownership
+    // stream. Reusing one stream or arranging the whole pool before selection
+    // must not change either the selected membership or its spatial order.
+    const selected = [
+      31, 11, 4, 33, 13, 36, 18, 25, 21, 28, 14, 10, 39, 22, 12, 38, 24, 0, 9,
+      34, 17, 7, 6, 2, 16,
+    ].map((index) => `card-${index}`);
+    const ordered = [
+      33, 4, 25, 34, 2, 0, 11, 31, 17, 16, 10, 7, 18, 14, 28, 22, 6, 24, 12, 38,
+      21, 39, 9, 36, 13,
+    ].map((index) => `card-${index}`);
+
+    expect([...board.order].sort()).toEqual([...selected].sort());
+    expect(board.order).toEqual(ordered);
+    expect(board.order).not.toEqual(selected);
+    expect(board.order.map((id) => board.cards[id]?.owner)).toEqual([
+      "blue",
+      "blue",
+      "red",
+      "blue",
+      "red",
+      "blue",
+      "hazard",
+      "neutral",
+      "red",
+      "red",
+      "blue",
+      "blue",
+      "blue",
+      "neutral",
+      "red",
+      "red",
+      "red",
+      "neutral",
+      "neutral",
+      "neutral",
+      "red",
+      "neutral",
+      "blue",
+      "neutral",
+      "red",
+    ]);
+  });
+
   it("varies the board for distinct known seeds", () => {
     const first = createClassicBoard({
       cards,

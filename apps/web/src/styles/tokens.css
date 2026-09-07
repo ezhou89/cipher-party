@@ -1,13 +1,25 @@
 :root {
   color-scheme: dark;
-  --color-ink: #081522;
-  --color-panel: #102638;
-  --color-paper: #f4ebd8;
-  --color-text: #f8f6ef;
-  --color-muted: #9fb2bf;
-  --color-red: #e75d5d;
-  --color-blue: #4f91e8;
-  --color-focus: #ffd66b;
-  --radius-card: 0.8rem;
-  --shadow-card: 0 0.65rem 1.4rem rgb(0 0 0 / 24%);
+  --color-ink: #0e0c1a;
+  --color-panel: #181528;
+  --color-panel-high: #211c36;
+  --color-panel-bright: #2e274c;
+  --color-border: #3f3565;
+  --color-paper: #fbf6ec;
+  --color-text: #fbf6ec;
+  --color-muted: #b9b1cd;
+  --color-red: #ff2a5f;
+  --color-blue: #00d2ff;
+  --color-focus: #ffbe0b;
+  --color-neutral: #8b85a3;
+  --color-hazard: #080611;
+  --font-chrome:
+    ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-display: "Arial Black", "Avenir Next", "Segoe UI", sans-serif;
+  --font-word: Arial, "Helvetica Neue", "Segoe UI", sans-serif;
+  --radius-control: 2px;
+  --radius-card: 4px;
+  --shadow-small: 2px 2px 0 #000;
+  --shadow-control: 0 3px 0 #000;
+  --shadow-card: 4px 4px 0 #000;
 }

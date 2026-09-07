@@ -1547,6 +1547,23 @@ test("five isolated clients complete Connected Classic without hidden-data or du
 
     const firstTarget = redTargets[0]!;
     await cancelReveal(room.redOperative, firstTarget);
+    // Inspect only the public nomination cue, without exposing a target label
+    // or reading the secret key into assertion diagnostics.
+    const nominationSize = await room.redOperative.page
+      .locator(".nomination-marker")
+      .evaluate((marker) => {
+        const style = getComputedStyle(marker);
+        return {
+          contentHeight:
+            marker.getBoundingClientRect().height -
+            Number.parseFloat(style.paddingTop) -
+            Number.parseFloat(style.paddingBottom),
+          lineHeight: Number.parseFloat(style.lineHeight),
+        };
+      });
+    expect(nominationSize.contentHeight).toBeLessThanOrEqual(
+      nominationSize.lineHeight + 1,
+    );
     const firstRevealCommandId = await revealTarget(
       room.redOperative,
       firstTarget,

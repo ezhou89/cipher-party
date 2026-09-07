@@ -221,12 +221,12 @@ function GameStatus({ board, focusFallbackRef }: GameStatusProps) {
       aria-label="Turn status"
     >
       <TeamScore board={board} />
-      <div className="turn-status">
+      <div className={`turn-status turn-status-${board.activeTeam}`}>
         <strong>
           <span aria-hidden="true">{team.symbol}</span> {team.label} team’s turn
         </strong>
         <span>{phaseLabel(board.phase)}</span>
-        <span>
+        <span className="turn-clue">
           {board.clue === null
             ? "No clue submitted"
             : `${board.clue.word} · ${board.clue.count}`}
@@ -658,7 +658,7 @@ export function GameView({
     <main className="app-shell room-shell game-shell">
       <header className="room-identity-strip game-header">
         <div>
-          <p className="eyebrow">Private archive table</p>
+          <p className="eyebrow">Private arcade · In play</p>
           <h1>Room {projection.code} · Classic</h1>
         </div>
         <div className="identity-status">
