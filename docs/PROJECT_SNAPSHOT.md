@@ -1,14 +1,20 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 16
+**Snapshot revision:** 17
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-07
 
-**Project state:** Tasks 1–12 are accepted. Task 13's release preflight and local/playtest documentation are independently approved at pre-human head `4a7911c`. The separate `cipher-party-staging` Worker is deployed at `https://staging.oddlyuseful.studio`; the required four-human Connected Classic session is the current exit gate, and no human result has been recorded yet.
+**Project state:** Creative integration in progress on `feature/creative-integration`, based on reviewed `fe264e3`. The user approved retaining Gemini's creative work and pnpm workflow while reusing the reviewed multiplayer safeguards. Existing staging still serves the previously recorded build; integration verification and deployment are pending. The four-human playtest remains NOT YET RUN.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
-**Active plan:** docs/superpowers/plans/2026-08-30-connected-classic.md
+**Active plan:** docs/superpowers/plans/2026-09-07-creative-integration.md
+
+**Original milestone plan:** docs/superpowers/plans/2026-08-30-connected-classic.md (historical implementation/review evidence).
+
+**Current worktree:** `/Users/eugenezhou/Code/cipher-party/.worktrees/creative-integration`
+
+**Creative source:** `main@128c0f7` plus identified Antigravity prototype/content directories. Preserve the original checkout and its untracked E2E drafts.
 
 **Roadmap:** docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md
 
@@ -56,11 +62,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 ## Work ledger
 
 - **Last accepted implementation task:** Task 12 — multiplayer browser E2E and hidden-data regression at accepted head `7badb94` (`3b16324` implementation plus review fixes `130f408`, `6305f54`, `935a30c`, and `7badb94`).
-- **Current task:** Task 13 Step 5 — run and record the four-human Connected Classic playtest against the authorized staging origin `https://staging.oddlyuseful.studio` from `docs/runbooks/connected-classic-playtest.md`.
-- **Next task after playtest:** Fix any critical defect through a failing regression, rerun the final exit gate, close Connected Classic, and hand off to Milestone 2 Pack Studio planning.
-- **Blocked by:** Four real humans completing the reviewed session with four distinct browser profiles/devices and one assigned window per participant. **Human playtest: NOT YET RUN.**
+- **Current task:** Integration Task 1 — preserve creative source and complete the pnpm release workflow.
+- **Next task:** Integration Task 2 — arcade presentation and board sampling, followed by staging hardening and verified deployment.
+- **Current blockers:** None for integration. The milestone exit still requires four real humans after the combined build is deployed. **Human playtest: NOT YET RUN.**
 
-## Verified baseline
+## Historical reviewed baseline (not proof of the integrated build)
 
 - Design commit: `ba2c612`; planning/drift-control commit: `628e11a`.
 - Task 1 commits: `b9b0cd9` and review fix `9b7bc9a`.

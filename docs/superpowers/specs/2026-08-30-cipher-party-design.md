@@ -335,7 +335,7 @@ Cloudflare custom domains route to the same Worker deployment. The neutral domai
 
 ### 10.2 Repository boundaries
 
-The repository uses npm workspaces:
+The repository uses pnpm workspaces (September 7 integration amendment):
 
 - apps/web: React UI, local IndexedDB pack library, WebSocket client, and PWA-ready manifest assets.
 - apps/worker: HTTP gateway, WebSocket ticket endpoint, Durable Object implementation, R2 access, cleanup, rate limits, and Workers AI adapter.
@@ -595,3 +595,15 @@ References:
 - https://developers.cloudflare.com/r2/pricing/
 - https://developers.cloudflare.com/workers-ai/platform/pricing/
 - https://developers.cloudflare.com/changelog/post/2025-02-25-json-mode/
+
+## 19. September 7 creative integration amendment
+
+The user approved combining Gemini/Antigravity's creative direction and pnpm workflow with the reviewed Connected Classic implementation. The integration plan is `docs/superpowers/plans/2026-09-07-creative-integration.md`.
+
+- Preserve the Neo 8-Bit arcade direction: warm word cards, readable sans-serif card words, restrained pixel-style chrome, tactile controls, and team identity conveyed by color, glyph, pattern, and semantic label. Accessibility remains a verification requirement, not a guarantee from a design document.
+- Preserve source prototypes, word lists, image samples, recipes, and design notes in tracked creative folders. Label historical assertions and experiments; archival text is not approval or completion evidence.
+- Use pnpm workspaces and a committed portable lockfile, explicit build-script approvals, and the complete existing release checks. Original npm-based execution records remain historical.
+- Retain the reviewed authoritative server, strict role projections, reconnect/idempotency handling, confirmation freshness, and privacy regression harness. Adopt separate card-selection/grid-order random streams while retaining validated IDs and ownership distribution.
+- Creative tools may prepare art separately. In-app AI remains editable text suggestions only. Pack Studio, picture/mixed runtime boards, token/audio customization, and campaigns retain their existing milestone boundaries.
+- Bring HTTPS enforcement, response headers, bounded admission limits, reproducible staging configuration, and pre-session live verification into this integration before the next staging playtest. The only authorized deployment target is the separate staging Worker/domain; the apex is outside this integration.
+- The four-human playtest remains a real milestone exit gate. Automated integration completion cannot substitute for it.
