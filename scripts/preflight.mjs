@@ -259,12 +259,9 @@ function verifyMilestoneBindings(configs) {
 
 async function executeExpiryTestProcess(root) {
   const { stdout } = await execFileAsync(
-    "pnpm",
+    process.execPath,
     [
-      "--filter",
-      "@cipher-party/worker",
-      "exec",
-      "vitest",
+      resolve(root, "node_modules/vitest/vitest.mjs"),
       "run",
       "test/room-durable-object.test.ts",
       "--config",
@@ -272,7 +269,7 @@ async function executeExpiryTestProcess(root) {
       "--reporter=json",
     ],
     {
-      cwd: root,
+      cwd: resolve(root, "apps/worker"),
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
     },

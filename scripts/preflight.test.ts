@@ -212,6 +212,52 @@ describe("runPreflight", () => {
     expect(runExpiryTestProcess).toHaveBeenCalledWith(root);
   });
 
+  it("launches expiry Vitest without a package-manager executable on PATH", async () => {
+    const root = await createPreflightFixture();
+    const vitestDirectory = join(root, "node_modules/vitest");
+    const expectedArguments = [
+      "run",
+      "test/room-durable-object.test.ts",
+      "--config",
+      "vitest.config.ts",
+      "--reporter=json",
+    ];
+    await mkdir(vitestDirectory, { recursive: true });
+    await writeFile(
+      join(vitestDirectory, "vitest.mjs"),
+      [
+        'import { realpathSync } from "node:fs";',
+        `const expectedArguments = ${JSON.stringify(expectedArguments)};`,
+        "const actualArguments = process.argv.slice(2);",
+        "if (JSON.stringify(actualArguments) !== JSON.stringify(expectedArguments)) {",
+        "  throw new Error(`Unexpected arguments: ${JSON.stringify(actualArguments)}`);",
+        "}",
+        `if (realpathSync(process.cwd()) !== realpathSync(${JSON.stringify(join(root, "apps/worker"))})) {`,
+        "  throw new Error(`Unexpected cwd: ${process.cwd()}`);",
+        "}",
+        `process.stdout.write(${JSON.stringify(expiryReport())});`,
+      ].join("\n"),
+    );
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      const result = await createPreflight()(root, "v22.0.0");
+
+      expect(result.at(-1)).toEqual({
+        check: "Room expiry",
+        status: "PASS",
+        detail: "7 required RoomDurableObject expiry tests passed",
+      });
+    } finally {
+      if (originalPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = originalPath;
+      }
+    }
+  });
+
   it("reads each Wrangler config exactly once into one run snapshot", async () => {
     const root = await createPreflightFixture();
     const readTextFile = vi.fn((path: string) => readFile(path, "utf8"));
