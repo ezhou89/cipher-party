@@ -803,6 +803,45 @@ async function assertPhoneBoard(page: Page): Promise<void> {
     .getByRole("region", { name: "Classic board" })
     .locator(".board-card");
   await expect(cards).toHaveCount(25);
+  // Keep every label, ID, and per-card measurement inside the public page.
+  // Only aggregate booleans may appear in these geometry diagnostics.
+  const labelGeometry = await cards
+    .locator(".board-card-label")
+    .evaluateAll((labels) => {
+      let singleLine = labels.length === 25;
+      let horizontallyUnclipped = labels.length === 25;
+      for (const label of labels) {
+        const lineHeight = Number.parseFloat(
+          getComputedStyle(label).lineHeight,
+        );
+        const labelBounds = label.getBoundingClientRect();
+        const cardBounds = label
+          .closest(".board-card")
+          ?.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const textBounds = range.getBoundingClientRect();
+        singleLine &&=
+          labelBounds.height > 0 &&
+          labelBounds.height <= lineHeight + 1 &&
+          textBounds.height <= lineHeight + 1;
+        horizontallyUnclipped &&=
+          label.scrollWidth <= label.clientWidth + 1 &&
+          textBounds.left >= labelBounds.left - 1 &&
+          textBounds.right <= labelBounds.right + 1 &&
+          cardBounds !== undefined &&
+          textBounds.left >= cardBounds.left - 1 &&
+          textBounds.right <= cardBounds.right + 1;
+      }
+      return { singleLine, horizontallyUnclipped };
+    });
+  expect(labelGeometry.singleLine, "public_card_labels_must_fit_one_line").toBe(
+    true,
+  );
+  expect(
+    labelGeometry.horizontallyUnclipped,
+    "public_card_labels_must_not_clip_horizontally",
+  ).toBe(true);
   const boxes = await Promise.all(
     Array.from({ length: 25 }, (_, index) => cards.nth(index).boundingBox()),
   );
