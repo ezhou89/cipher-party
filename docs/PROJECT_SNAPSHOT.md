@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 18
+**Snapshot revision:** 19
 
 **Last updated:** 2026-09-07
 
-**Project state:** Creative integration in progress on `feature/creative-integration`, based on reviewed `fe264e3`. The user approved retaining Gemini's creative work and pnpm workflow while reusing the reviewed multiplayer safeguards. Existing staging still serves the previously recorded build; integration verification and deployment are pending. The four-human playtest remains NOT YET RUN.
+**Project state:** Creative archive, pnpm workflow, and arcade presentation are integrated and independently reviewed on `feature/creative-integration`, based on reviewed `fe264e3`. Staging hardening and deployment are next; existing staging still serves the historical build. The four-human playtest remains NOT YET RUN.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -61,9 +61,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Integration Task 1 — creative archive and pnpm workflow, `1f36563` plus portability/schema review fix `4cac746`.
-- **Current task:** Integration Task 2 — arcade presentation and board sampling.
-- **Next task:** Integration Task 3 — staging hardening and reproducible deployment, then whole-branch review and verified staging update.
+- **Last accepted implementation task:** Integration Task 2 — arcade presentation and board sampling, `6ffad0f` plus committed geometry-regression review fix `8c34a6f`.
+- **Current task:** Integration Task 3 — staging hardening and reproducible deployment.
+- **Next task:** Integration Task 4 — whole-branch review, verified staging update, and human playtest handoff.
 - **Current blockers:** None for integration. The milestone exit still requires four real humans after the combined build is deployed. **Human playtest: NOT YET RUN.**
 
 ## Current integration evidence
@@ -76,86 +76,25 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - The reviewed dependency resolutions remain unchanged under pnpm. Known non-blocking tooling notices: Node DEP0040 and Wrangler's update notice.
 - Current staging is still the historical version below; no integration deployment has occurred. `ROOMS` namespace continuity baseline is `f2766441dfa24d10bef55dd8ee4f5599` (`RoomDurableObject`, migration `v1`).
 
-## Historical reviewed baseline (not proof of the integrated build)
+- Task 2 independently reviewed; the geometry fix addressed its sole Important finding with no new breakage.
+- `pnpm run check:release` passed on `6ffad0f`: 441 repository tests (core 68, protocol 95, web 120, Worker 120, root 38), builds/dry run, 8/8 preflight rows with seven expiry identities, and 36/36 Chromium/WebKit tests.
+- Final public-only desktop/320px visual QA passed 2/2; coordinator inspected representative captures. Built-in words and nomination cues fit, and keyboard/cancel/focus/reduced-motion checks passed.
+- Review fix `8c34a6f` added committed value-free one-line/no-clipping checks for all 25 phone labels. Restoring faulty font/spacing failed both browsers; final styling passed both focused five-client flows (2/2), lint, format, and diff-check.
+- Root `@cipher-party/protocol: workspace:*` devDependency restores existing E2E imports under isolated pnpm; no external resolutions changed. Known test-runner color-environment notice is non-blocking.
 
-- Design commit: `ba2c612`; planning/drift-control commit: `628e11a`.
-- Task 1 commits: `b9b0cd9` and review fix `9b7bc9a`.
-- Task 2 commit: `f42a84e`.
-- Task 3 commits: `6dd73d7` and review fix `bd49324`.
-- Task 4 commit: `79a9c3b`.
-- Task 5 commits: `c6a7d18` and review fix `1e8b7af`.
-- Task 6 commits: `143e8a7` and review fix `2562415`.
-- Task 7 commit: `de27e83`.
-- Task 8 commits: `f0ac58c` and review fix `fc49865`.
-- Task 9 commits: `29e1255` and review fix `4f4ea4f`.
-- Task 10 commits: `2022230` and review fix `abd09bc`.
-- Task 11 commits: `a98f4f3` and review fixes `bcc1e11`, `6e30668`.
-- Task 12 commits: `3b16324` and review fixes `130f408`, `6305f54`, `935a30c`, `7badb94`.
-- `npx vitest run scripts/check-project-docs.test.ts`: 1 file, 2 tests passed.
-- `npx vitest run scripts/tsconfig-libraries.test.ts`: 1 file, 1 test passed.
-- `npm run check`: passed docs, formatting, lint, all workspace typechecks, and tests; root Vitest reported 2 files and 3 tests passed.
-- `npm run build`: passed package typechecks, the web production build, and Worker dry-run build.
-- `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying.
-- `npm test`: passed; empty workspace suites use their planned temporary `--passWithNoTests` flags until their first test tasks.
-- `git diff --check`: passed with no output before the accepted commits.
-- `npm run test -w @cipher-party/game-core`: 1 file, 2 tests passed.
-- `npm run test -w @cipher-party/protocol`: 1 file, 37 tests passed.
-- `npm run typecheck -w @cipher-party/protocol`: passed.
-- Task 2 `npm run check`: passed; root and workspace suites reported 42 tests total with no failures.
-- `npm run test -w @cipher-party/game-core -- board.test.ts`: 1 file, 11 tests passed after review fix.
-- Task 3 `npm run check`: passed; game-core 13, protocol 37, and root 3 tests passed (53 total).
-- `npm run test -w @cipher-party/game-core -- reducer.test.ts`: 1 file, 54 tests passed.
-- `npm run test -w @cipher-party/game-core`: 3 files, 67 tests passed.
-- Task 4 `npm run check` and `npm test`: 107 tests passed across game-core, protocol, and root suites.
-- `npm run test -w @cipher-party/protocol -- projections.test.ts`: 1 file, 53 tests passed.
-- `npm run typecheck -w @cipher-party/protocol`: passed with compile-time negative projection assertions.
-- Task 5 `npm run check`: 160 tests passed across game-core, protocol, and root suites.
-- `npm run test -w @cipher-party/worker -- room-session.test.ts`: 1 file, 50 tests passed after review fix.
-- `npm run typecheck -w @cipher-party/worker`: passed.
-- Task 6 `npm run check`: 210 tests passed across Worker, game-core, protocol, and root suites.
-- `npm run test -w @cipher-party/worker -- room-durable-object.test.ts`: 1 file, 14 tests passed.
-- Task 7 Worker suite: 2 files, 64 tests passed.
-- Task 7 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 224 tests with no failures.
-- Task 7 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and recognized `ROOMS` as `RoomDurableObject`.
-- Task 7 `git diff --check`: passed with no output.
-- `npm run test -w @cipher-party/worker -- auth.test.ts rooms-api.test.ts`: 2 files, 40 tests passed after review fixes.
-- Task 8 Worker suite: 4 files, 104 tests passed.
-- Task 8 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 264 tests with no failures.
-- Task 8 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and recognized `ROOMS` as `RoomDurableObject`.
-- Task 8 `git diff --check`: passed with no output.
-- Task 9 focused suites: protocol transport 5 tests, Worker WebSocket 14 tests, and web credential/reconnect 16 tests passed after review fixes.
-- Task 9 full suites: protocol 95 tests, Worker 118 tests, and web 16 tests passed.
-- Task 9 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 299 tests with no failures.
-- Task 9 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
-- Task 9 `git diff --check`: passed with no output.
-- Task 10 focused Home/Lobby suites: 2 files, 38 tests passed after review fixes.
-- Task 10 full web suite: 4 files, 54 tests passed.
-- Task 10 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 337 tests with no failures.
-- Task 10 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
-- Task 10 cumulative and fix-only `git diff --check`: passed with no output.
-- Task 11 focused GameView suite: 1 file, 65 tests passed after review fixes.
-- Task 11 full web suite: 5 files, 119 tests passed.
-- Task 11 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 402 tests with no failures.
-- Task 11 `npm run build`: passed package/app typechecks, the Vite production build, and the Worker Wrangler dry-run without deploying.
-- Task 11 cumulative and fix-only `git diff --check`: passed with no output.
-- Task 12 focused security regressions: 7/7 passed in Chromium; HomePage repeat-error focus: 9/9 passed.
-- Task 12 `npm run test:e2e -- --project=chromium`: 18/18 passed.
-- Task 12 `npm run test:e2e`: 36/36 passed across Chromium and WebKit Mobile, including the isolated five-client full-board flow.
-- Task 12 `npm run check`: passed documentation, formatting, lint, every workspace typecheck, and 403/403 tests (web 120, Worker 118, game-core 67, protocol 95, root 3).
-- Task 12 `npm run build`: passed package/app typechecks, the Vite production build, and Worker dry-run build.
-- Task 12 `npx wrangler deploy --dry-run --config apps/worker/wrangler.jsonc`: passed without deploying and resolved four web assets plus the expected Durable Object/environment bindings.
-- Task 12 cumulative and fix-only `git diff --check`: passed with no output; tracked status was clean. Public-only desktop and 320px screenshots were visually inspected in both browser projects, and the generated test artifact contained only a passing `.last-run.json`.
-- Task 13 pre-human commits: `8911dc7` and review fixes `ccd71ce`, `ab71958`, `4a7911c`.
-- Task 13 `npx vitest run scripts/preflight.test.ts`: 34/34 passed; the real Worker Durable Object integration file passed 16/16.
-- Task 13 `npm run preflight`: all eight rows passed and required exactly seven named, passed expiry identities, including literal 24-hour duration and future-safe test anchoring.
-- Task 13 `npm run check:release`: passed 439 repository tests (web 120, Worker 120, game-core 67, protocol 95, root 37), all builds, seven required expiry identities, and 36/36 Playwright tests across Chromium and WebKit Mobile.
-- Task 13 standalone Worker dry-run, full/direct lint, formatting, cumulative/fix `git diff --check`, and tracked status passed. Independent disposable mutations proved that a 23-hour production TTL and a skipped future-anchor identity each fail only the Room expiry preflight row.
-- Authorized staging deployment: Worker `cipher-party-staging`, version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94`, custom domain `https://staging.oddlyuseful.studio`; HTTPS SPA and `/api/health` smoke checks returned 200. The apex `oddlyuseful.studio` was not changed.
+## Historical reviewed baseline
+
+The original milestone plan and Git history retain detailed Task 1–13 implementation/review evidence. Reviewed source is `fe264e3`; its release gate passed 439 repository tests, 36 browser tests, and eight preflight rows before this integration.
+
+Existing staging remains Worker `cipher-party-staging`, version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94`, at `https://staging.oddlyuseful.studio`. Authenticated September 7 reads confirmed one version at 100% traffic, canonical origin, migration `v1`, and the recorded `ROOMS` namespace. The apex was not changed. This is a continuity/rollback reference, not proof that the integrated build is deployed.
 
 ## Decisions agents must preserve
 
 - Working title and directory: Cipher Party / cipher-party.
 - Cloudflare-native hosting and realtime architecture.
+- pnpm 11 workspaces with portable local dependency resolution; subprocess tools launch through Node/local JS entrypoints, not bare command shims.
+- Board membership, grid order, and ownership use independent `/cards`, `/grid-order`, and `/ownership` seed streams; retain duplicate rejection, null-prototype card map, stable IDs, and starting-team distribution.
+- Arcade presentation uses local/system fonts, warm word cards, redundant Ruby/Red and Cobalt/Blue identity, and public-only scores. Keep committed 320px nomination/word geometry checks.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
 - The shared TypeScript library is ES2022-only; only apps/web adds DOM and DOM.Iterable libraries.
 - Responsive website first, PWA-ready structure, no offline match behavior.

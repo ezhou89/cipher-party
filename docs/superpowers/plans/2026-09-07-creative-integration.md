@@ -73,10 +73,11 @@ Root script contracts:
 - Modify: `apps/web/src/styles/tokens.css`, `globals.css`, relevant game/home/lobby presentation components, `apps/web/index.html` only if needed for production-safe font loading.
 - Modify: `packages/game-core/src/board.ts`, `board.test.ts`.
 - Modify tests only for intentional public copy/presentation changes; preserve all existing behavioral and privacy assertions.
+- Integration repair discovered by browser testing: root `@cipher-party/protocol: workspace:*` devDependency and `pnpm-lock.yaml` importer link restore existing root E2E imports under isolated pnpm. No external or production dependency is added; retain the original imports/privacy assertions and verify resolution plus the full release gate.
 
 **Interfaces:** Consumes the reviewed component props, `useRoom`, `RoomSocket`, protocol projections, and pure `createClassicBoard`. Produces the same behavior/contracts with Gemini's arcade presentation and independent card/grid/ownership streams.
 
-- [ ] **Step 1: Add a meaningful board-sampling regression.** Retain the accepted duplicate-ID and `__proto__` coverage. Test that selected membership and spatial order are reproducible from the separate stream derivations below, then observe failure on the base algorithm.
+- [x] **Step 1: Add a meaningful board-sampling regression.** Retain the accepted duplicate-ID and `__proto__` coverage. Test that selected membership and spatial order are reproducible from the separate stream derivations below, then observe failure on the base algorithm.
 
 ```ts
 const selected = shuffled(input.cards, createSeededRandom(`${input.seed}/cards`)).slice(0, 25);
@@ -85,9 +86,9 @@ const ordered = shuffled(selected, createSeededRandom(`${input.seed}/grid-order`
 // Keep duplicate rejection and Object.create(null) for the card map.
 ```
 
-- [ ] **Step 2: Port the focused generator change.** Preserve starting-team input, ownership distribution, `order`/`cards` shape, and deterministic behavior. Do not mutate live room snapshots or change IDs.
-- [ ] **Step 3: Integrate the visual language.** Adapt Gemini's palette, warm word cards, hard shadows, stepped/tactile controls, Ruby/Red and Cobalt/Blue symbols/labels/patterns, and nomination styling to the reviewed component classes. Preserve accessible names or update tests explicitly for equivalent public copy. Make home, lobby, and board visibly coherent; keep the board hierarchy, clue status, and action area readable at 320px. Use local/system font fallbacks or self-hosted font files; do not require an executable third-party CDN for the app. Preserve reduced-motion support, keyboard focus, 44px controls where feasible, five-column spatial order, default-closed privacy veil, public-only scores, and fresh confirmation intents.
-- [ ] **Step 4: Verify behavior and visuals.** Run focused board tests, affected web component tests, then the full `pnpm run check:release` including Chromium and WebKit Mobile. Inspect public-role screenshots at desktop and 320px; capture no clue-giver screens or hidden values. Check console errors, keyboard confirmation/cancel, narrow word wrapping, and nomination visibility. Add a regression for any observed defect. Record screenshots in ignored artifacts with paths in the report. Commit `feat: integrate arcade presentation with reviewed multiplayer`.
+- [x] **Step 2: Port the focused generator change.** Preserve starting-team input, ownership distribution, `order`/`cards` shape, and deterministic behavior. Do not mutate live room snapshots or change IDs.
+- [x] **Step 3: Integrate the visual language.** Adapt Gemini's palette, warm word cards, hard shadows, stepped/tactile controls, Ruby/Red and Cobalt/Blue symbols/labels/patterns, and nomination styling to the reviewed component classes. Preserve accessible names or update tests explicitly for equivalent public copy. Make home, lobby, and board visibly coherent; keep the board hierarchy, clue status, and action area readable at 320px. Use local/system font fallbacks or self-hosted font files; do not require an executable third-party CDN for the app. Preserve reduced-motion support, keyboard focus, 44px controls where feasible, five-column spatial order, default-closed privacy veil, public-only scores, and fresh confirmation intents.
+- [x] **Step 4: Verify behavior and visuals.** Run focused board tests, affected web component tests, then the full `pnpm run check:release` including Chromium and WebKit Mobile. Inspect public-role screenshots at desktop and 320px; capture no clue-giver screens or hidden values. Check console errors, keyboard confirmation/cancel, narrow word wrapping, and nomination visibility. Add a regression for any observed defect. Record screenshots in ignored artifacts with paths in the report. Commit `feat: integrate arcade presentation with reviewed multiplayer`.
 
 ### Task 3: Make staging secure and reproducible
 
@@ -95,6 +96,7 @@ const ordered = shuffled(selected, createSeededRandom(`${input.seed}/grid-order`
 
 - Create: `apps/worker/wrangler.staging.jsonc`, staging/security helper(s) and focused tests as appropriate, static asset `_headers` if used, `scripts/check-staging.mjs` and focused tests for its meaningful validation.
 - Modify: Worker request routing/environment types, package scripts, dev/test configs only for local binding parity, and `docs/runbooks/connected-classic-playtest.md`.
+- Modify as required for the admission error seam: Worker `http/json.ts` and web `lib/api.ts` public error union/parser/copy, with focused tests for create/join/ticket 429 responses. Deployment/attestation subprocesses use local CLI JavaScript through `process.execPath` for portability.
 
 **Interfaces:** Consumes existing Worker fetch/API/DO routes. Produces a deterministic `deploy:staging` command and read-only `check:staging` that verifies the currently deployed build. Preserve `ROOMS` class/migration and live serialized-state compatibility.
 
