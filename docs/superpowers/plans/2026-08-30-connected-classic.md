@@ -1999,7 +1999,7 @@ Update the snapshot to Task 11.
 - Consumes: ClientProjection and useRoom.send.
 - Produces: spatial 5×5 board, clue submission, clue challenge, nomination/confirmation, end-turn, pause/resume, bounded public history, privacy veil, and board result.
 
-- [ ] **Step 1: Write failing public-board tests**
+- [x] **Step 1: Write failing public-board tests**
 
 Assert:
 
@@ -2010,7 +2010,7 @@ Assert:
 - Current team, phase, clue, remaining guesses, and connection state are visible.
 - Public clue, challenge, reveal, turn-end, pause, and resume events render newest-last without exposing unrevealed ownership.
 
-- [ ] **Step 2: Write failing clue-giver tests**
+- [x] **Step 2: Write failing clue-giver tests**
 
 Assert:
 
@@ -2021,7 +2021,7 @@ Assert:
 - An inactive clue-giver can challenge after a clue exists.
 - Client-side validation mirrors the protocol but server errors still render.
 
-- [ ] **Step 3: Write failing operative interaction tests**
+- [x] **Step 3: Write failing operative interaction tests**
 
 Assert:
 
@@ -2033,7 +2033,7 @@ Assert:
 - End Turn requires confirmation when guesses remain.
 - A revealed or non-nominated card cannot be confirmed.
 
-- [ ] **Step 4: Run GameView tests and observe missing components**
+- [x] **Step 4: Run GameView tests and observe missing components**
 
 ~~~bash
 npm run test -w @cipher-party/web -- GameView.test.tsx
@@ -2041,7 +2041,7 @@ npm run test -w @cipher-party/web -- GameView.test.tsx
 
 Expected: FAIL because GameView and board components do not exist.
 
-- [ ] **Step 5: Implement BoardGrid and BoardCard with safe props**
+- [x] **Step 5: Implement BoardGrid and BoardCard with safe props**
 
 BoardCard accepts only:
 
@@ -2059,11 +2059,11 @@ GameView passes keyOwner only when projection.viewRole is clue-giver and the pri
 
 Use CSS grid-template-columns repeat(5, minmax(0, 1fr)). Preserve DOM order. At narrow widths, cards use compact typography and open the full-size confirmation dialog; the page itself must not reorder or horizontally overflow.
 
-- [ ] **Step 6: Implement clue and guess panels**
+- [x] **Step 6: Implement clue and guess panels**
 
 CluePanel renders based on permissions.submitClue and permissions.challengeClue. GuessPanel renders based on permissions.nominate, permissions.confirmReveal, and permissions.endTurn. Challenge resolution and pause/resume use their dedicated permission fields. Every action calls send with a protocol command and waits for the authoritative projection. Do not decrement guesses or reveal cards optimistically.
 
-- [ ] **Step 7: Implement challenge, pause, and result states**
+- [x] **Step 7: Implement challenge, pause, and result states**
 
 - Challenged phase shows the disputed clue and host accept/reject controls.
 - Paused phase disables game actions and shows host resume.
@@ -2071,11 +2071,11 @@ CluePanel renders based on permissions.submitClue and permissions.challengeClue.
 - GameHistory renders the allowlisted publicHistory entries and labels revealed ownership as public result data.
 - No rematch or campaign control is included in Milestone 1.
 
-- [ ] **Step 8: Add keyboard and live-region coverage**
+- [x] **Step 8: Add keyboard and live-region coverage**
 
 Verify cards are reachable in grid order, Enter opens nomination, Escape closes confirmation, focus returns to the card, and reveal/turn changes announce through one polite live region without rereading all 25 cards.
 
-- [ ] **Step 9: Run game UI and repository gates**
+- [x] **Step 9: Run game UI and repository gates**
 
 ~~~bash
 npm run test -w @cipher-party/web -- GameView.test.tsx

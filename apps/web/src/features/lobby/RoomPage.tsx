@@ -4,6 +4,7 @@ import { joinRoom, ApiRequestError } from "../../lib/api";
 import { createSeatStore, type SeatStore } from "../../lib/seat-store";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { LobbyView } from "./LobbyView";
+import { GameView } from "../game/GameView";
 import { useRoom, type UseRoomOptions } from "./useRoom";
 
 const defaultSeatStore = createSeatStore();
@@ -167,18 +168,11 @@ export function RoomPage({
   }
 
   return (
-    <div className="game-container" data-testid="game-view-placeholder">
-      <header className="game-header">
-        <div className="game-header-bar">
-          <h1 className="room-code">{projection.code}</h1>
-          <ConnectionBadge state={connection} />
-        </div>
-      </header>
-      <main className="game-main">
-        <p className="game-placeholder-text">
-          Board is active. (Task 11 will deliver the full GameView)
-        </p>
-      </main>
-    </div>
+    <GameView
+      projection={projection}
+      connectionState={connection}
+      onSendCommand={send}
+      isCommandPending={isCommandPending}
+    />
   );
 }

@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 13
+**Snapshot revision:** 14
 
 **Last updated:** 2026-09-06
 
-**Project state:** Task 10 Landing, join, and authoritative lobby UI completed. Ready for Task 11.
+**Project state:** Task 11 Role-aware Classic game board UI completed. Ready for Task 12.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 10 — Landing, join, and authoritative lobby UI.
-- **Current task:** Task 10 complete; ready for Task 11.
-- **Next task after selection:** Task 11 — Role-aware Classic game board UI.
+- **Last accepted implementation task:** Task 11 — Role-aware Classic game board UI.
+- **Current task:** Task 11 complete; ready for Task 12.
+- **Next task after selection:** Task 12 — Complete multiplayer browser flow and hidden-data regression.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -65,8 +65,8 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Design commit: ba2c612.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9, and 10 complete: 84/84 steps verified).
-- Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm --filter @cipher-party/worker exec wrangler deploy --dry-run --config wrangler.jsonc`, `git diff --check`.
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 11 complete: 93/93 steps verified).
+- Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test` (136 unit & component tests passing across all packages), `pnpm run build`, `git diff --check`.
 
 ## Decisions agents must preserve
 

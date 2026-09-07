@@ -241,4 +241,53 @@ describe("RoomPage", () => {
       expect(screen.getByText("Bob")).toBeInTheDocument();
     });
   });
+
+  it("renders game board when projection phase is playing", async () => {
+    await seatStore.put({
+      code: "K7M2X9",
+      playerId: "p-host",
+      seatToken: "stored-seat-token",
+      hostToken: "stored-host-token"
+    });
+
+    renderRoomPage("K7M2X9");
+
+    await waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const ws = MockWebSocket.instances[0]!;
+    const lobby = sampleLobbyProjection("K7M2X9");
+    const cards = Array.from({ length: 25 }, (_, i) => ({
+      id: `card-${i}`,
+      label: `WORD ${i}`,
+      revealed: false
+    }));
+
+    ws.simulateServerMessage({
+      type: "projection",
+      projection: {
+        ...lobby,
+        roomPhase: "playing",
+        board: {
+          order: cards.map((c) => c.id),
+          cards,
+          activeTeam: "red",
+          phase: "clue",
+          clue: null,
+          guessesRemaining: 0,
+          nomination: null,
+          winner: null,
+          completionReason: null
+        }
+      }
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("region", { name: /game board/i })
+      ).toBeInTheDocument();
+      expect(screen.getByText("WORD 0")).toBeInTheDocument();
+    });
+  });
 });
