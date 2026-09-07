@@ -60,7 +60,7 @@ export interface PublicCard {
   id: CardId;
   label: string;
   revealed: boolean;
-  owner?: Ownership;
+  owner?: Ownership | undefined;
 }
 
 export interface ViewerContext {

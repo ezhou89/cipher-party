@@ -1662,7 +1662,7 @@ Update the snapshot to Task 9.
 - Consumes: one-use tickets, CommandEnvelopeSchema, RoomSession dispatch, and projectRoomForSeat.
 - Produces: ServerMessageSchema, RoomSocket, RoomConnectionState, saveCredentials(), loadCredentials(), and DELETE-safe credential replacement.
 
-- [ ] **Step 1: Write failing transport-schema tests**
+- [x] **Step 1: Write failing transport-schema tests**
 
 Define examples for:
 
@@ -1687,7 +1687,7 @@ const errorMessage = {
 
 Assert ServerMessageSchema accepts each valid message and rejects an operative projection with a key.
 
-- [ ] **Step 2: Write failing WebSocket integration tests**
+- [x] **Step 2: Write failing WebSocket integration tests**
 
 Cover:
 
@@ -1701,7 +1701,7 @@ Cover:
 - A malformed frame returns invalid_message without closing other sockets.
 - A failed send to one socket does not roll back an accepted command or prevent projections reaching healthy sockets.
 
-- [ ] **Step 3: Run the transport and socket tests**
+- [x] **Step 3: Run the transport and socket tests**
 
 ~~~bash
 npm run test -w @cipher-party/protocol -- transport.test.ts
@@ -1710,7 +1710,7 @@ npm run test -w @cipher-party/worker -- room-websocket.test.ts
 
 Expected: FAIL because ServerMessageSchema and WebSocket handling are absent.
 
-- [ ] **Step 4: Implement strict server messages**
+- [x] **Step 4: Implement strict server messages**
 
 ~~~ts
 export const ServerMessageSchema = z.discriminatedUnion("type", [
@@ -1733,7 +1733,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
 
 Also export ClientMessageSchema as CommandEnvelopeSchema and infer both message types.
 
-- [ ] **Step 5: Implement the Durable Object WebSocket upgrade**
+- [x] **Step 5: Implement the Durable Object WebSocket upgrade**
 
 The Worker forwards /api/rooms/:code/connect?ticket=VALUE to the named Durable Object through stub.fetch(request); the Durable Object fetch handler accepts only this upgrade path. Inside the object:
 
@@ -1746,7 +1746,7 @@ The Worker forwards /api/rooms/:code/connect?ticket=VALUE to the named Durable O
 
 Never serialize a durable token or hidden key in an attachment.
 
-- [ ] **Step 6: Implement per-seat command handling and broadcast**
+- [x] **Step 6: Implement per-seat command handling and broadcast**
 
 webSocketMessage rejects non-text or text frames larger than 16 KiB, parses CommandEnvelopeSchema, constructs RoomActor only from the attachment playerId/hostAuthority, dispatches, awaits persistence, sends command_result to the sender, then calls broadcastProjections(). RoomSession derives current team, role, and connection state from its snapshot rather than trusting the attachment or message for those fields.
 
@@ -1758,7 +1758,7 @@ After WebSockets exist, the already-persistent join method also calls broadcastP
 
 webSocketClose marks the seat disconnected only when a room snapshot still exists and no other accepted socket attachment has the same playerId. A changed presence value advances revision, persists before broadcasting, and does not extend lastActivity. A close delivered after the expiry alarm cleared storage is a no-op. Hibernation itself does not close sockets.
 
-- [ ] **Step 7: Write failing IndexedDB credential tests**
+- [x] **Step 7: Write failing IndexedDB credential tests**
 
 Use the idb and fake-indexeddb dependencies already locked in Task 1.
 
@@ -1771,7 +1771,7 @@ Test:
 
 Import fake-indexeddb/auto from apps/web/src/test/setup.ts before running these tests.
 
-- [ ] **Step 8: Implement the credential store**
+- [x] **Step 8: Implement the credential store**
 
 ~~~ts
 export interface SeatCredentials {
@@ -1790,7 +1790,7 @@ export interface SeatStore {
 
 Use an IndexedDB database named cipher-party with version 1 and object store seats keyed by code.
 
-- [ ] **Step 9: Write failing RoomSocket tests**
+- [x] **Step 9: Write failing RoomSocket tests**
 
 With fake fetch and WebSocket implementations, assert:
 
@@ -1803,7 +1803,7 @@ With fake fetch and WebSocket implementations, assert:
 - an unexpected close retries at 500 ms, 1 s, 2 s, then caps at 5 s.
 - close called by the user cancels retries.
 
-- [ ] **Step 10: Implement RoomSocket**
+- [x] **Step 10: Implement RoomSocket**
 
 Expose:
 
@@ -1824,7 +1824,7 @@ export class RoomSocket {
 
 Reject send while no projection or socket exists or another command is in flight. Use the projection revision as expectedRevision. Clear the in-flight command only after its command_result and a projection at least as new as that result have both arrived. On stale_revision, wait for the server's fresh projection before allowing another command.
 
-- [ ] **Step 11: Run socket, client, and repository gates**
+- [x] **Step 11: Run socket, client, and repository gates**
 
 Remove --passWithNoTests from the web test script now that the workspace contains credential and socket tests.
 
@@ -1836,9 +1836,10 @@ npm run check
 
 Expected: tickets, role-specific broadcast, reconnect, IndexedDB, and retry behavior pass.
 
-- [ ] **Step 12: Commit Task 9**
+- [x] **Step 12: Commit Task 9**
 
 ~~~bash
+npm run check
 git add package.json package-lock.json apps packages/protocol
 git commit -m "feat: connect rooms over secure WebSockets"
 ~~~

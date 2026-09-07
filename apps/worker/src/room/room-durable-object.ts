@@ -1,11 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import {
+  CommandEnvelopeSchema,
   projectRoomForSeat,
   type ClientProjection,
   type CommandEnvelope,
   type CommandResult,
   type RoomProjectionSource,
   type SeatSummary,
+  type ServerMessage,
   type ViewerContext
 } from "@cipher-party/protocol";
 import { hashTicket, randomTicket, TICKET_TTL_MS } from "../auth/ticket";
@@ -23,6 +25,10 @@ import {
   type IRoomStorage,
   ROOM_IDLE_TTL_MS
 } from "./room-storage";
+import {
+  getSocketAttachment,
+  serializeSocketAttachment
+} from "./room-websocket";
 
 export interface RoomInitializationInput {
   code: string;
@@ -66,14 +72,7 @@ export type ConsumeTicketResult =
   | { ok: true; playerId: string; hostAuthority: boolean }
   | { ok: false; code: "room_unavailable" | "invalid_ticket" };
 
-export type DispatchResult =
-  | CommandResult
-  | {
-      ok: false;
-      revision: number;
-      code: "storage_failed";
-      message?: string;
-    };
+export type DispatchResult = CommandResult;
 
 export class RoomDurableObject extends DurableObject<Env> {
   private storage: IRoomStorage;
@@ -90,6 +89,10 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   setStorageAdapterForTest(adapter: IRoomStorage): void {
     this.storage = adapter;
+  }
+
+  setSessionStateForTest(state: RoomState): void {
+    this.sessionState = state;
   }
 
   async isInitialized(): Promise<boolean> {
@@ -163,6 +166,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     await this.storage.write(nextState);
     this.sessionState = nextState;
 
+    await this.broadcastProjections();
+
     return { ok: true, revision: nextState.revision };
   }
 
@@ -228,28 +233,37 @@ export class RoomDurableObject extends DurableObject<Env> {
     const ticketHash = await hashTicket(ticket);
     const nextState = structuredClone(this.sessionState);
 
+    const ticketRecord = nextState.connectionTickets.find((t) =>
+      timingSafeEqualString(t.ticketHash, ticketHash)
+    );
+
     nextState.connectionTickets = nextState.connectionTickets.filter(
       (t) => t.expiresAt > now
     );
 
-    const ticketIdx = nextState.connectionTickets.findIndex((t) =>
-      timingSafeEqualString(t.ticketHash, ticketHash)
+    if (!ticketRecord || ticketRecord.expiresAt <= now) {
+      if (
+        nextState.connectionTickets.length !==
+        this.sessionState.connectionTickets.length
+      ) {
+        await this.storage.write(nextState);
+        this.sessionState = nextState;
+      }
+      return { ok: false, code: "invalid_ticket" };
+    }
+
+    nextState.connectionTickets = nextState.connectionTickets.filter(
+      (t) => !timingSafeEqualString(t.ticketHash, ticketHash)
     );
-
-    if (ticketIdx === -1) {
-      return { ok: false, code: "invalid_ticket" };
-    }
-
-    const [ticketRecord] = nextState.connectionTickets.splice(ticketIdx, 1);
-    if (!ticketRecord) {
-      return { ok: false, code: "invalid_ticket" };
-    }
 
     const seat = nextState.seats.find(
       (s) => s.playerId === ticketRecord.playerId
     );
     if (seat) {
-      seat.connected = true;
+      if (!seat.connected) {
+        seat.connected = true;
+        nextState.revision += 1;
+      }
     }
 
     nextState.lastActivity = new Date(now).toISOString();
@@ -262,6 +276,187 @@ export class RoomDurableObject extends DurableObject<Env> {
       playerId: ticketRecord.playerId,
       hostAuthority: ticketRecord.hostAuthority
     };
+  }
+
+  override async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (!url.pathname.endsWith("/connect")) {
+      return new Response("Not found", { status: 404 });
+    }
+    const upgradeHeader = request.headers.get("Upgrade");
+    if (!upgradeHeader || upgradeHeader.toLowerCase() !== "websocket") {
+      return new Response("Expected Upgrade: websocket", { status: 426 });
+    }
+    const ticket = url.searchParams.get("ticket");
+    if (!ticket) {
+      return new Response("Missing ticket", { status: 401 });
+    }
+
+    const now = Date.now();
+    const consumeResult = await this.consumeTicket(ticket, now);
+    if (!consumeResult.ok) {
+      return new Response("Unauthorized or ticket expired", { status: 401 });
+    }
+
+    const { playerId, hostAuthority } = consumeResult;
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+
+    this.ctx.acceptWebSocket(server, [playerId]);
+    const connectionId = crypto.randomUUID();
+    serializeSocketAttachment(server, {
+      connectionId,
+      playerId,
+      hostAuthority
+    });
+
+    await this.broadcastProjections();
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async broadcastProjections(): Promise<void> {
+    if (!this.sessionState) {
+      return;
+    }
+    const sockets = this.ctx.getWebSockets();
+    for (const ws of sockets) {
+      const attachment = getSocketAttachment(ws);
+      if (!attachment) {
+        continue;
+      }
+      try {
+        const projection = await this.getProjection({
+          playerId: attachment.playerId,
+          hostAuthority: attachment.hostAuthority
+        });
+        const message: ServerMessage = {
+          type: "projection",
+          projection
+        };
+        ws.send(JSON.stringify(message));
+      } catch {
+        // Failed send to one socket does not disrupt healthy sockets
+      }
+    }
+  }
+
+  async webSocketMessage(
+    ws: WebSocket,
+    message: string | ArrayBuffer
+  ): Promise<void> {
+    if (typeof message !== "string") {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: "invalid_message",
+          message: "Only text frames are supported"
+        } satisfies ServerMessage)
+      );
+      return;
+    }
+
+    if (new TextEncoder().encode(message).byteLength > 16 * 1024) {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: "invalid_message",
+          message: "Message frame exceeds 16 KiB"
+        } satisfies ServerMessage)
+      );
+      return;
+    }
+
+    let rawJson: unknown;
+    try {
+      rawJson = JSON.parse(message);
+    } catch {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: "invalid_message",
+          message: "Malformed JSON"
+        } satisfies ServerMessage)
+      );
+      return;
+    }
+
+    const parsed = CommandEnvelopeSchema.safeParse(rawJson);
+    if (!parsed.success) {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: "invalid_message",
+          message: parsed.error.issues[0]?.message ?? "Invalid command envelope"
+        } satisfies ServerMessage)
+      );
+      return;
+    }
+
+    const attachment = getSocketAttachment(ws);
+    if (!attachment) {
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: "internal_error",
+          message: "Missing socket attachment"
+        } satisfies ServerMessage)
+      );
+      return;
+    }
+
+    const actor: RoomActor = {
+      playerId: attachment.playerId,
+      hostAuthority: attachment.hostAuthority
+    };
+
+    const result = await this.dispatch(actor, parsed.data);
+    const resultMsg: ServerMessage = {
+      type: "command_result",
+      commandId: parsed.data.commandId,
+      result
+    };
+    ws.send(JSON.stringify(resultMsg));
+
+    await this.broadcastProjections();
+  }
+
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    if (!this.sessionState) {
+      return;
+    }
+
+    const attachment = getSocketAttachment(ws);
+    if (!attachment) {
+      return;
+    }
+
+    const remainingSockets = this.ctx.getWebSockets().filter((s) => s !== ws);
+    const hasOtherSocketForPlayer = remainingSockets.some(
+      (s) => getSocketAttachment(s)?.playerId === attachment.playerId
+    );
+
+    if (hasOtherSocketForPlayer) {
+      return;
+    }
+
+    const nextState = structuredClone(this.sessionState);
+    const seat = nextState.seats.find(
+      (s) => s.playerId === attachment.playerId
+    );
+    if (seat && seat.connected) {
+      seat.connected = false;
+      nextState.revision += 1;
+      // Presence change persists before broadcasting, does not extend lastActivity
+      await this.storage.write(nextState);
+      this.sessionState = nextState;
+      await this.broadcastProjections();
+    }
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    await this.webSocketClose(ws);
   }
 
   async getSnapshot(): Promise<RoomState> {
