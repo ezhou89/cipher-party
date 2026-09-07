@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 12
+**Snapshot revision:** 13
 
 **Last updated:** 2026-09-06
 
-**Project state:** Task 9 Hibernating WebSockets and browser reconnect client completed. Ready for Task 10.
+**Project state:** Task 10 Landing, join, and authoritative lobby UI completed. Ready for Task 11.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -55,9 +55,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 9 — Hibernating WebSockets and browser reconnect client.
-- **Current task:** Task 9 complete; ready for Task 10.
-- **Next task after selection:** Task 10 — Landing, join, and authoritative lobby UI.
+- **Last accepted implementation task:** Task 10 — Landing, join, and authoritative lobby UI.
+- **Current task:** Task 10 complete; ready for Task 11.
+- **Next task after selection:** Task 11 — Role-aware Classic game board UI.
 - **Blocked by:** Nothing.
 
 ## Verified baseline
@@ -65,7 +65,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Design commit: ba2c612.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, 7, 8, and 9 complete: 74/74 steps verified).
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9, and 10 complete: 84/84 steps verified).
 - Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test`, `pnpm run build`, `WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=$PWD/.wrangler pnpm --filter @cipher-party/worker exec wrangler deploy --dry-run --config wrangler.jsonc`, `git diff --check`.
 
 ## Decisions agents must preserve

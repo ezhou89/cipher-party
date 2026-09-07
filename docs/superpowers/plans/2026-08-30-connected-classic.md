@@ -1873,7 +1873,7 @@ Update the snapshot to Task 10.
 - Consumes: room HTTP API, SeatStore, RoomSocket, ClientProjection, and lobby commands.
 - Produces: routes / and /room/:code, create/join flows, responsive lobby, host team/role controls, and visible connection state.
 
-- [ ] **Step 1: Write failing landing-page tests**
+- [x] **Step 1: Write failing landing-page tests**
 
 Test with Testing Library:
 
@@ -1884,7 +1884,7 @@ Test with Testing Library:
 - API errors remain visible and focus the error summary.
 - No pack builder, image, AI, Blitz, campaign, or public matchmaking control appears.
 
-- [ ] **Step 2: Run the landing tests**
+- [x] **Step 2: Run the landing tests**
 
 ~~~bash
 npm run test -w @cipher-party/web -- HomePage.test.tsx
@@ -1892,7 +1892,7 @@ npm run test -w @cipher-party/web -- HomePage.test.tsx
 
 Expected: FAIL because HomePage and routing are absent.
 
-- [ ] **Step 3: Implement the neutral app shell and landing flow**
+- [x] **Step 3: Implement the neutral app shell and landing flow**
 
 Use semantic form controls and these design tokens:
 
@@ -1914,7 +1914,7 @@ Use semantic form controls and these design tokens:
 
 The layout uses a maximum readable width, 44 px minimum form targets, visible focus, and no theme skin.
 
-- [ ] **Step 4: Write failing lobby projection tests**
+- [x] **Step 4: Write failing lobby projection tests**
 
 Render lobby fixtures and assert:
 
@@ -1926,7 +1926,7 @@ Render lobby fixtures and assert:
 - Invite copy uses projection.inviteUrl, which contains the configured neutral origin and /room/CODE only.
 - Reconnecting and offline statuses are announced through a polite live region.
 
-- [ ] **Step 5: Run lobby tests and observe missing views**
+- [x] **Step 5: Run lobby tests and observe missing views**
 
 ~~~bash
 npm run test -w @cipher-party/web -- LobbyView.test.tsx
@@ -1934,7 +1934,7 @@ npm run test -w @cipher-party/web -- LobbyView.test.tsx
 
 Expected: FAIL because LobbyView is absent.
 
-- [ ] **Step 6: Implement useRoom and RoomPage**
+- [x] **Step 6: Implement useRoom and RoomPage**
 
 useRoom:
 
@@ -1947,15 +1947,15 @@ useRoom:
 
 RoomPage renders LobbyView for roomPhase lobby and reserves GameView for Task 11.
 
-- [ ] **Step 7: Implement lobby controls**
+- [x] **Step 7: Implement lobby controls**
 
 Host controls send exact protocol commands with no optimistic authoritative changes. Disable a control while its command result is pending. Render the next projection as truth. Random assignment sends one randomize_teams command after the host confirms; the server performs the deterministic balanced assignment in one revision.
 
-- [ ] **Step 8: Add responsive and accessibility assertions**
+- [x] **Step 8: Add responsive and accessibility assertions**
 
 Test keyboard submission, focus after errors, button accessible names, color-independent team labels, and no horizontal page overflow at 320 px. Snapshot only the public DOM; never snapshot credentials.
 
-- [ ] **Step 9: Run web and repository gates**
+- [x] **Step 9: Run web and repository gates**
 
 ~~~bash
 npm run test -w @cipher-party/web -- HomePage.test.tsx LobbyView.test.tsx
@@ -1965,10 +1965,10 @@ npm run build
 
 Expected: landing and lobby tests pass; production bundle builds.
 
-- [ ] **Step 10: Commit Task 10**
+- [x] **Step 10: Commit Task 10**
 
 ~~~bash
-git add apps/web
+git add apps/web packages/protocol
 git commit -m "feat: add private room lobby"
 ~~~
 

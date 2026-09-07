@@ -35,6 +35,14 @@ export class ApiRequestError extends Error {
   }
 }
 
+export function normalizeRoomCode(input: string): string {
+  return input
+    .toUpperCase()
+    .replace(/O/g, "0")
+    .replace(/[IL]/g, "1")
+    .replace(/[\s-]/g, "");
+}
+
 export async function createRoom(
   displayName: string,
   baseUrl = ""

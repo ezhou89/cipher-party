@@ -9,6 +9,16 @@ import type {
 } from "@cipher-party/game-core";
 import { z } from "zod";
 
+export type {
+  CardId,
+  ClassicGameState,
+  Ownership,
+  PlayerId,
+  PlayPhase,
+  SeatRole,
+  TeamId
+};
+
 export interface SeatSummary {
   playerId: PlayerId;
   displayName: string;

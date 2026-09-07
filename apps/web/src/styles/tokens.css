@@ -5,6 +5,16 @@
 
 :root {
   color-scheme: dark;
+  --color-ink: #081522;
+  --color-panel: #102638;
+  --color-paper: #f4ebd8;
+  --color-text: #f8f6ef;
+  --color-muted: #9fb2bf;
+  --color-red: #e75d5d;
+  --color-blue: #4f91e8;
+  --color-focus: #ffd66b;
+  --radius-card: 0.8rem;
+  --shadow-card: 0 0.65rem 1.4rem rgb(0 0 0 / 24%);
 
   /* ==========================================================================
      1. Canvas & Atmosphere (Arcade CRT Cabinet)
