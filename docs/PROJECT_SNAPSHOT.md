@@ -1,6 +1,6 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 17
+**Snapshot revision:** 18
 
 **Last updated:** 2026-09-07
 
@@ -61,10 +61,20 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 12 — multiplayer browser E2E and hidden-data regression at accepted head `7badb94` (`3b16324` implementation plus review fixes `130f408`, `6305f54`, `935a30c`, and `7badb94`).
-- **Current task:** Integration Task 1 — preserve creative source and complete the pnpm release workflow.
-- **Next task:** Integration Task 2 — arcade presentation and board sampling, followed by staging hardening and verified deployment.
+- **Last accepted implementation task:** Integration Task 1 — creative archive and pnpm workflow, `1f36563` plus portability/schema review fix `4cac746`.
+- **Current task:** Integration Task 2 — arcade presentation and board sampling.
+- **Next task:** Integration Task 3 — staging hardening and reproducible deployment, then whole-branch review and verified staging update.
 - **Current blockers:** None for integration. The milestone exit still requires four real humans after the combined build is deployed. **Human playtest: NOT YET RUN.**
+
+## Current integration evidence
+
+- Task 1 independently reviewed; both fix findings addressed with no new breakage.
+- `creative/manifest.json` inventories 26 byte-preserved originals; the coordinator independently matched every archive/source checksum and byte length.
+- `docs/CREATIVE_HANDOFF.md` separates approved direction, draft content, prototype behavior, and a reusable future creative-submission template. Content remains 700 draft rows / 682 unique labels; the runtime still uses its 50-word fixture.
+- `pnpm install --frozen-lockfile`, `pnpm run check` (439 tests before the additional portability regression), `pnpm run build`, and `pnpm run preflight` (8/8 rows) passed.
+- Review fix: `pnpm exec vitest run scripts/preflight.test.ts` passed 35/35; real preflight passed 8/8 with all seven expiry identities; all three Worker-local schema references resolved; focused lint/format/diff-check passed.
+- The reviewed dependency resolutions remain unchanged under pnpm. Known non-blocking tooling notices: Node DEP0040 and Wrangler's update notice.
+- Current staging is still the historical version below; no integration deployment has occurred. `ROOMS` namespace continuity baseline is `f2766441dfa24d10bef55dd8ee4f5599` (`RoomDurableObject`, migration `v1`).
 
 ## Historical reviewed baseline (not proof of the integrated build)
 
