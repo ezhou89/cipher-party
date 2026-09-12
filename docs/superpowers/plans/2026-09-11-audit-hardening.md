@@ -65,7 +65,7 @@ Accepted Task 1 commits: `680000a`, `b54f048`. Initial meaningful RED: 8 documen
 
 Retry header parsing accepts safe nonnegative integer seconds or canonical IMF-fixdate (finite parse, exact `toUTCString()` round-trip, not a past date); other strings fall back. Use `max(existingBackoff, retryAfterMs)` so a valid zero delay cannot cause a hot loop. Classify HTTP 401/404 by status even when the error body is malformed, while keeping user-facing text local.
 
-- [ ] **Step 1: Reproduce with failing fake-clock tests.** After one successful connection, make ticket fetch return 401 unauthorized or 404 room_unavailable; assert closed, no queued retry, no old projection, public recovery copy. For 429 with `Retry-After: 60`, assert no fetch before 60 seconds. Cover HTTP-date, malformed/negative/nonfinite retry headers, network/5xx backoff, initial failure, stale-generation callbacks, and terminal failure while a command is pending. Preserve all existing resend/privacy tests.
+- [x] **Step 1: Reproduce with failing fake-clock tests.** After one successful connection, make ticket fetch return 401 unauthorized or 404 room_unavailable; assert closed, no queued retry, no old projection, public recovery copy. For 429 with `Retry-After: 60`, assert no fetch before 60 seconds. Cover HTTP-date, malformed/negative/nonfinite retry headers, network/5xx backoff, initial failure, stale-generation callbacks, and terminal failure while a command is pending. Preserve all existing resend/privacy tests.
 
 ```ts
 expect(snapshot.connection).toBe("closed");
@@ -74,9 +74,11 @@ expect(pendingTimers()).toHaveLength(0);
 // For throttling: advance 59_999 ms -> no new ticket; final 1 ms -> one retry.
 ```
 
-- [ ] **Step 2: Implement classified recovery.** Recognized terminal 401/404 and policy close code 1008 stop automatic retry. Expiry close 1001 with exact locally defined `Room expired` reason stops retry; generic 1001 remains transient. Overload close 1013 is transient with a minimum 10-second cooldown (cover with fake-clock tests). 429 honors valid Retry-After delay; absent/invalid delay uses existing bounded exponential backoff. Clamp scheduling safely to the maximum platform timer and re-evaluate remaining absolute deadline rather than overflow into immediate retry. Use injected clock for deterministic HTTP-date tests. Never render server-supplied error text or delete stored credentials automatically.
-- [ ] **Step 3: Implement recovery UI regression.** A formerly mounted game/lobby losing terminal authorization must no longer show stale/key UI, pending controls must clear, and the explicit forget/rejoin path must remain reachable. Add a component test through the existing socket fixture; retain cancel/focus and live-region behavior.
-- [ ] **Step 4: Verify and commit.** Run focused web API/socket/lobby tests, `pnpm run check`, `pnpm run test:e2e`, and `git diff --check`. Commit `fix: stop terminal reconnect loops and honor throttling`.
+- [x] **Step 2: Implement classified recovery.** Recognized terminal 401/404 and policy close code 1008 stop automatic retry. Expiry close 1001 with exact locally defined `Room expired` reason stops retry; generic 1001 remains transient. Overload close 1013 is transient with a minimum 10-second cooldown (cover with fake-clock tests). 429 honors valid Retry-After delay; absent/invalid delay uses existing bounded exponential backoff. Clamp scheduling safely to the maximum platform timer and re-evaluate remaining absolute deadline rather than overflow into immediate retry. Use injected clock for deterministic HTTP-date tests. Never render server-supplied error text or delete stored credentials automatically.
+- [x] **Step 3: Implement recovery UI regression.** A formerly mounted game/lobby losing terminal authorization must no longer show stale/key UI, pending controls must clear, and the explicit forget/rejoin path must remain reachable. Add a component test through the existing socket fixture; retain cancel/focus and live-region behavior.
+- [x] **Step 4: Verify and commit.** Run focused web API/socket/lobby tests, `pnpm run check`, `pnpm run test:e2e`, and `git diff --check`. Commit `fix: stop terminal reconnect loops and honor throttling`.
+
+Accepted Task 2 commit: `39fb98f`. Meaningful RED: 13 focused API/socket failures and one pending-recovery UI failure. GREEN: focused web tests 70/70, `pnpm run check` 567 tests, local e2e 48/48, diff check clean. Independent task review approved with no Critical/Important/Minor findings. Staging and human playtest remain unrun.
 
 ### Task 3: Bound upgrade, socket, and message amplification
 
@@ -128,6 +130,8 @@ await expect(runRelease({ gate: failingGate, deploy })).rejects.toThrow();
 expect(deploy).not.toHaveBeenCalled();
 // successful gate at commit S -> deploy({ expectedCommit: S }) only if still clean S
 ```
+
+The old low-level script's direct CLI must no longer perform a live deployment: retain dry-run there, but direct live invocation must instruct the operator to use `pnpm run deploy:staging`. The exported injected low-level function requires `expectedCommit` for live use and remains callable by the guarded orchestrator/tests. Cover this boundary so the former familiar CLI is not an accidental gate bypass; do not claim protection from an operator deliberately invoking Wrangler or editing the source.
 
 - [ ] **Step 2: Implement complexity measurement and baseline.** Count functions consistently with the audit; keep classic and optionally modified report output separate. Do not add file-wide waivers or score-only fragment extraction. Test harness uses injectable source/file lists instead of changing tracked source.
 - [ ] **Step 3: Measure coverage and ratchet it.** Add exact compatible `@vitest/coverage-istanbul` 4.1.11 as development tooling, frozen lockfile update only for its required graph. Workers use instrumented Istanbul (V8 is unsupported there). Run all coverage suites, retain concise per-workspace branch/function/line/statement totals in the runbook, select floors at measured whole-number values (rounded down) for covered runtime scopes, and require these in the release command. Exclude generated/test/config/fixture code deliberately and disclose exclusions; do not raise claims from test counts alone.

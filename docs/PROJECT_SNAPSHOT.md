@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 24
+**Snapshot revision:** 25
 
 **Last updated:** 2026-09-11
 
-**Project state:** Creative integration is complete. Audit hardening Task 1 (release hygiene/public smoke) is implemented and independently reviewed; Task 2 (reconnect) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke) and 2 (terminal/throttled reconnect recovery) are implemented and independently reviewed; Task 3 (realtime resource budgets) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
 **Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** Hardening Task 2 — terminal/throttled reconnect recovery. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
+**Next execution:** Hardening Task 3 — bound upgrades, live sockets, command rates, and failed-command fanout. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -65,9 +65,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Hardening Task 1 — `680000a` and redirect-regression fix `b54f048`; independent task review and scoped re-review have no open findings.
-- **Current task:** Hardening Task 2 — terminal/throttled reconnect regression fix.
-- **Next task:** Bounded realtime resources, then snapshot compatibility and measured release safeguards.
+- **Last accepted task:** Hardening Task 2 — `39fb98f`; independent task review has no open findings. Task 1 remains accepted at `680000a`/`b54f048`.
+- **Current task:** Hardening Task 3 — realtime admission, socket caps, message budgets, and sender-only failed-command resync.
+- **Next task:** Snapshot compatibility/reconciliation, then measured quality and source-bound release safeguards.
 - **Current blockers:** Hosted CI has no configured repository/provider; local gate work can proceed. Milestone exit requires the real session and resolution of critical findings. **Human playtest: NOT YET RUN.**
 - **Audit baseline:** 377 runtime functions; classic mean 3.43, maximum 36, six above 20, all unchanged by creative integration. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
 
@@ -76,6 +76,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 1 restored the Git/ESLint scratch boundary and validates the snapshot's actual active-plan target. `pnpm run check` passed **542 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 94). The coordinator separately reran the 46 focused docs/hygiene/preflight tests successfully.
 - Tracked `smoke:staging:public` discovers four public route/browser cases and stays outside local e2e discovery. It blocks socket creation and unsafe methods/origins/queries; a shared zero-redirect transport helper prevents redirects from contacting forbidden destinations. Eight local Chromium/WebKit policy regressions passed after meaningful RED; lint, types and diff checks passed. The tracked live smoke itself has not been run.
 - No hardening deployment, merge, push, or future-milestone feature is authorized by this plan. Hosted CI awaits a repository/provider; four-human acceptance remains pending.
+- Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
 
 ## Historical integration evidence
 
