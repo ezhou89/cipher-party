@@ -21,6 +21,7 @@ import {
   type RoomSnapshotStore,
 } from "../src/room/room-durable-object";
 import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
+import { InvalidRoomSnapshotError } from "../src/room/room-snapshot";
 import {
   createLobbyState,
   type RoomActor,
@@ -73,8 +74,8 @@ function roomInitialization(
     boardSeed: `board-seed-${code}`,
     hostPlayerId: "host",
     displayName: "Host",
-    seatTokenHash: `seat-secret-${code}`,
-    hostTokenHash: `host-secret-${code}`,
+    seatTokenHash: "a".repeat(64),
+    hostTokenHash: "b".repeat(64),
     createdAt: "2020-01-01T00:00:00.000Z",
   });
   state.seats[0]!.connected = true;
@@ -85,7 +86,7 @@ function configuredRoom(code: string): RoomState {
   const state = roomInitialization(code, {
     connectionTickets: [
       {
-        ticketHash: `ticket-secret-${code}`,
+        ticketHash: "c".repeat(64),
         playerId: "blue-operative",
         hostAuthority: false,
         expiresAt: 2_000_000_000_000,
@@ -105,7 +106,7 @@ function configuredRoom(code: string): RoomState {
       teamId: "red",
       role: "operative",
       connected: true,
-      seatTokenHash: "red-operative-secret",
+      seatTokenHash: "1".repeat(64),
     },
     {
       playerId: "blue-clue",
@@ -114,7 +115,7 @@ function configuredRoom(code: string): RoomState {
       teamId: "blue",
       role: "clue-giver",
       connected: true,
-      seatTokenHash: "blue-clue-secret",
+      seatTokenHash: "2".repeat(64),
     },
     {
       playerId: "blue-operative",
@@ -123,7 +124,7 @@ function configuredRoom(code: string): RoomState {
       teamId: "blue",
       role: "operative",
       connected: true,
-      seatTokenHash: "blue-operative-secret",
+      seatTokenHash: "3".repeat(64),
     },
   ];
   return state;
@@ -200,6 +201,61 @@ describe("Cloudflare Durable Object configuration", () => {
 });
 
 describe("PersistentRoomController failure atomicity", () => {
+  it("cannot initialize over a failed snapshot load or expose a cached projection", async () => {
+    const storage = new FakeRoomStorage();
+    storage.read = async () => {
+      throw new InvalidRoomSnapshotError();
+    };
+    const controller = new PersistentRoomController(storage);
+    await expect(controller.load()).rejects.toThrow(InvalidRoomSnapshotError);
+    expect(await controller.initialize(roomInitialization("ABC123"))).toEqual({
+      ok: false,
+      code: "already_initialized",
+    });
+    expect(controller.getSnapshot()).toBeUndefined();
+    expect(controller.getProjection(spectator())).toBeUndefined();
+    expect(storage.writes.length).toBe(0);
+  });
+
+  it("persists presence repair atomically, retries failed writes, and skips matching inventories", async () => {
+    const storage = new FakeRoomStorage();
+    const published: number[] = [];
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+      (state) => {
+        published.push(state.revision);
+      },
+    );
+    await controller.initialize(roomInitialization("ABC123"));
+    const before = controller.getSnapshot()!;
+    storage.rejectWrites = true;
+    await expect(controller.reconcilePresence(() => new Set())).rejects.toThrow(
+      "simulated storage rejection",
+    );
+    expect(controller.getSnapshot()?.seats[0]?.connected).toBe(true);
+    expect(storage.snapshot?.seats[0]?.connected).toBe(true);
+    expect(published).toEqual([]);
+    storage.rejectWrites = false;
+    expect(await controller.reconcilePresence(() => new Set())).toEqual({
+      changed: true,
+    });
+    expect(controller.getSnapshot()?.lastActivity).toBe(before.lastActivity);
+    expect(storage.snapshot?.lastActivity).toBe(before.lastActivity);
+    expect(storage.snapshot?.seats[0]?.connected).toBe(false);
+    expect(published).toEqual([1]);
+    expect(await controller.reconcilePresence(() => new Set())).toEqual({
+      changed: false,
+    });
+    expect(storage.writes.length).toBe(2);
+    expect(await controller.reconcilePresence(() => new Set(["host"]))).toEqual(
+      { changed: true },
+    );
+    expect(controller.getSnapshot()?.lastActivity).toBe(before.lastActivity);
+    expect(storage.snapshot?.seats[0]?.connected).toBe(true);
+    expect(published).toEqual([1, 2]);
+  });
+
   it("keeps each concurrent dispatch outcome tied to its own committed mutation", async () => {
     const storage = new FakeRoomStorage();
     const controller = new PersistentRoomController(
@@ -309,7 +365,7 @@ describe("PersistentRoomController failure atomicity", () => {
     exposed.seats[0]!.seatTokenHash = "mutated";
     expect(controller.getSnapshot()).toMatchObject({
       locked: false,
-      seats: [{ seatTokenHash: "seat-secret-INIT01" }],
+      seats: [{ seatTokenHash: "a".repeat(64) }],
     });
   });
 
@@ -427,16 +483,16 @@ describe("RoomDurableObject persistence", () => {
   });
 
   it("reloads persisted accepted state after a forced runtime eviction", async () => {
-    const first = stub("EVICT1");
-    await first.initialize(roomInitialization("EVICT1"));
+    const first = stub("EV1CT1");
+    await first.initialize(roomInitialization("EV1CT1"));
     await first.dispatch(
       hostActor(),
       envelope(0, { type: "lock_room", locked: true }),
     );
     await evictDurableObject(first);
 
-    await expect(stub("EVICT1").getSnapshot()).resolves.toMatchObject({
-      revision: 1,
+    await expect(stub("EV1CT1").getSnapshot()).resolves.toMatchObject({
+      revision: 2,
       locked: true,
     });
   });
@@ -521,11 +577,22 @@ describe("RoomDurableObject persistence", () => {
     firstSnapshot.seats[0]!.seatTokenHash = "mutated-secret";
     const secondSnapshot = (await room.getSnapshot())!;
     expect(secondSnapshot.locked).toBe(false);
-    expect(secondSnapshot.seats[0]!.seatTokenHash).toBe("seat-secret-SAFE01");
+    expect(secondSnapshot.seats[0]!.seatTokenHash === "a".repeat(64)).toBe(
+      true,
+    );
 
     const firstProjection = (await room.getProjection(spectator()))!;
     const serialized = JSON.stringify(firstProjection);
     expect(serialized).not.toContain("secret");
+    for (const hash of [
+      secondSnapshot.hostTokenHash,
+      ...secondSnapshot.seats.map((seat) => seat.seatTokenHash),
+      ...secondSnapshot.connectionTickets.map((ticket) => ticket.ticketHash),
+    ]) {
+      expect(serialized.includes(hash)).toBe(false);
+    }
+    expect(serialized).not.toContain("seatTokenHash");
+    expect(serialized).not.toContain("hostTokenHash");
     expect(serialized).not.toContain("boardSeed");
     expect(serialized).not.toContain("processedCommands");
     expect(serialized).not.toContain("connectionTickets");
@@ -552,8 +619,8 @@ describe("RoomDurableObject inactivity alarm", () => {
   it("reschedules the unchanged deadline when an alarm arrives early", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(INITIALIZED_AT);
-    const room = stub("EARLY1");
-    await room.initialize(roomInitialization("EARLY1"));
+    const room = stub("EAR1Y1");
+    await room.initialize(roomInitialization("EAR1Y1"));
     const deadline = INITIALIZED_AT.getTime() + ROOM_IDLE_TTL_MS;
     await runInDurableObject(room, async (_instance, state) => {
       const persisted = await state.storage.get<RoomState>("room:snapshot");
@@ -573,7 +640,7 @@ describe("RoomDurableObject inactivity alarm", () => {
 
   it.each([
     ["at the exact deadline", 0, "EXACT1"],
-    ["after the deadline", 1, "LATE01"],
+    ["after the deadline", 1, "1ATE01"],
   ])(
     "expires %s and is empty on an idempotent repeat",
     async (_label, offset, name) => {
@@ -598,8 +665,8 @@ describe("RoomDurableObject inactivity alarm", () => {
   it("closes every accepted socket with the room-expired close frame", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(INITIALIZED_AT);
-    const room = stub("SOCK01");
-    await room.initialize(roomInitialization("SOCK01"));
+    const room = stub("S0CK01");
+    await room.initialize(roomInitialization("S0CK01"));
     vi.setSystemTime(INITIALIZED_AT.getTime() + ROOM_IDLE_TTL_MS);
 
     await runInDurableObject(room, async (instance, state) => {

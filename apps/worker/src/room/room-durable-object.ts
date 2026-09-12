@@ -102,6 +102,7 @@ export class PersistentRoomController {
   readonly #now: () => Date;
   readonly #postPersist: PostPersistHook | undefined;
   #state: RoomState | undefined;
+  #loadFailed = false;
   #operationTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -116,8 +117,15 @@ export class PersistentRoomController {
 
   async load(): Promise<void> {
     await this.#serialize(async () => {
-      const persisted = await this.#storage.read();
-      this.#state = persisted === undefined ? undefined : clone(persisted);
+      try {
+        const persisted = await this.#storage.read();
+        this.#state = persisted === undefined ? undefined : clone(persisted);
+        this.#loadFailed = false;
+      } catch (error) {
+        this.#state = undefined;
+        this.#loadFailed = true;
+        throw error;
+      }
     });
   }
 
@@ -125,7 +133,7 @@ export class PersistentRoomController {
     input: RoomState | InitializeRoomInput,
   ): Promise<InitializeResult> {
     return this.#serialize(async () => {
-      if (this.#state !== undefined) {
+      if (this.#loadFailed || this.#state !== undefined) {
         return { ok: false, code: "already_initialized" };
       }
 
@@ -335,6 +343,35 @@ export class PersistentRoomController {
     });
   }
 
+  reconcilePresence(
+    openPlayerIds: () => ReadonlySet<string>,
+  ): Promise<{ changed: boolean }> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) return { changed: false };
+      // Sample inside serialization: an earlier queued upgrade may have attached
+      // or closed a socket while this operation waited to acquire its turn.
+      const connected = openPlayerIds();
+      if (
+        current.seats.every(
+          (seat) => seat.connected === connected.has(seat.playerId),
+        )
+      )
+        return { changed: false };
+      const next = clone(current);
+      next.seats = next.seats.map((seat) => ({
+        ...seat,
+        connected: connected.has(seat.playerId),
+      }));
+      next.revision = current.revision + 1;
+      // Presence repair is not user activity and must not postpone expiry.
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      await this.#postPersist?.(clone(next));
+      return { changed: true };
+    });
+  }
+
   dispatch(
     actor: RoomActor,
     envelope: CommandEnvelope,
@@ -441,6 +478,7 @@ export class PersistentRoomController {
 
   handleAlarm(closeSockets: () => void | Promise<void>): Promise<void> {
     return this.#serialize(async () => {
+      if (this.#loadFailed) return;
       const persisted = await this.#storage.read();
       if (persisted === undefined) {
         this.#state = undefined;
@@ -478,7 +516,16 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.#controller = new PersistentRoomController(
       new RoomStorage(ctx.storage),
     );
-    ctx.blockConcurrencyWhile(() => this.#controller.load());
+    ctx.blockConcurrencyWhile(async () => {
+      try {
+        await this.#controller.load();
+      } catch {
+        // Invalid/unsupported storage stays intact. Public entry points use
+        // their existing opaque unavailable responses, never validation data.
+        return;
+      }
+      await this.#reconcilePresence();
+    });
   }
 
   initialize(
@@ -488,6 +535,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async join(input: JoinRoomInput): Promise<JoinResult> {
+    await this.#reconcilePresence();
     const result = await this.#controller.join(input);
     if (result.ok) {
       await this.#broadcastProjections();
@@ -519,6 +567,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    await this.#reconcilePresence();
     const snapshot = this.#controller.getSnapshot();
     if (snapshot === undefined) {
       return opaqueAdmissionFailure();
@@ -608,6 +657,8 @@ export class RoomDurableObject extends DurableObject<Env> {
       // A budget await can overlap a close or terminal room event.
       if (socket.readyState !== WebSocket.OPEN) return;
     }
+    // Keep denied frames free of snapshot writes; native budgets precede repair.
+    await this.#reconcilePresence();
     if (
       attachment === null ||
       typeof message !== "string" ||
@@ -680,7 +731,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (attachment === null) {
       return;
     }
-    await this.#disconnectIfLast(attachment.playerId, attachment.connectionId);
+    await this.#reconcilePresence(attachment.connectionId);
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
@@ -718,6 +769,28 @@ export class RoomDurableObject extends DurableObject<Env> {
     );
     if (changed && !hasOtherOpenConnection()) {
       await this.#broadcastProjections();
+    }
+  }
+
+  async #reconcilePresence(excludedConnectionId?: string): Promise<void> {
+    try {
+      const { changed } = await this.#controller.reconcilePresence(() => {
+        const players = new Set<string>();
+        for (const socket of this.ctx.getWebSockets()) {
+          if (socket.readyState !== WebSocket.OPEN) continue;
+          const attachment = parseRoomSocketAttachment(socket);
+          if (
+            attachment !== null &&
+            attachment.connectionId !== excludedConnectionId
+          )
+            players.add(attachment.playerId);
+        }
+        return players;
+      });
+      if (changed) await this.#broadcastProjections();
+    } catch {
+      // A failed repair leaves the committed flags untouched. The next room
+      // event retries from current runtime inventory, without a timer or log.
     }
   }
 

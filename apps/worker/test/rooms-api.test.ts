@@ -262,6 +262,30 @@ describe("room bootstrap HTTP API", () => {
     });
   });
 
+  it("allocates a second seat after a successful join response is lost and the user retries", async () => {
+    const created = await createRoom();
+    const first = await jsonRequest(`/api/rooms/${created.body.code}/join`, {
+      displayName: "Guest",
+      asSpectator: false,
+    });
+    expect(first.status).toBe(200);
+    // Simulate a response body lost in transit: no receipt or token is retained.
+    await first.body?.cancel();
+    const afterLost = (await room(created.body.code).getSnapshot())!;
+    expect(afterLost.seats.length).toBe(2);
+    const retry = await joinRoom(created.body.code, "Guest");
+    expect(retry.response.status).toBe(200);
+    const afterRetry = (await room(created.body.code).getSnapshot())!;
+    expect(afterRetry.seats.length).toBe(3);
+    expect(
+      afterRetry.seats[1]!.playerId === afterRetry.seats[2]!.playerId,
+    ).toBe(false);
+    expect(
+      afterRetry.seats[1]!.seatTokenHash === afterRetry.seats[2]!.seatTokenHash,
+    ).toBe(false);
+    expect(afterRetry.revision).toBe(afterLost.revision + 1);
+  });
+
   it("joins duplicate display names as distinct disconnected seats and advances activity once", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(INITIAL_TIME);

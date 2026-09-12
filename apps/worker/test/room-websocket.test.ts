@@ -20,7 +20,7 @@ import {
 } from "../src/room/room-durable-object";
 import type { RoomSocketAttachment } from "../src/room/room-websocket";
 import { createLobbyState, type RoomState } from "../src/room/room-state";
-import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
+import { ROOM_IDLE_TTL_MS, RoomStorage } from "../src/room/room-storage";
 import { RoomSession } from "../src/room/room-session";
 
 interface CreateRoomResponse {
@@ -301,6 +301,89 @@ afterEach(() => {
 });
 
 describe("room WebSocket admission", () => {
+  it("fails closed on corrupt persisted state without replacing it or returning an admission projection", async () => {
+    const created = await createRoom();
+    const ticket = (await issueHttpTicket(created)).ticket;
+    const before = await roomStub(created.code).getSnapshot();
+    const corrupt = { ...before!, schemaVersion: 2 };
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        await state.storage.put("room:snapshot", corrupt);
+      },
+    );
+    await evictDurableObject(roomStub(created.code));
+    const response = await connectResponse(created.code, ticket);
+    if (response.webSocket) {
+      response.webSocket.accept();
+      response.webSocket.close();
+    }
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Unauthorized");
+    expect(await roomStub(created.code).initialize(before!)).toEqual({
+      ok: false,
+      code: "already_initialized",
+    });
+    expect(await roomStub(created.code).getSnapshot()).toBeUndefined();
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        expect(
+          JSON.stringify(await state.storage.get("room:snapshot")) ===
+            JSON.stringify(corrupt),
+        ).toBe(true);
+      },
+    );
+  });
+
+  it("repairs a failed last-socket disconnect on the next room event without extending activity", async () => {
+    const created = await createRoom();
+    const probe = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await probe.next();
+    const before = (await roomStub(created.code).getSnapshot())!;
+    const server = await serverSocket(created.code, created.playerId);
+    const write = vi
+      .spyOn(RoomStorage.prototype, "write")
+      .mockRejectedValue(new Error("injected write failure"));
+    await runInDurableObject(roomStub(created.code), async (instance) => {
+      server.close(1000, "closed");
+      await instance.webSocketClose(server).catch(() => undefined);
+    });
+    expect(
+      (await roomStub(created.code).getSnapshot())?.seats[0]?.connected,
+    ).toBe(true);
+    write.mockRestore();
+    await connectResponse(created.code, "x".repeat(43));
+    const after = (await roomStub(created.code).getSnapshot())!;
+    expect(after.seats[0]?.connected).toBe(false);
+    expect(after.lastActivity).toBe(before.lastActivity);
+    expect(after.revision).toBe(before.revision + 1);
+    const stableWrite = vi.spyOn(RoomStorage.prototype, "write");
+    await connectResponse(created.code, "x".repeat(43));
+    expect(stableWrite).not.toHaveBeenCalled();
+    probe.close();
+  });
+
+  it("reconciles stale persisted presence at object load using only OPEN attachments", async () => {
+    const created = await createRoom();
+    const before = (await roomStub(created.code).getSnapshot())!;
+    before.seats[0]!.connected = true;
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        await state.storage.put("room:snapshot", before);
+      },
+    );
+    await evictDurableObject(roomStub(created.code));
+    const after = (await roomStub(created.code).getSnapshot())!;
+    expect(after.seats[0]?.connected).toBe(false);
+    expect(after.lastActivity).toBe(before.lastActivity);
+    expect(after.revision).toBe(before.revision + 1);
+  });
+
   it("counts malformed and replayed frames across same-seat sockets and hibernation without changing attachments", async () => {
     const room = await createRoom();
     const first = await connect(
@@ -693,12 +776,14 @@ describe("room WebSocket admission", () => {
     await first.next();
     const replacementTicket = (await issueHttpTicket(room)).ticket;
     const disconnectStarted = deferred<void>();
-    const originalDisconnect = PersistentRoomController.prototype.disconnect;
+    let closingStarted = false;
+    const originalDisconnect =
+      PersistentRoomController.prototype.reconcilePresence;
     vi.spyOn(
       PersistentRoomController.prototype,
-      "disconnect",
+      "reconcilePresence",
     ).mockImplementation(function (this: PersistentRoomController, ...args) {
-      disconnectStarted.resolve();
+      if (closingStarted) disconnectStarted.resolve();
       return originalDisconnect.apply(this, args);
     });
     const race = await runInDurableObject(
@@ -711,6 +796,7 @@ describe("room WebSocket admission", () => {
           async (algorithm, data) => {
             if (!delayed) {
               delayed = true;
+              closingStarted = true;
               oldServerSocket.close(1000, "replaced during admission");
               void instance.webSocketClose(oldServerSocket);
               await disconnectStarted.promise;
@@ -785,7 +871,7 @@ describe("role-safe WebSocket command flow", () => {
     );
     expect(await clue.next()).toMatchObject({
       type: "projection",
-      projection: { revision: 2, viewRole: "clue-giver" },
+      projection: { revision: 3, viewRole: "clue-giver" },
     });
     const operative = await connect(
       code,
@@ -797,11 +883,11 @@ describe("role-safe WebSocket command flow", () => {
     ]);
     expect(operativeAtThree).toMatchObject({
       type: "projection",
-      projection: { revision: 3, viewRole: "operative" },
+      projection: { revision: 4, viewRole: "operative" },
     });
     expect(clueAtThree).toMatchObject({
       type: "projection",
-      projection: { revision: 3, viewRole: "clue-giver" },
+      projection: { revision: 4, viewRole: "clue-giver" },
     });
     expect(JSON.stringify(clueAtThree)).toContain('"key"');
     expect(JSON.stringify(operativeAtThree)).not.toContain('"key"');
@@ -809,16 +895,16 @@ describe("role-safe WebSocket command flow", () => {
 
     const commandId = clue.send(
       { type: "submit_clue", word: "ember", count: 2 },
-      3,
+      4,
     );
     const result = await clue.next();
     expect(result).toEqual({
       type: "command_result",
       commandId,
-      result: { ok: true, revision: 4 },
+      result: { ok: true, revision: 5 },
     });
     await expect(roomStub(code).getSnapshot()).resolves.toMatchObject({
-      revision: 4,
+      revision: 5,
       game: { clue: { word: "ember", count: 2 } },
     });
     const [clueProjection, operativeProjection] = await Promise.all([
@@ -827,11 +913,11 @@ describe("role-safe WebSocket command flow", () => {
     ]);
     expect(clueProjection).toMatchObject({
       type: "projection",
-      projection: { revision: 4, viewRole: "clue-giver" },
+      projection: { revision: 5, viewRole: "clue-giver" },
     });
     expect(operativeProjection).toMatchObject({
       type: "projection",
-      projection: { revision: 4, viewRole: "operative" },
+      projection: { revision: 5, viewRole: "operative" },
     });
     expect(JSON.stringify(operativeProjection)).not.toContain('"key"');
 
@@ -841,21 +927,21 @@ describe("role-safe WebSocket command flow", () => {
     );
     const staleId = clue.send(
       { type: "submit_clue", word: "again", count: 1 },
-      3,
+      4,
     );
     await expect(clue.next()).resolves.toEqual({
       type: "command_result",
       commandId: staleId,
       result: {
         ok: false,
-        revision: 4,
+        revision: 5,
         code: "stale_revision",
         message: "Expected revision is stale",
       },
     });
     await expect(clue.next()).resolves.toMatchObject({
       type: "projection",
-      projection: { revision: 4 },
+      projection: { revision: 5 },
     });
     expect(operativeSend).not.toHaveBeenCalled();
 
@@ -1044,7 +1130,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
     await expect(clue.next()).resolves.toMatchObject({
       type: "projection",
       projection: {
-        revision: 4,
+        revision: 5,
         seats: expect.arrayContaining([
           expect.objectContaining({
             playerId: "red-operative",
@@ -1065,7 +1151,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
     expect(operativeProjection).toMatchObject({
       type: "projection",
       projection: {
-        revision: 5,
+        revision: 6,
         viewer: { playerId: "red-operative" },
         board: { phase: "clue", activeTeam: "red" },
       },
@@ -1073,7 +1159,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
     expect(clueProjection).toMatchObject({
       type: "projection",
       projection: {
-        revision: 5,
+        revision: 6,
         seats: expect.arrayContaining([
           expect.objectContaining({
             playerId: "red-operative",

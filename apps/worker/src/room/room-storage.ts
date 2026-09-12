@@ -1,4 +1,5 @@
 import type { RoomState } from "./room-state";
+import { parseRoomSnapshot } from "./room-snapshot";
 
 const SNAPSHOT_KEY = "room:snapshot";
 
@@ -13,8 +14,9 @@ export interface RoomSnapshotStore {
 export class RoomStorage implements RoomSnapshotStore {
   constructor(private readonly storage: DurableObjectStorage) {}
 
-  read(): Promise<RoomState | undefined> {
-    return this.storage.get<RoomState>(SNAPSHOT_KEY);
+  async read(): Promise<RoomState | undefined> {
+    const value = await this.storage.get<unknown>(SNAPSHOT_KEY);
+    return value === undefined ? undefined : parseRoomSnapshot(value);
   }
 
   write(state: RoomState): Promise<void> {
