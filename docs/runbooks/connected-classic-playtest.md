@@ -41,7 +41,13 @@ Replace both placeholders with the recorded values; do not guess them. The comma
 
 HTML attestation uses a browser-navigation Accept/User-Agent pair because default Node requests previously missed an injected analytics script. The HTML shell requires `Cache-Control: no-store, no-transform`; the response-local `no-transform` directive opts out of Cloudflare's automatic analytics injection and may also disable other HTML transformations or compression. APIs and credentials retain `no-store`, and successful JS/CSS assets retain their cache policy. Keep CSP unchanged. See the [Cloudflare Web Analytics FAQ](https://developers.cloudflare.com/web-analytics/faq/) and [Cache-Control directives](https://developers.cloudflare.com/cache/concepts/cache-control/).
 
-The deployment handoff also requires a live public landing/invite smoke in desktop Chromium and mobile WebKit: browser-delivered HTML must match the local build, public controls must render, and CSP events, console/page/request failures, and unexpected requests must all be zero. Register the CSP listener before navigation; console errors alone miss caught eval probes. Use fresh contexts, block room writes and WebSockets, and retain public-only evidence. Record the live result with the deployed source/version before inviting participants.
+The deployment handoff also requires the tracked live public landing/invite smoke in desktop Chromium and mobile WebKit:
+
+```bash
+pnpm run smoke:staging:public
+```
+
+Run it only from the exact deployed source after building `apps/web/dist`; the local build must match the deployed source because the smoke compares browser-delivered navigation HTML to the local `index.html` by SHA-256. The smoke is opt-in and read-only: it permits same-origin GET/HEAD requests only and blocks WebSocket creation before connection. It checks public controls, keyboard focus, narrow overflow, and zero CSP, console, page, request, or HTTP errors without retaining trace, screenshot, video, or credential artifacts. Record the live result with the deployed source/version before inviting participants. The default `pnpm run test:e2e` remains the separate local browser suite, including its production-CSP coverage.
 
 Do not use the apex `oddlyuseful.studio`, expose the loopback development server, or improvise a LAN or production deployment.
 

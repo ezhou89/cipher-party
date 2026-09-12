@@ -115,7 +115,7 @@ async function createPreflightFixture(options: FixtureOptions = {}) {
       join(root, "docs/PROJECT_SNAPSHOT.md"),
       [
         "docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md",
-        "docs/superpowers/plans/2026-09-07-creative-integration.md",
+        "**Active plan:** docs/superpowers/plans/2026-09-07-creative-integration.md",
         "docs/superpowers/specs/2026-08-30-cipher-party-design.md",
       ].join("\n"),
     ),

@@ -18,6 +18,7 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "preflight": "node scripts/preflight.mjs",
+    "smoke:staging:public": "playwright test --config playwright.staging.config.ts",
     "test": "pnpm -r --if-present run test && vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
     "typecheck": "pnpm -r --if-present run typecheck"
