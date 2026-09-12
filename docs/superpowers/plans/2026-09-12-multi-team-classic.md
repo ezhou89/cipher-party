@@ -296,7 +296,7 @@ git commit -m "feat: add multi-team classic transitions"
 - Consumes: Task 1 team types and Task 2 `GameTransitionEvent` shape.
 - Produces: `PROTOCOL_VERSION = 2`, strict `TeamCountSchema`, `set_team_count`, v2 `ProjectionBase`, `PublicBoard` grid/team/elimination fields, public revealed-only team summaries, and optional `eliminatedTeam` history metadata.
 
-- [ ] **Step 1: Add failing schema and projection fixtures.**
+- [x] **Step 1: Add failing schema and projection fixtures.**
 
 Update fixtures to assert v2 and add a four-team public board:
 
@@ -323,7 +323,7 @@ expect(ClientProjectionSchema.safeParse({
 
 The second projection fixture intentionally proves unrevealed `targetTotal` cannot enter the public shape.
 
-- [ ] **Step 2: Run protocol tests and verify the RED failure.**
+- [x] **Step 2: Run protocol tests and verify the RED failure.**
 
 ```bash
 pnpm --filter @cipher-party/protocol test
@@ -331,7 +331,7 @@ pnpm --filter @cipher-party/protocol test
 
 Expected: failures because schemas are protocol v1, team IDs stop at Blue, and `set_team_count`/grid metadata do not exist.
 
-- [ ] **Step 3: Define v2 wire types.**
+- [x] **Step 3: Define v2 wire types.**
 
 Set `PROTOCOL_VERSION` to `2`. Derive `TeamIdSchema` from the four canonical IDs and add:
 
@@ -351,11 +351,11 @@ export interface PublicTeamSummary {
 
 Add `set_team_count` to `ClientCommandSchema`, broaden `assign_seat`, and add `teamCount`/`configuredTeams` to the projection base. Add `rows`, `columns`, `configuredTeams`, `eliminatedTeams`, and `teamSummaries` to `PublicBoard`. Add optional `eliminatedTeam` to the `card_revealed` history variant and validate it only when `owner` is `hazard`.
 
-- [ ] **Step 4: Keep privacy structural and schema-strict.**
+- [x] **Step 4: Keep privacy structural and schema-strict.**
 
 Update `ClientProjectionSchema` so clue-giver keys exactly cover the board order for 25/30/36 cards, while all public roles structurally omit `key`, ownership maps, and target totals. Validate dimensions against the supported triplets and require team summaries to contain exactly the configured teams.
 
-- [ ] **Step 5: Run all protocol checks and commit.**
+- [x] **Step 5: Run all protocol checks and commit.**
 
 ```bash
 pnpm --filter @cipher-party/protocol test
