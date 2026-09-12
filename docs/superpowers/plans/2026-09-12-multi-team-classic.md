@@ -73,7 +73,7 @@
 
 - Create: `packages/game-core/src/team-rules.ts`
 - Modify: `packages/game-core/src/domain.ts`, `packages/game-core/src/index.ts`, `packages/game-core/src/board.ts`
-- Test: `packages/game-core/src/domain.test.ts`, `packages/game-core/src/board.test.ts`, `packages/game-core/src/reducer.test.ts` (compatibility fixture metadata only)
+- Test: `packages/game-core/src/domain.test.ts`, `packages/game-core/src/board.test.ts`, `packages/game-core/src/reducer.test.ts`, `packages/protocol/src/projections.test.ts` (compatibility fixture metadata only)
 
 **Interfaces:**
 
@@ -171,6 +171,7 @@ Return `rows`, `columns`, `teamCount`, and a copied `configuredTeams` array. Mak
 
 Extend `board.test.ts` to assert every table row, exact card/order lengths, all configured owners, one hazard, duplicate rejection, deterministic replay for the same seed/team count, different starting-team selection across eligible slots, and preservation of the existing 25-card two-team board shape.
 Update the existing fixed-board fixture in `reducer.test.ts` with the required two-team metadata so the new `ClassicBoard` interface remains strict without weakening reducer tests.
+Update the manually constructed board in `packages/protocol/src/projections.test.ts` with the same 5 × 5/two-team metadata; this is a compile-only fixture adjustment, while projection behavior remains Task 3's responsibility.
 
 Run:
 
