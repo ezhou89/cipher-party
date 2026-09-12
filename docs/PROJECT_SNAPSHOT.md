@@ -1,14 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 21
+**Snapshot revision:** 22
 
 **Last updated:** 2026-09-11
 
-**Project state:** The reviewed integration is deployed to staging from `e780d60`, with source/version/bindings/security/hash attestation passing. Live browser smoke exposed blocked analytics injection and a dynamic-evaluation probe; investigation is underway before the handoff can be called verified. The four-human playtest remains NOT YET RUN.
+**Project state:** Creative integration is complete and independently reviewed. Staging source `2c72751` passed the full release gate, authenticated deployment attestation, and desktop/mobile public browser smoke. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
-**Active plan:** docs/superpowers/plans/2026-09-07-creative-integration.md
+**Active plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
+
+**Next execution:** docs/runbooks/connected-classic-playtest.md — four-human Connected Classic exit session.
 
 **Original milestone plan:** docs/superpowers/plans/2026-08-30-connected-classic.md (historical implementation/review evidence).
 
@@ -61,34 +63,37 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Integration Task 3 — staging hardening and reproducible deployment, `96e381e`; independent review found no Critical/Important code issue.
-- **Current task:** Integration Task 4 — whole-branch review, verified staging update, and human playtest handoff.
-- **Next task:** Four-human Connected Classic exit session, then Milestone 2 planning.
-- **Current blockers:** Live public browser smoke reports CSP-related console/request errors despite successful UI checks. Keep the restrictive CSP; investigate Cloudflare analytics injection and the bundled validator's dynamic-evaluation probe. The milestone exit still requires four real humans. **Human playtest: NOT YET RUN.**
+- **Last accepted task:** Integration Task 4 — whole-branch review, live-regression fixes, verified staging update, and handoff. Final runtime source: `2c72751`; no open review findings.
+- **Current task:** Arrange and record the four-human playtest using the runbook, without substituting automated clients for people.
+- **Next task:** Milestone 2 planning after the human milestone exit gate passes.
+- **Current blockers:** No known integration blocker. Milestone exit requires the real session and resolution of any critical playtest findings. **Human playtest: NOT YET RUN.**
 
 ## Current integration evidence
 
-- Task 1 independently reviewed; both fix findings addressed with no new breakage.
-- `creative/manifest.json` inventories 26 byte-preserved originals; the coordinator independently matched every archive/source checksum and byte length.
-- `docs/CREATIVE_HANDOFF.md` separates approved direction, draft content, prototype behavior, and a reusable future creative-submission template. Content remains 700 draft rows / 682 unique labels; the runtime still uses its 50-word fixture.
-- `pnpm install --frozen-lockfile`, `pnpm run check` (439 tests before the additional portability regression), `pnpm run build`, and `pnpm run preflight` (8/8 rows) passed.
-- Review fix: `pnpm exec vitest run scripts/preflight.test.ts` passed 35/35; real preflight passed 8/8 with all seven expiry identities; all three Worker-local schema references resolved; focused lint/format/diff-check passed.
-- The reviewed dependency resolutions remain unchanged under pnpm. Known non-blocking tooling notices: Node DEP0040 and Wrangler's update notice.
-- `ROOMS` namespace continuity is verified at `f2766441dfa24d10bef55dd8ee4f5599` (`RoomDurableObject`, migration `v1`).
+- Tasks 1–3, whole-branch review, the three-minor final fix wave, and the subsequently discovered live-CSP fix all completed independent review. No findings remain open. Detailed history is retained in the integration plan and Git.
+- `creative/manifest.json` inventories 26 byte-preserved originals; the coordinator independently rechecked every source/archive checksum and byte length on September 11. `docs/CREATIVE_HANDOFF.md` supplies approved-versus-draft status and a reusable Gemini submission template. Content remains 700 draft rows / 682 unique labels; the runtime still uses its 50-word fixture.
+- `pnpm install --frozen-lockfile` passed with reviewed external resolutions unchanged. Root's declared protocol development link and web's direct already-bundled Zod dependency make existing imports explicit under isolated pnpm.
+- Arcade presentation and independent board-selection/order/ownership streams are integrated. Public desktop/320px visual inspection and committed all-25-label geometry/nomination regressions passed; restoring the old cramped styling failed both browser regressions as expected.
+- The coordinator's fresh `pnpm run check:release` on exact source `2c72751` passed: docs, format, lint, all types, **533 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 85), builds/local Worker dry run, **8/8 preflight rows** with seven exact expiry identities, and **40/40 Chromium/WebKit cases** in 57.8 seconds. These include the existing multiplayer/privacy harness and four production-CSP landing/invite cases.
+- Live-CSP regressions observed the old bundle fail before the fix. HTML-only `no-transform`, browser-shaped attestation requests, and early browser Zod `jitless` initialization fixed the actual causes without weakening CSP or parsing. Header, injected-HTML mismatch, no-`Function`, strict parsing, and production-bundle browser regressions passed; independent review found no Critical/Important/Minor issue.
+- `pnpm run deploy:staging` deployed the reviewed source below. Explicit `pnpm run check:staging` passed authenticated source/version/100% traffic, the original room namespace, eight bindings, transport/health/security headers, and all three built HTML/JS/CSS SHA-256 comparisons.
+- Final read-only public smoke passed **2/2** in 8.1 seconds with `pnpm exec playwright test --config .superpowers/sdd/2026-09-07-creative-integration/staging-smoke.config.ts`: desktop Chromium and 320px mobile WebKit checked landing/invite HTML against the local build, UI, focus, viewport, and zero CSP/console/page/request/response errors. No rooms or sockets were created; this is not a live multiplayer or human-session claim.
+- Four final public landing/invite screenshots in `.superpowers/sdd/2026-09-07-creative-integration/staging-screenshots/` were separately captured and visually inspected. Playwright 1.62.1 WebKit screenshot capture itself injects an inline animation-synchronization stylesheet, which the intended CSP blocks. Visual capture is separate from the zero-error smoke; no errors are filtered or assertions weakened.
+- Original `main@128c0f7` with its preexisting untracked E2E drafts and clean `connected-classic@fe264e3` remain untouched. Keep `feature/creative-integration` and its worktree/scratch evidence; no merge, push, apex, zone/account, paid-plan, R2, or AI change was made.
+- Four-human runbook results remain **PENDING / NOT YET RUN**.
 
-- Task 2 independently reviewed; the geometry fix addressed its sole Important finding with no new breakage.
-- `pnpm run check:release` passed on `6ffad0f`: 441 repository tests (core 68, protocol 95, web 120, Worker 120, root 38), builds/dry run, 8/8 preflight rows with seven expiry identities, and 36/36 Chromium/WebKit tests.
-- Final public-only desktop/320px visual QA passed 2/2; coordinator inspected representative captures. Built-in words and nomination cues fit, and keyboard/cancel/focus/reduced-motion checks passed.
-- Review fix `8c34a6f` added committed value-free one-line/no-clipping checks for all 25 phone labels. Restoring faulty font/spacing failed both browsers; final styling passed both focused five-client flows (2/2), lint, format, and diff-check.
-- Root `@cipher-party/protocol: workspace:*` devDependency restores existing E2E imports under isolated pnpm; no external resolutions changed. Known test-runner color-environment notice is non-blocking.
+## Verified staging deployment
 
-- Task 3 independently reviewed at `96e381e`; whole-branch review found no Critical/Important issue. Final fix `e780d60` addressed three test/documentation minors and passed scoped re-review; upstream tooling notices are accepted nonblocking.
-- Implementer fresh September 11 `pnpm run check:release` passed 525 repository tests (core 68, protocol 95, web 123, Worker 159, root 80), builds, 8/8 preflight with seven expiry identities, and 36/36 browser tests. `pnpm run deploy:staging --dry-run` passed with the existing room class and five admission limiters; no deployment occurred.
-- Controller rerun passed docs/format/lint/types and core/protocol/web tests, then reported three Cloudflare runner-startup timeouts (67 Worker tests completed). Lingering teardown was interrupted. One focused diagnostic passed all 39 staging tests in 3.70s with clean teardown; the exact startup cause remains unproven. No test settings or dependencies were changed.
-- Root's unchanged full release rerun on `d6dc022` passed all 525 repository tests, builds, 8/8 preflight with seven expiry identities, and 36/36 browser tests. No startup timeout recurred. Final `e780d60` changed tests/docs only; root reran 42/42 staging script tests, docs/format/diff checks, and a clean-source staging dry run successfully.
-- Tracked deployment of source `e780d60891601e554255fc3608876c188825c9ef` produced Worker version `aa78dd0c-54f5-4ef5-a647-606c1d8e7ab1`. Explicit `check:staging` passed version at 100%, original room namespace, eight bindings, transport/health/headers, and three built HTML/JS/CSS hashes.
-- Live public smoke remains FAILED: desktop/mobile landing and invite UI/viewport checks passed and four screenshots were inspected, but Chromium reported two console/two request errors and WebKit four console errors. No rooms or sockets were created. Diagnostics identified CSP-blocked Cloudflare analytics injection and a lazy `Function` availability probe with a `jitless` guard. Exact remediation is still under investigation; do not allow third-party scripts or unsafe-eval merely to silence errors.
-- Controller independently rechecked all 26 archive/source/manifest checksums and byte lengths on September 11.
+- URL: `https://staging.oddlyuseful.studio`; Worker: `cipher-party-staging`.
+- Deployed source: `2c727519a69347bd1b914d990f10bb6fa1c5724c`.
+- Active version at 100%: `9d7bb74d-5eca-4e0a-8b01-da1ebcb206f2`.
+- Preserved `ROOMS` namespace: `f2766441dfa24d10bef55dd8ee4f5599`; class `RoomDurableObject`, SQLite migration `v1`, compatibility date `2026-08-30`.
+
+This snapshot's documentation-only commit is newer than the deployed runtime. Build matching source and pass explicit expectations for pre-session attestation; do not assume current Git HEAD is the deployed source:
+
+```sh
+pnpm run check:staging --expected-commit 2c727519a69347bd1b914d990f10bb6fa1c5724c --expected-version 9d7bb74d-5eca-4e0a-8b01-da1ebcb206f2 --expected-rooms-namespace f2766441dfa24d10bef55dd8ee4f5599
+```
 
 ## Historical reviewed baseline
 
@@ -104,8 +109,10 @@ Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuit
 - Board membership, grid order, and ownership use independent `/cards`, `/grid-order`, and `/ownership` seed streams; retain duplicate rejection, null-prototype card map, stable IDs, and starting-team distribution.
 - Arcade presentation uses local/system fonts, warm word cards, redundant Ruby/Red and Cobalt/Blue identity, and public-only scores. Keep committed 320px nomination/word geometry checks.
 - Staging rejects noncanonical hosts, redirects canonical HTTP app requests to HTTPS, and rejects insecure APIs without redirecting credentials. All-request Worker-first asset serving applies the response policy; successful WebSocket upgrades remain intact.
+- HTML responses use `Cache-Control: no-store, no-transform` to opt out of injected body content without changing zone settings. Keep API/credential no-store behavior, JS/CSS policy, and the restrictive same-origin CSP; never add unsafe-eval or external analytics scripts to silence violations.
+- Web's first side-effect import initializes the directly declared, already-bundled Zod with `jitless: true` before App/router/protocol schema evaluation. Preserve strict parsing and the Worker/protocol API; retain no-Function and real production-CSP regressions.
 - Staging admission uses five stable Cloudflare rate bindings: create 10/min/IP, joins 60/min/IP and 120/min/room, tickets 120/min/IP and 240/min/room. Keys are hashed and purpose-scoped; all applicable counters settle before room access. Counters are location-local/eventually consistent, not globally exact. Local HTTP tests omit these bindings.
-- Use tracked `deploy:staging` and read-only `check:staging`; preserve the existing Worker, room namespace, class, and migration. Live attestation checks version/source/traffic/bindings and every built HTML/JS/CSS hash. No apex, paid-plan, R2, or AI change belongs to this integration.
+- Use tracked `deploy:staging` and read-only `check:staging`; preserve the existing Worker, room namespace, class, and migration. Live attestation checks version/source/traffic/bindings and every built HTML/JS/CSS hash, with browser-navigation-like headers for HTML. No apex, paid-plan, R2, or AI change belongs to this integration.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
 - The shared TypeScript library is ES2022-only; only apps/web adds DOM and DOM.Iterable libraries.
 - Responsive website first, PWA-ready structure, no offline match behavior.
@@ -133,6 +140,8 @@ Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuit
 
 ## Known risks
 
+- Non-blocking upstream notices remain: Node DEP0040 from Wrangler's bundled dependencies, its update notice, and Playwright's inherited NO_COLOR/FORCE_COLOR warning. One earlier Cloudflare test-runner startup timeout did not recur in unchanged or final full release reruns; its exact cause is unproven. No dependencies, timeout settings, or warning filters were changed to hide it.
+- Keep WebKit screenshot-tool stylesheet injection separate from application CSP diagnostics, as described in the current evidence; production/live zero-error gates must still catch genuine app violations.
 - Hidden-data leakage through overly broad serialization.
 - Reconnect races causing duplicate reveals or lost seats.
 - Durable Object alarm and hibernation behavior diverging between local and deployed environments.
