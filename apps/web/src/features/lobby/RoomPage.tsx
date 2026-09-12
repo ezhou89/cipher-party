@@ -178,7 +178,14 @@ export function RoomPage({ seatStore, createRoomSocket }: RoomPageProps) {
             {room.error}
           </div>
         )}
-        <p>Synchronizing the latest public room state…</p>
+        {room.connection === "closed" ? (
+          <p>
+            Automatic reconnect has stopped. Your saved seat stays on this
+            device until you choose to forget it.
+          </p>
+        ) : (
+          <p>Synchronizing the latest public room state…</p>
+        )}
         {room.connection === "closed" ? (
           <button
             type="button"

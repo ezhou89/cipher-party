@@ -4,6 +4,7 @@ import type {
   CommandResult,
 } from "@cipher-party/protocol";
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -613,6 +614,135 @@ describe("ConnectionBadge", () => {
 });
 
 describe("RoomPage invite and socket lifecycle", () => {
+  it("unmounts a visible clue-giver key on terminal expiry without deleting the saved seat", async () => {
+    const cards = Array.from({ length: 25 }, (_, i) => ({
+      id: `card-${i}`,
+      label: `Word ${i}`,
+      revealed: false as const,
+    }));
+    const key: Extract<ClientProjection, { viewRole: "clue-giver" }>["key"] =
+      {};
+    for (const [i, card] of cards.entries())
+      key[card.id] =
+        i < 9 ? "red" : i < 17 ? "blue" : i < 24 ? "neutral" : "hazard";
+    const credentials: SeatCredentials = {
+      code: "ABC123",
+      playerId: "host",
+      seatToken: "a".repeat(43),
+    };
+    let deleted = false;
+    const store: SeatStore = {
+      get: async () => credentials,
+      put: async () => {},
+      delete: async () => {
+        deleted = true;
+      },
+    };
+    const socket = new FakeRoomSocket({
+      connection: "open",
+      lastResult: null,
+      projection: hostProjection({
+        roomPhase: "playing",
+        locked: true,
+        key,
+        board: {
+          order: cards.map(({ id }) => id),
+          cards,
+          phase: "guess",
+          activeTeam: "red",
+          clue: { word: "Example", count: 2 },
+          guessesRemaining: 3,
+          nomination: null,
+          winner: null,
+          completionReason: null,
+        },
+      }),
+    });
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Show secret key" }));
+    expect(document.querySelectorAll(".key-owner").length > 0).toBe(true);
+    act(() =>
+      socket.emit({
+        connection: "closed",
+        projection: null,
+        lastResult: null,
+        error: "room_expired",
+      }),
+    );
+    expect(document.querySelectorAll(".key-owner").length).toBe(0);
+    expect(
+      screen.queryByRole("button", { name: "Hide secret key" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/room has expired/iu);
+    expect(
+      screen.getByRole("button", { name: "Forget saved seat and rejoin" }),
+    ).toBeEnabled();
+    expect(deleted).toBe(false);
+  });
+
+  it("clears pending lobby controls on terminal failure and keeps explicit seat recovery available", async () => {
+    const credentials: SeatCredentials = {
+      code: "ABC123",
+      playerId: "host",
+      seatToken: "a".repeat(43),
+    };
+    let saved: SeatCredentials | undefined = credentials;
+    const store: SeatStore = {
+      get: async () => saved,
+      put: async () => {},
+      delete: async () => {
+        saved = undefined;
+      },
+    };
+    const socket = new FakeRoomSocket({
+      connection: "open",
+      projection: hostProjection(),
+      lastResult: null,
+    });
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Lock room" }));
+    expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
+
+    act(() =>
+      socket.emit({
+        connection: "closed",
+        projection: null,
+        lastResult: null,
+        error: "credential_invalid",
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Lock room" }),
+    ).not.toBeInTheDocument();
+    const recovery = screen.getByRole("button", {
+      name: "Forget saved seat and rejoin",
+    });
+    expect(recovery).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /saved seat.*no longer.*valid/iu,
+    );
+    expect(screen.getByRole("alert")).toHaveFocus();
+    expect(screen.queryByText(/Synchronizing/u)).not.toBeInTheDocument();
+    expect(saved !== undefined).toBe(true);
+    await user.click(recovery);
+    expect(saved === undefined).toBe(true);
+    expect(
+      await screen.findByRole("form", { name: "Join room ABC123" }),
+    ).toBeVisible();
+  });
+
   it("gives the home wordmark and room navigation link 44px touch targets", async () => {
     const store: SeatStore = {
       get: async () => undefined,

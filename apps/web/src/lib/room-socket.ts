@@ -8,6 +8,7 @@ import {
 } from "@cipher-party/protocol";
 
 import {
+  ApiError,
   requestConnectionTicket,
   roomWebSocketUrl,
   type WebSocketLocation,
@@ -17,10 +18,17 @@ import type { SeatCredentials } from "./seat-store";
 export type RoomConnectionState =
   "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
+export type RoomConnectionError =
+  | "credential_invalid"
+  | "room_unavailable"
+  | "room_expired"
+  | "connection_rejected";
+
 export interface RoomConnectionSnapshot {
   connection: RoomConnectionState;
   projection: ClientProjection | null;
   lastResult: CommandResult | null;
+  error?: RoomConnectionError | null;
 }
 
 export interface RoomWebSocket {
@@ -39,6 +47,7 @@ export interface RoomSocketDependencies {
   createWebSocket(url: string): RoomWebSocket;
   location: WebSocketLocation;
   randomUUID(): string;
+  now?(): number;
   setTimeout(callback: () => void, delay: number): number;
   clearTimeout(handle: number): void;
 }
@@ -53,6 +62,8 @@ interface InFlightCommand {
 
 const RETRY_DELAYS = [500, 1_000, 2_000, 4_000] as const;
 const MAX_RETRY_DELAY = 5_000;
+const MAX_TIMER_DELAY = 2_147_483_647;
+const OVERLOAD_RETRY_DELAY = 10_000;
 const SOCKET_OPEN = 1;
 
 function defaultDependencies(): RoomSocketDependencies {
@@ -61,6 +72,7 @@ function defaultDependencies(): RoomSocketDependencies {
     createWebSocket: (url) => new WebSocket(url),
     location: window.location,
     randomUUID: () => crypto.randomUUID(),
+    now: Date.now,
     setTimeout: (callback, delay) => window.setTimeout(callback, delay),
     clearTimeout: (handle) => window.clearTimeout(handle),
   };
@@ -82,12 +94,14 @@ export class RoomSocket {
   #connection: RoomConnectionState = "idle";
   #projection: ClientProjection | null = null;
   #lastResult: CommandResult | null = null;
+  #error: RoomConnectionError | null = null;
   #credentials: SeatCredentials | null = null;
   #socket: RoomWebSocket | null = null;
   #generation = 0;
   #manualClose = false;
   #retryAttempt = 0;
   #retryTimer: number | null = null;
+  #retryDeadline: number | null = null;
   #projectionSequence = 0;
   #inFlight: InFlightCommand | null = null;
   #awaitingFreshProjection = true;
@@ -111,6 +125,7 @@ export class RoomSocket {
     this.#retryAttempt = 0;
     this.#projection = null;
     this.#lastResult = null;
+    this.#error = null;
     this.#projectionSequence = 0;
     this.#inFlight = null;
     this.#awaitingFreshProjection = true;
@@ -189,9 +204,10 @@ export class RoomSocket {
       ticket = await requestConnectionTicket(
         credentials,
         this.#dependencies.fetch,
+        this.#dependencies.now,
       );
     } catch (error) {
-      this.#handleOpenFailure(reconnecting, generation);
+      this.#handleOpenFailure(reconnecting, generation, error);
       throw error;
     }
     if (this.#manualClose || generation !== this.#generation) {
@@ -207,7 +223,7 @@ export class RoomSocket {
         ),
       );
     } catch (error) {
-      this.#handleOpenFailure(reconnecting, generation);
+      this.#handleOpenFailure(reconnecting, generation, error);
       throw error;
     }
     this.#socket = socket;
@@ -223,12 +239,18 @@ export class RoomSocket {
       }
       this.#handleMessage(event.data, generation, socket);
     };
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (!this.#isCurrent(generation, socket)) {
         return;
       }
-      this.#socket = null;
-      this.#scheduleReconnect();
+      if (event.code === 1008) {
+        this.#terminate("connection_rejected");
+      } else if (event.code === 1001 && event.reason === "Room expired") {
+        this.#terminate("room_expired");
+      } else {
+        this.#socket = null;
+        this.#scheduleReconnect(event.code === 1013 ? OVERLOAD_RETRY_DELAY : 0);
+      }
     };
     socket.onerror = () => {
       if (!this.#isCurrent(generation, socket)) {
@@ -310,34 +332,110 @@ export class RoomSocket {
     return true;
   }
 
-  #scheduleReconnect(): void {
+  #scheduleReconnect(minimumDelay = 0): void {
     if (this.#manualClose || this.#credentials === null) {
       return;
     }
     this.#generation += 1;
     this.#awaitingFreshProjection = true;
-    this.#setConnection("reconnecting");
-    const delay = RETRY_DELAYS[this.#retryAttempt] ?? MAX_RETRY_DELAY;
+    const delay = Math.max(
+      RETRY_DELAYS[this.#retryAttempt] ?? MAX_RETRY_DELAY,
+      minimumDelay,
+    );
     this.#retryAttempt += 1;
     this.#cancelRetry();
-    this.#retryTimer = this.#dependencies.setTimeout(() => {
-      this.#retryTimer = null;
-      void this.#open(true).catch(() => undefined);
-    }, delay);
+    this.#retryDeadline = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      this.#now() + delay,
+    );
+    this.#armRetry(this.#generation);
+    this.#setConnection("reconnecting");
   }
 
-  #handleOpenFailure(reconnecting: boolean, generation: number): void {
+  #armRetry(generation: number): void {
+    if (this.#retryDeadline === null) return;
+    const remaining = Math.max(0, this.#retryDeadline - this.#now());
+    this.#retryTimer = this.#dependencies.setTimeout(
+      () => {
+        if (
+          this.#manualClose ||
+          generation !== this.#generation ||
+          this.#retryDeadline === null
+        )
+          return;
+        this.#retryTimer = null;
+        if (this.#now() < this.#retryDeadline) {
+          this.#armRetry(generation);
+          return;
+        }
+        this.#retryDeadline = null;
+        void this.#open(true).catch(() => undefined);
+      },
+      Math.min(remaining, MAX_TIMER_DELAY),
+    );
+  }
+
+  #handleOpenFailure(
+    reconnecting: boolean,
+    generation: number,
+    error: unknown,
+  ): void {
     if (this.#manualClose || generation !== this.#generation) {
       return;
     }
-    if (reconnecting) {
-      this.#scheduleReconnect();
+    const status = error instanceof ApiError ? error.status : null;
+    if (status === 401 || status === 404) {
+      this.#terminate(
+        status === 401 ? "credential_invalid" : "room_unavailable",
+      );
+    } else if (
+      reconnecting ||
+      status === 429 ||
+      (status !== null && status >= 500) ||
+      error instanceof TypeError
+    ) {
+      this.#scheduleReconnect(
+        error instanceof ApiError && status === 429
+          ? (error.retryAfterMs ?? 0)
+          : 0,
+      );
     } else {
-      this.#setConnection("closed");
+      this.#terminate("connection_rejected");
     }
   }
 
+  #terminate(error: RoomConnectionError): void {
+    this.#manualClose = true;
+    this.#generation += 1;
+    this.#cancelRetry();
+    const socket = this.#socket;
+    this.#socket = null;
+    if (socket !== null) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000, "Connection ended");
+      } catch {
+        // Retired callbacks cannot restore a terminated connection.
+      }
+    }
+    this.#projection = null;
+    this.#lastResult = null;
+    this.#inFlight = null;
+    this.#awaitingFreshProjection = true;
+    this.#error = error;
+    this.#connection = "closed";
+    this.#notify();
+  }
+
+  #now(): number {
+    return (this.#dependencies.now ?? Date.now)();
+  }
+
   #cancelRetry(): void {
+    this.#retryDeadline = null;
     if (this.#retryTimer !== null) {
       this.#dependencies.clearTimeout(this.#retryTimer);
       this.#retryTimer = null;
@@ -367,6 +465,7 @@ export class RoomSocket {
       connection: this.#connection,
       projection: this.#projection,
       lastResult: this.#lastResult,
+      error: this.#error,
     };
   }
 

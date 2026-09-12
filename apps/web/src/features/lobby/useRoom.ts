@@ -16,12 +16,24 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, joinRoom, normalizeRoomCodeInput } from "../../lib/api";
 import {
   RoomSocket,
+  type RoomConnectionError,
   type RoomConnectionSnapshot,
   type RoomConnectionState,
 } from "../../lib/room-socket";
 import type { SeatCredentials, SeatStore } from "../../lib/seat-store";
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+
+const CONNECTION_ERROR_MESSAGES: Record<RoomConnectionError, string> = {
+  credential_invalid:
+    "This saved seat is no longer valid. You can forget it and rejoin.",
+  room_unavailable:
+    "This room is no longer available. You can forget this seat and use another room code.",
+  room_expired:
+    "This room has expired. You can forget this seat and start or join another room.",
+  connection_rejected:
+    "This room connection was rejected. You can forget this seat and rejoin.",
+};
 
 const COMMAND_ERROR_MESSAGES: Record<CommandErrorCode, string> = {
   invalid_command: "The room could not understand that action.",
@@ -190,6 +202,8 @@ export function useRoom({
     }
     let current = true;
     const socket = createRoomSocket();
+    let connectionError: RoomConnectionError | null = null;
+    let connectionState: RoomConnectionState = "idle";
     socketRef.current = socket;
     const unsubscribe = socket.subscribe((nextSnapshot) => {
       if (!current) {
@@ -203,6 +217,14 @@ export function useRoom({
       }
       lastResultRef.current = nextSnapshot.lastResult;
       setSnapshot(nextSnapshot);
+      connectionError = nextSnapshot.error ?? null;
+      connectionState = nextSnapshot.connection;
+      if (connectionError !== null) {
+        pendingCommandRef.current = null;
+        setPending(false);
+        setError(CONNECTION_ERROR_MESSAGES[connectionError]);
+        return;
+      }
       const tracked = pendingCommandRef.current;
       if (tracked === null) {
         return;
@@ -224,7 +246,11 @@ export function useRoom({
       }
     });
     void socket.connect(credentials).catch((connectError) => {
-      if (current) {
+      if (
+        current &&
+        connectionError === null &&
+        connectionState !== "reconnecting"
+      ) {
         setError(publicError(connectError));
       }
     });
