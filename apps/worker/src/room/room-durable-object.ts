@@ -657,8 +657,6 @@ export class RoomDurableObject extends DurableObject<Env> {
       // A budget await can overlap a close or terminal room event.
       if (socket.readyState !== WebSocket.OPEN) return;
     }
-    // Keep denied frames free of snapshot writes; native budgets precede repair.
-    await this.#reconcilePresence();
     if (
       attachment === null ||
       typeof message !== "string" ||
@@ -705,6 +703,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       });
       return;
     }
+    // Only an admitted, protocol-valid frame from an attached room actor may
+    // trigger presence repair. Malformed and over-budget traffic never writes.
+    await this.#reconcilePresence();
     try {
       const { result, changed } = await this.#controller.dispatchWithOutcome(
         actor,

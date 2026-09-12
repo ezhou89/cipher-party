@@ -122,6 +122,26 @@ function boundary(value: unknown) {
 }
 
 describe("strict v1 snapshot storage boundary", () => {
+  it.each(["targets", "hazard"] as const)(
+    "accepts genuine %s completion with its retained clue and rejects synthetic null-clue completion",
+    async (reason) => {
+      const states = await generatedStates(reason);
+      const complete = states.at(-1)!;
+      expect(complete.game?.phase).toBe("board_complete");
+      expect(complete.game?.completionReason).toBe(reason);
+      expect(complete.game?.clue !== null).toBe(true);
+      expect(
+        JSON.stringify(parseRoomSnapshot(complete)) ===
+          JSON.stringify(complete),
+      ).toBe(true);
+      const synthetic = structuredClone(complete);
+      synthetic.game!.clue = null;
+      expect(() => parseRoomSnapshot(synthetic)).toThrow(
+        InvalidRoomSnapshotError,
+      );
+    },
+  );
+
   it("distinguishes typed unsupported versions from invalid shapes with no raw validation details", () => {
     expect(() => parseRoomSnapshot({ ...lobby(), schemaVersion: 2 })).toThrow(
       UnsupportedRoomSnapshotError,

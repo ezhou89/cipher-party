@@ -301,6 +301,63 @@ afterEach(() => {
 });
 
 describe("room WebSocket admission", () => {
+  it.each([
+    ["malformed JSON", "{"],
+    ["invalid schema", "{}"],
+    ["oversized text", "x".repeat(16_385)],
+    ["binary", new ArrayBuffer(1)],
+  ] as const)(
+    "does not repair stale presence for a budget-admitted %s frame",
+    async (_name, frame) => {
+      const created = await createRoom();
+      await runInDurableObject(
+        roomStub(created.code),
+        async (instance, state) => {
+          // Real OPEN inventory with stale persisted offline presence, as can
+          // occur after an interrupted presence write. No client owns this claim.
+          const pair = new WebSocketPair();
+          state.acceptWebSocket(pair[1], [created.playerId]);
+          pair[1].serializeAttachment({
+            connectionId: crypto.randomUUID(),
+            playerId: created.playerId,
+            hostAuthority: true,
+          });
+          pair[0].accept();
+          const before = instance.getSnapshot()!;
+          expect(before.seats[0]?.connected).toBe(false);
+          const write = vi.spyOn(RoomStorage.prototype, "write");
+          const send = vi.spyOn(pair[1], "send");
+          await instance.webSocketMessage(pair[1], frame);
+          expect(write.mock.calls.length).toBe(0);
+          expect(instance.getSnapshot()?.revision).toBe(before.revision);
+          expect(instance.getSnapshot()?.lastActivity).toBe(
+            before.lastActivity,
+          );
+          expect(instance.getSnapshot()?.seats[0]?.connected).toBe(false);
+          expect(send).toHaveBeenCalledOnce();
+          expect(JSON.parse(send.mock.calls[0]![0] as string)).toMatchObject({
+            type: "error",
+            code: "invalid_message",
+          });
+          await instance.webSocketMessage(
+            pair[1],
+            JSON.stringify(
+              envelope(before.revision, { type: "lock_room", locked: true }),
+            ),
+          );
+          expect(write.mock.calls.length).toBe(1);
+          expect(instance.getSnapshot()?.revision).toBe(before.revision + 1);
+          expect(instance.getSnapshot()?.lastActivity).toBe(
+            before.lastActivity,
+          );
+          expect(instance.getSnapshot()?.seats[0]?.connected).toBe(true);
+          write.mockRestore();
+          pair[0].close();
+        },
+      );
+    },
+  );
+
   it("fails closed on corrupt persisted state without replacing it or returning an admission projection", async () => {
     const created = await createRoom();
     const ticket = (await issueHttpTicket(created)).ticket;
