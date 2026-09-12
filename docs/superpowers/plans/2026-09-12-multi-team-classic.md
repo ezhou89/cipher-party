@@ -80,7 +80,7 @@
 - Consumes: existing `TextCard`, seeded random streams, and two-team `createClassicBoard` callers.
 - Produces: `TeamId`, `TeamCount`, `TEAM_IDS`, `configuredTeams(teamCount)`, `classicBoardSpec(teamCount)`, `chooseStartingTeam(teamCount, seed)`, and a `ClassicBoard` containing `teamCount`, `configuredTeams`, `rows`, `columns`, `order`, `cards`, and `startingTeam`.
 
-- [ ] **Step 1: Add failing domain/geometry tests.**
+- [x] **Step 1: Add failing domain/geometry tests.**
 
 Add table-driven tests that assert the canonical IDs and exact board specifications:
 
@@ -112,7 +112,7 @@ it("derives configured teams without holes", () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the RED failure.**
+- [x] **Step 2: Run the focused tests and verify the RED failure.**
 
 Run:
 
@@ -122,7 +122,7 @@ pnpm --filter @cipher-party/game-core test -- src/domain.test.ts src/board.test.
 
 Expected: failures because the current domain exposes only Red/Blue and `classicBoardSpec` does not exist.
 
-- [ ] **Step 3: Implement the canonical team rules.**
+- [x] **Step 3: Implement the canonical team rules.**
 
 Create the central catalog with strict count validation:
 
@@ -150,7 +150,7 @@ export function chooseStartingTeam(teamCount: TeamCount, seed: string): TeamId;
 
 Update `Ownership` to be `TeamId | "neutral" | "hazard"`, export the helpers from `index.ts`, and keep invalid counts impossible at typed call sites while validating runtime inputs in protocol/Worker boundaries.
 
-- [ ] **Step 4: Generalize deterministic board generation.**
+- [x] **Step 4: Generalize deterministic board generation.**
 
 Change `createClassicBoard` to accept `teamCount`, derive the spec, validate `uniqueCardIds >= spec.cardCount`, select/order exactly `spec.cardCount` cards using the existing `/cards` and `/grid-order` streams, and build ownership as:
 
@@ -167,7 +167,7 @@ Change `createClassicBoard` to accept `teamCount`, derive the spec, validate `un
 
 Return `rows`, `columns`, `teamCount`, and a copied `configuredTeams` array. Make `countOwnership` initialize all four team keys plus neutral/hazard and count only the owners present.
 
-- [ ] **Step 5: Add RED-to-GREEN coverage for all distributions and determinism.**
+- [x] **Step 5: Add RED-to-GREEN coverage for all distributions and determinism.**
 
 Extend `board.test.ts` to assert every table row, exact card/order lengths, all configured owners, one hazard, duplicate rejection, deterministic replay for the same seed/team count, different starting-team selection across eligible slots, and preservation of the existing 25-card two-team board shape.
 Update the existing fixed-board fixture in `reducer.test.ts` with the required two-team metadata so the new `ClassicBoard` interface remains strict without weakening reducer tests.
@@ -180,7 +180,7 @@ pnpm --filter @cipher-party/game-core test -- src/domain.test.ts src/board.test.
 pnpm --filter @cipher-party/game-core typecheck
 ```
 
-- [ ] **Step 6: Commit the core geometry slice.**
+- [x] **Step 6: Commit the core geometry slice.**
 
 ```bash
 git add packages/game-core/src/domain.ts packages/game-core/src/team-rules.ts packages/game-core/src/index.ts packages/game-core/src/board.ts packages/game-core/src/domain.test.ts packages/game-core/src/board.test.ts

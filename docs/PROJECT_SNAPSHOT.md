@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 32
+**Snapshot revision:** 33
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration and audit hardening are complete and independently reviewed. After explicit deployment authorization, the guarded release is live and attested on staging at the current reviewed source; the apex was not changed. The amended multi-team Classic direction is approved and its implementation plan is committed, but no multi-team runtime work has started. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Task 1 (canonical teams and board geometry) is implemented and review-clean at `8a90cc0`; downstream protocol/Worker migrations are intentionally pending. After explicit deployment authorization, the guarded release is live and attested on staging at the current reviewed source; the apex was not changed. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
-**Active milestone:** Milestone 1 — Connected Classic (multi-team expansion planned)
+**Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
 **Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Select the execution mode, then begin Task 1 of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow implementation and fresh verification.
+**Next execution:** Begin Task 2 (multi-team reducer and transition metadata) of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow implementation and fresh verification.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -67,10 +67,10 @@ The current runtime does not yet deliver the pack builder, image uploads, AI sug
 
 ## Work ledger
 
-- **Last accepted task:** Approved multi-team design/spec and implementation-plan checkpoint at `db0635f`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
-- **Current task:** Pre-execution checkpoint; multi-team Classic implementation has not started.
-- **Next task:** Execute Task 1 (canonical teams and board geometry) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md` after the execution mode is selected.
-- **Current blockers:** Execution mode choice is pending; hosted CI has no configured repository/provider; the real four-human two-team session has not been run; the eight-player four-team session cannot run until implementation and deployment are authorized. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
+- **Last accepted task:** Task 1 — canonical teams and board geometry at `8a90cc0`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
+- **Current task:** Task 1 accepted; preparing Task 2.
+- **Next task:** Execute Task 2 (multi-team reducer and transition metadata) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md`.
+- **Current blockers:** The repository-wide typecheck remains intentionally blocked by the planned v2 protocol/Worker migrations in Tasks 3–4; hosted CI has no configured repository/provider; the real four-human two-team session has not been run; the eight-player four-team session cannot run until implementation and deployment are authorized. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
 - **Audit baseline:** 445 tracked runtime functions; classic mean 3.38 after Task 6, maximum 34, 26 above 10, and exactly four approved exceptions above 20. GameWorkspace fell 36→10 and applyGameAction 30→18; both exceptions were removed. Remaining exceptions are permissionsFor 34, authorize 24, ModerationPanel 21, and applyLobbyCommand 21. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace until Task 7 reruns it.
 
 ## Current hardening evidence
@@ -84,6 +84,10 @@ The current runtime does not yet deliver the pack builder, image uploads, AI sug
 - Task 5 adds tracked-runtime classic complexity measurement with stable file/function identities, exactly six explicit exceptions, and a >20 new-function gate; inline complexity waivers cannot suppress inventory. All five Vitest scopes use separate Istanbul reports and measured whole-number S/B/F/L floors: game-core 97/96/100/97, protocol 96/94/100/96, web 91/87/91/91, Worker 93/91/98/93, root 80/77/92/80. Source-bound `pnpm run deploy:staging` now requires clean exact SHA → full `check:release` → same clean SHA → low-level `expectedCommit`; direct low-level live CLI refuses and dry-run remains non-uploading. The optional clean gate clones without hardlinks, frozen-installs, runs only the inner release gate, and removes its task-owned checkout. Focused tooling/staging tests passed 76/76; full release gate passed 672 tests, builds/preflight, and local E2E 48/48; the separate real clean-checkout gate passed. No deployment/live smoke, hosted CI, or human playtest occurred.
 - Task 6 extracted typed private reducer clue/reveal handlers, pure game availability derivation, and a single identity/projection-scoped confirmation hook. Transport gating remains separate from intent validity so reconnect keeps Cancel/focus recovery while disabling destructive sends; clue-giver keys remain outside the hook. Focused reducer/UI tests passed 57/57 and 71/71; full release gate passed 681 tests, unchanged coverage floors, builds/preflight, and local E2E 48/48. Classic GameWorkspace fell 36→10 and applyGameAction 30→18, removing both exceptions. No deployment/live smoke or human playtest occurred.
 - Task 7 completed the coordinator whole-branch review from `7142f5481e72c7e49d127e4877b4e7ee5502df1b` through `db5b18e71418a948149e15e0af872282730c2e0d`; accepted task reviews remain clean and no material finding is open. Fresh elevated `pnpm run check:release` passed 681 tests, complexity (445 functions, mean 3.38, maximum 34, four explicit exceptions), all five coverage floors, builds/local Worker dry run, preflight, and 48/48 local E2E. The unprivileged sandbox attempt failed only at the Worker listener/log boundary; the approved elevated rerun passed. After explicit user authorization, guarded deployment of source `290e8d05d847f2ba80e2625a13222134fe4927ba` completed; read-only staging attestation passed at 100% version `27df01fb-da1f-4e20-8944-a667dba560a4`, and artifact-free public smoke passed 4/4 across desktop Chromium and 320px mobile WebKit. `git diff --check` and `git status --short` were clean before deployment. Deferred boundaries remain lost-join retry identity/seat and host replacement, hosted CI provider selection, browser/screen-reader/real-device and operational drills, and the still-pending four-human multiplayer session.
+
+## Current multi-team implementation evidence
+
+- Task 1 (`8a90cc0`, with implementation `cb5b173`) centralizes the four canonical team slots, exact 2/3/4-team Classic board specifications, deterministic `/cards`/`/grid-order`/`/ownership`/`/starting-team` streams, dynamic 25/30/36-card generation, copied board metadata, and starter validation. Focused game-core tests passed **95/95** with package typecheck; protocol tests/typecheck passed **95/95** as a compatibility check. The repository-wide typecheck is not yet a passing gate because Tasks 3–4 must migrate v1 protocol/snapshot contracts. Task review found and accepted the starter validation fix; no finding remains open.
 
 ## Historical integration evidence
 
