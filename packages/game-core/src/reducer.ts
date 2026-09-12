@@ -1,5 +1,5 @@
 import type { BoardCard, ClassicBoard } from "./board";
-import type { CardId, PlayerId, TeamId } from "./domain";
+import type { CardId, Ownership, PlayerId, TeamId } from "./domain";
 
 export type PlayPhase =
   "clue" | "guess" | "challenged" | "paused" | "board_complete";
@@ -11,6 +11,7 @@ export interface ClassicGameState {
   phase: PlayPhase;
   resumePhase: ResumablePlayPhase | null;
   activeTeam: TeamId;
+  eliminatedTeams: TeamId[];
   clue: { word: string; count: number } | null;
   guessesRemaining: number;
   nomination: { playerId: PlayerId; cardId: CardId } | null;
@@ -48,6 +49,18 @@ export type GameAction =
   | { type: "pause" }
   | { type: "resume" };
 
+export interface GameTransitionEvent {
+  type: "card_revealed";
+  cardId: CardId;
+  owner: Ownership;
+  eliminatedTeam?: TeamId;
+}
+
+export interface GameTransition {
+  state: ClassicGameState;
+  event: GameTransitionEvent | null;
+}
+
 export type GameTransitionErrorReason =
   | "wrong_phase"
   | "wrong_team"
@@ -74,6 +87,7 @@ export function createClassicGame(board: ClassicBoard): ClassicGameState {
     phase: "clue",
     resumePhase: null,
     activeTeam: board.startingTeam,
+    eliminatedTeams: [],
     clue: null,
     guessesRemaining: 0,
     nomination: null,
@@ -82,8 +96,28 @@ export function createClassicGame(board: ClassicBoard): ClassicGameState {
   };
 }
 
-function otherTeam(teamId: TeamId): TeamId {
-  return teamId === "red" ? "blue" : "red";
+function activeTeams(state: ClassicGameState): TeamId[] {
+  return state.board.configuredTeams.filter(
+    (teamId) => !state.eliminatedTeams.includes(teamId),
+  );
+}
+
+function nextActiveTeam(state: ClassicGameState): TeamId {
+  const currentIndex = state.board.configuredTeams.indexOf(state.activeTeam);
+  for (
+    let offset = 1;
+    offset <= state.board.configuredTeams.length;
+    offset += 1
+  ) {
+    const teamId =
+      state.board.configuredTeams[
+        (currentIndex + offset) % state.board.configuredTeams.length
+      ]!;
+    if (!state.eliminatedTeams.includes(teamId)) {
+      return teamId;
+    }
+  }
+  return state.activeTeam;
 }
 
 function advanceTurn(state: ClassicGameState): ClassicGameState {
@@ -91,7 +125,7 @@ function advanceTurn(state: ClassicGameState): ClassicGameState {
     ...state,
     phase: "clue",
     resumePhase: null,
-    activeTeam: otherTeam(state.activeTeam),
+    activeTeam: nextActiveTeam(state),
     clue: null,
     guessesRemaining: 0,
     nomination: null,
@@ -129,7 +163,11 @@ function requireActiveTeam(state: ClassicGameState, teamId: TeamId): void {
 }
 
 function requireOpposingTeam(state: ClassicGameState, teamId: TeamId): void {
-  if (teamId !== otherTeam(state.activeTeam)) {
+  if (
+    teamId === state.activeTeam ||
+    !state.board.configuredTeams.includes(teamId) ||
+    state.eliminatedTeams.includes(teamId)
+  ) {
     throw new GameTransitionError("wrong_team");
   }
 }
@@ -175,6 +213,38 @@ function completeBoard(
   };
 }
 
+function eliminateActiveTeam(state: ClassicGameState): ClassicGameState {
+  const eliminatedTeam = state.activeTeam;
+  const cards: Record<CardId, BoardCard> = Object.assign(
+    Object.create(null),
+    state.board.cards,
+  );
+  for (const [cardId, card] of Object.entries(cards)) {
+    if (card.owner === eliminatedTeam && !card.revealed) {
+      cards[cardId] = { ...card, owner: "neutral" };
+    }
+  }
+
+  return {
+    ...state,
+    board: { ...state.board, cards },
+    eliminatedTeams: state.eliminatedTeams.includes(eliminatedTeam)
+      ? state.eliminatedTeams
+      : [...state.eliminatedTeams, eliminatedTeam],
+  };
+}
+
+function isConfiguredTeam(
+  state: ClassicGameState,
+  owner: Ownership,
+): owner is TeamId {
+  return (
+    owner !== "neutral" &&
+    owner !== "hazard" &&
+    state.board.configuredTeams.includes(owner)
+  );
+}
+
 function applySubmitClue(
   state: ClassicGameState,
   action: Extract<GameAction, { type: "submit_clue" }>,
@@ -201,7 +271,7 @@ function applySubmitClue(
 function applyConfirmReveal(
   state: ClassicGameState,
   action: Extract<GameAction, { type: "confirm_reveal" }>,
-): ClassicGameState {
+): GameTransition {
   requirePhase(state, "guess");
   requireActiveTeam(state, action.teamId);
   const card = requireCard(state, action.cardId);
@@ -216,41 +286,68 @@ function applyConfirmReveal(
   }
 
   const revealedState = revealCard(state, action.cardId, card);
+  const event: GameTransitionEvent = {
+    type: "card_revealed",
+    cardId: action.cardId,
+    owner: card.owner,
+  };
   if (card.owner === "hazard") {
-    return completeBoard(revealedState, otherTeam(state.activeTeam), "hazard");
+    if (state.board.teamCount === 2) {
+      return {
+        state: completeBoard(revealedState, nextActiveTeam(state), "hazard"),
+        event,
+      };
+    }
+
+    const eliminatedState = eliminateActiveTeam(revealedState);
+    const remainingTeams = activeTeams(eliminatedState);
+    return {
+      state:
+        remainingTeams.length === 1
+          ? completeBoard(eliminatedState, remainingTeams[0]!, "hazard")
+          : advanceTurn(eliminatedState),
+      event: { ...event, eliminatedTeam: state.activeTeam },
+    };
   }
   if (
-    (card.owner === "red" || card.owner === "blue") &&
+    isConfiguredTeam(revealedState, card.owner) &&
     hasRevealedAllTargets(revealedState, card.owner)
   ) {
-    return completeBoard(revealedState, card.owner, "targets");
+    return {
+      state: completeBoard(revealedState, card.owner, "targets"),
+      event,
+    };
   }
   if (card.owner !== state.activeTeam || revealedState.guessesRemaining === 0) {
-    return advanceTurn(revealedState);
+    return { state: advanceTurn(revealedState), event };
   }
-  return revealedState;
+  return { state: revealedState, event };
 }
 
-export function applyGameAction(
+export function applyGameActionWithEvent(
   state: ClassicGameState,
   action: GameAction,
-): ClassicGameState {
+): GameTransition {
   if (state.phase === "board_complete") {
     throw new GameTransitionError("board_complete");
   }
 
   switch (action.type) {
     case "submit_clue":
-      return applySubmitClue(state, action);
+      return { state: applySubmitClue(state, action), event: null };
     case "challenge_clue":
       requirePhase(state, "guess");
       requireOpposingTeam(state, action.teamId);
-      return { ...state, phase: "challenged" };
+      return { state: { ...state, phase: "challenged" }, event: null };
     case "resolve_challenge":
       requirePhase(state, "challenged");
-      return action.decision === "accept"
-        ? { ...state, phase: "guess" }
-        : advanceTurn(state);
+      return {
+        state:
+          action.decision === "accept"
+            ? { ...state, phase: "guess" }
+            : advanceTurn(state),
+        event: null,
+      };
     case "nominate_card": {
       requirePhase(state, "guess");
       requireActiveTeam(state, action.teamId);
@@ -259,8 +356,11 @@ export function applyGameAction(
         throw new GameTransitionError("already_revealed");
       }
       return {
-        ...state,
-        nomination: { playerId: action.playerId, cardId: action.cardId },
+        state: {
+          ...state,
+          nomination: { playerId: action.playerId, cardId: action.cardId },
+        },
+        event: null,
       };
     }
     case "clear_nomination":
@@ -269,13 +369,13 @@ export function applyGameAction(
       if (state.nomination === null) {
         throw new GameTransitionError("missing_nomination");
       }
-      return { ...state, nomination: null };
+      return { state: { ...state, nomination: null }, event: null };
     case "confirm_reveal":
       return applyConfirmReveal(state, action);
     case "end_turn":
       requirePhase(state, "guess");
       requireActiveTeam(state, action.teamId);
-      return advanceTurn(state);
+      return { state: advanceTurn(state), event: null };
     case "pause":
       if (
         state.phase !== "clue" &&
@@ -284,16 +384,29 @@ export function applyGameAction(
       ) {
         throw new GameTransitionError("wrong_phase");
       }
-      return { ...state, phase: "paused", resumePhase: state.phase };
+      return {
+        state: { ...state, phase: "paused", resumePhase: state.phase },
+        event: null,
+      };
     case "resume":
       requirePhase(state, "paused");
       if (state.resumePhase === null) {
         throw new GameTransitionError("wrong_phase");
       }
-      return { ...state, phase: state.resumePhase, resumePhase: null };
+      return {
+        state: { ...state, phase: state.resumePhase, resumePhase: null },
+        event: null,
+      };
     default: {
       const exhaustive: never = action;
       return exhaustive;
     }
   }
+}
+
+export function applyGameAction(
+  state: ClassicGameState,
+  action: GameAction,
+): ClassicGameState {
+  return applyGameActionWithEvent(state, action).state;
 }

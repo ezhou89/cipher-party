@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   applyGameAction,
+  applyGameActionWithEvent,
   createClassicGame,
   GameTransitionError,
   type BoardCard,
@@ -9,6 +10,7 @@ import {
   type ClassicBoard,
   type ClassicGameState,
   type GameAction,
+  type TeamCount,
   type TeamId,
 } from "./index";
 
@@ -54,6 +56,63 @@ function fixedBoard(): ClassicBoard {
   };
 }
 
+function multiTeamBoard(teamCount: 3 | 4 = 3): ClassicBoard {
+  const configuredTeams: TeamId[] =
+    teamCount === 3
+      ? ["red", "blue", "green"]
+      : ["red", "blue", "green", "yellow"];
+  const fixtures: BoardCard[] = [
+    { id: "red-1", label: "Red One", owner: "red", revealed: false },
+    { id: "red-2", label: "Red Two", owner: "red", revealed: false },
+    { id: "blue-1", label: "Blue One", owner: "blue", revealed: false },
+    { id: "blue-2", label: "Blue Two", owner: "blue", revealed: false },
+    { id: "green-1", label: "Green One", owner: "green", revealed: false },
+    { id: "green-2", label: "Green Two", owner: "green", revealed: false },
+    ...(teamCount === 4
+      ? [
+          {
+            id: "yellow-1",
+            label: "Yellow One",
+            owner: "yellow" as const,
+            revealed: false,
+          },
+          {
+            id: "yellow-2",
+            label: "Yellow Two",
+            owner: "yellow" as const,
+            revealed: false,
+          },
+        ]
+      : []),
+    {
+      id: "neutral-1",
+      label: "Neutral One",
+      owner: "neutral",
+      revealed: false,
+    },
+    {
+      id: "hazard-1",
+      label: "Hazard One",
+      owner: "hazard",
+      revealed: false,
+    },
+  ];
+  const cards: Record<CardId, BoardCard> = Object.create(null);
+  for (const card of fixtures) {
+    cards[card.id] = card;
+  }
+
+  return {
+    teamCount,
+    configuredTeams,
+    rows: teamCount === 3 ? 5 : 6,
+    columns: 6,
+    order: fixtures.map((card) => card.id),
+    cards,
+    startingTeam: "red",
+  };
+}
+
 function withRevealed(board: ClassicBoard, ...cardIds: CardId[]): ClassicBoard {
   const cards: Record<CardId, BoardCard> = Object.assign(
     Object.create(null),
@@ -71,7 +130,7 @@ function guessingState(
 ): ClassicGameState {
   return applyGameAction(createClassicGame(board), {
     type: "submit_clue",
-    teamId: "red",
+    teamId: board.startingTeam,
     word: "Cosmic",
     count,
   });
@@ -104,6 +163,7 @@ function snapshotState(state: ClassicGameState): ClassicGameState {
   return {
     ...state,
     board: { ...state.board, order: [...state.board.order], cards },
+    eliminatedTeams: [...state.eliminatedTeams],
     clue: state.clue === null ? null : { ...state.clue },
     nomination: state.nomination === null ? null : { ...state.nomination },
   };
@@ -138,6 +198,7 @@ describe("Classic game reducer", () => {
       phase: "clue",
       resumePhase: null,
       activeTeam: "blue",
+      eliminatedTeams: [],
       clue: null,
       guessesRemaining: 0,
       nomination: null,
@@ -211,6 +272,19 @@ describe("Classic game reducer", () => {
     });
   });
 
+  it("awards green the board when red reveals green's final target", () => {
+    const board = withRevealed(multiTeamBoard(), "green-1");
+    const state = reveal(guessingState(board), "green-2");
+
+    expect(state.board.cards["green-2"]?.revealed).toBe(true);
+    expect(state).toMatchObject({
+      phase: "board_complete",
+      winner: "green",
+      completionReason: "targets",
+      nomination: null,
+    });
+  });
+
   it("awards blue the board when red reveals the hazard", () => {
     const state = reveal(guessingState(), "hazard-1");
 
@@ -250,6 +324,43 @@ describe("Classic game reducer", () => {
       guessesRemaining: 0,
       nomination: null,
     });
+  });
+
+  it("rotates a three-team turn through every configured team", () => {
+    const state = guessingState(multiTeamBoard());
+    expect(
+      applyGameAction(state, { type: "end_turn", teamId: "red" }).activeTeam,
+    ).toBe("blue");
+
+    const blueState = guessingState({
+      ...multiTeamBoard(),
+      startingTeam: "blue",
+    });
+    expect(
+      applyGameAction(blueState, { type: "end_turn", teamId: "blue" })
+        .activeTeam,
+    ).toBe("green");
+
+    const greenState = guessingState({
+      ...multiTeamBoard(),
+      startingTeam: "green",
+    });
+    expect(
+      applyGameAction(greenState, { type: "end_turn", teamId: "green" })
+        .activeTeam,
+    ).toBe("red");
+  });
+
+  it("skips an eliminated team when advancing a four-team turn", () => {
+    const blueState = guessingState({
+      ...multiTeamBoard(4),
+      startingTeam: "blue",
+    });
+    const state = { ...blueState, eliminatedTeams: ["green" as const] };
+
+    expect(
+      applyGameAction(state, { type: "end_turn", teamId: "blue" }),
+    ).toMatchObject({ activeTeam: "yellow", phase: "clue" });
   });
 
   it("advances after the final allowed correct guess", () => {
@@ -318,6 +429,234 @@ describe("Classic game reducer", () => {
       clue: { word: "Cosmic", count: 2 },
       guessesRemaining: 3,
       activeTeam: "red",
+    });
+  });
+
+  it.each(["blue", "green"] as const)(
+    "lets active non-current clue-giver %s challenge a three-team clue",
+    (teamId) => {
+      const challenged = applyGameAction(guessingState(multiTeamBoard()), {
+        type: "challenge_clue",
+        teamId,
+      });
+
+      expect(challenged.phase).toBe("challenged");
+      expect(challenged.activeTeam).toBe("red");
+    },
+  );
+
+  it("rejects a challenge from an eliminated opposing team", () => {
+    const state = {
+      ...guessingState(multiTeamBoard()),
+      eliminatedTeams: ["green" as const],
+    };
+
+    expectTransitionError(
+      state,
+      { type: "challenge_clue", teamId: "green" },
+      "wrong_team",
+    );
+  });
+
+  describe("transition metadata and hazards", () => {
+    it("returns no event for accepted non-reveal actions", () => {
+      const transition = applyGameActionWithEvent(
+        createClassicGame(multiTeamBoard()),
+        {
+          type: "submit_clue",
+          teamId: "red",
+          word: "Cosmic",
+          count: 1,
+        },
+      );
+
+      expect(transition.event).toBeNull();
+      expect(transition.state.phase).toBe("guess");
+    });
+
+    it("returns the authoritative card metadata for every accepted reveal", () => {
+      const nominated = applyGameAction(guessingState(multiTeamBoard()), {
+        type: "nominate_card",
+        teamId: "red",
+        playerId: "red-operative",
+        cardId: "blue-1",
+      });
+
+      expect(
+        applyGameActionWithEvent(nominated, {
+          type: "confirm_reveal",
+          teamId: "red",
+          playerId: "red-confirmer",
+          cardId: "blue-1",
+        }).event,
+      ).toEqual({
+        type: "card_revealed",
+        cardId: "blue-1",
+        owner: "blue",
+      });
+    });
+
+    it("eliminates only the active team after a three-team hazard", () => {
+      const hazardGuessState = applyGameAction(
+        guessingState(multiTeamBoard()),
+        {
+          type: "nominate_card",
+          teamId: "red",
+          playerId: "red-operative",
+          cardId: "hazard-1",
+        },
+      );
+      const confirmHazard: GameAction = {
+        type: "confirm_reveal",
+        teamId: "red",
+        playerId: "red-confirmer",
+        cardId: "hazard-1",
+      };
+
+      const transition = applyGameActionWithEvent(
+        hazardGuessState,
+        confirmHazard,
+      );
+      expect(transition.state.eliminatedTeams).toEqual([
+        hazardGuessState.activeTeam,
+      ]);
+      expect(transition.event).toMatchObject({
+        type: "card_revealed",
+        owner: "hazard",
+        eliminatedTeam: hazardGuessState.activeTeam,
+      });
+      expect(transition.state.phase).toBe("clue");
+      expect(transition.state.winner).toBeNull();
+      expect(transition.state.activeTeam).toBe("blue");
+    });
+
+    it("converts only the eliminated team's unrevealed targets to neutral", () => {
+      const board = withRevealed(multiTeamBoard(), "red-1");
+      const hazardGuessState = applyGameAction(guessingState(board, 1), {
+        type: "nominate_card",
+        teamId: "red",
+        playerId: "red-operative",
+        cardId: "hazard-1",
+      });
+      const before = snapshotState(hazardGuessState);
+
+      const transition = applyGameActionWithEvent(hazardGuessState, {
+        type: "confirm_reveal",
+        teamId: "red",
+        playerId: "red-confirmer",
+        cardId: "hazard-1",
+      });
+
+      expect(hazardGuessState).toEqual(before);
+      expect(transition.state.board.cards["red-1"]).toMatchObject({
+        owner: "red",
+        revealed: true,
+      });
+      expect(transition.state.board.cards["red-2"]).toMatchObject({
+        owner: "neutral",
+        revealed: false,
+      });
+      expect(transition.state.board.cards["blue-1"]?.owner).toBe("blue");
+      expect(transition.state.board.cards["green-1"]?.owner).toBe("green");
+      expect(transition.state.board.cards["hazard-1"]).toMatchObject({
+        owner: "hazard",
+        revealed: true,
+      });
+    });
+
+    it("keeps the two-team immediate hazard loss unchanged", () => {
+      const nominated = applyGameAction(guessingState(), {
+        type: "nominate_card",
+        teamId: "red",
+        playerId: "red-operative",
+        cardId: "hazard-1",
+      });
+      const transition = applyGameActionWithEvent(nominated, {
+        type: "confirm_reveal",
+        teamId: "red",
+        playerId: "red-confirmer",
+        cardId: "hazard-1",
+      });
+
+      expect(transition.state).toMatchObject({
+        phase: "board_complete",
+        winner: "blue",
+        completionReason: "hazard",
+        eliminatedTeams: [],
+      });
+      expect(transition.event).toEqual({
+        type: "card_revealed",
+        cardId: "hazard-1",
+        owner: "hazard",
+      });
+    });
+
+    it("awards the board to the last team after hazard elimination", () => {
+      const baseState = guessingState(multiTeamBoard());
+      const state = applyGameAction(
+        { ...baseState, eliminatedTeams: ["green"] },
+        {
+          type: "nominate_card",
+          teamId: "red",
+          playerId: "red-operative",
+          cardId: "hazard-1",
+        },
+      );
+
+      const transition = applyGameActionWithEvent(state, {
+        type: "confirm_reveal",
+        teamId: "red",
+        playerId: "red-confirmer",
+        cardId: "hazard-1",
+      });
+
+      expect(transition.state).toMatchObject({
+        phase: "board_complete",
+        winner: "blue",
+        completionReason: "hazard",
+        eliminatedTeams: ["green", "red"],
+      });
+      expect(transition.event).toMatchObject({
+        type: "card_revealed",
+        cardId: "hazard-1",
+        owner: "hazard",
+        eliminatedTeam: "red",
+      });
+    });
+
+    it("rejects a stale duplicate reveal without mutating the state", () => {
+      const guessed = guessingState(multiTeamBoard());
+      const nominated = applyGameAction(guessed, {
+        type: "nominate_card",
+        teamId: "red",
+        playerId: "red-operative",
+        cardId: "red-1",
+      });
+      const revealed = applyGameActionWithEvent(nominated, {
+        type: "confirm_reveal",
+        teamId: "red",
+        playerId: "red-confirmer",
+        cardId: "red-1",
+      }).state;
+      const staleState = {
+        ...revealed,
+        phase: "guess" as const,
+        nomination: {
+          playerId: "red-operative",
+          cardId: "red-1" as CardId,
+        },
+      };
+
+      expectTransitionError(
+        staleState,
+        {
+          type: "confirm_reveal",
+          teamId: "red",
+          playerId: "red-confirmer",
+          cardId: "red-1",
+        },
+        "already_revealed",
+      );
     });
   });
 
@@ -738,9 +1077,12 @@ describe("Classic game reducer", () => {
   it("preserves reducer invariants across generated legal action sequences", () => {
     fc.assert(
       fc.property(
+        fc.constantFrom<TeamCount>(2, 3, 4),
         fc.array(fc.nat(), { minLength: 1, maxLength: 80 }),
-        (selectors) => {
-          let state = createClassicGame(fixedBoard());
+        (teamCount, selectors) => {
+          let state = createClassicGame(
+            teamCount === 2 ? fixedBoard() : multiTeamBoard(teamCount),
+          );
 
           for (const selector of selectors) {
             if (state.phase === "board_complete") {
@@ -766,7 +1108,17 @@ describe("Classic game reducer", () => {
             } else {
               expect(next.winner).toBeNull();
               expect(next.completionReason).toBeNull();
+              expect(next.board.configuredTeams).toContain(next.activeTeam);
+              expect(next.eliminatedTeams).not.toContain(next.activeTeam);
             }
+            expect(new Set(next.eliminatedTeams).size).toBe(
+              next.eliminatedTeams.length,
+            );
+            expect(
+              next.eliminatedTeams.every((teamId) =>
+                next.board.configuredTeams.includes(teamId),
+              ),
+            ).toBe(true);
 
             state = next;
           }
@@ -793,7 +1145,7 @@ function legalAction(state: ClassicGameState, selector: number): GameAction {
         (cardId) => !state.board.cards[cardId]?.revealed,
       )!;
       const choices: GameAction[] = [
-        { type: "challenge_clue", teamId: otherTeam(state.activeTeam) },
+        { type: "challenge_clue", teamId: opposingTeam(state) },
         {
           type: "nominate_card",
           teamId: state.activeTeam,
@@ -839,6 +1191,9 @@ function legalAction(state: ClassicGameState, selector: number): GameAction {
   }
 }
 
-function otherTeam(teamId: TeamId): TeamId {
-  return teamId === "red" ? "blue" : "red";
+function opposingTeam(state: ClassicGameState): TeamId {
+  return state.board.configuredTeams.find(
+    (teamId) =>
+      teamId !== state.activeTeam && !state.eliminatedTeams.includes(teamId),
+  )!;
 }
