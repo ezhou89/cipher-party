@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-12
 
-**Status:** Proposed — the direction was confirmed in chat; this written spec is awaiting review.
+**Status:** Approved — user approved the amended direction on 2026-09-12.
 
 **Parent design:** [Cipher Party Multiplayer Web Game Design](2026-08-30-cipher-party-design.md)
 
