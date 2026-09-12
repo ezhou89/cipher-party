@@ -6,7 +6,12 @@ This runbook starts Cipher Party's Connected Classic web app and Cloudflare Work
 
 - Node.js 22 or newer (`node --version`).
 - pnpm 11.23.0 (`pnpm --version`), pinned by the repository's `packageManager`
-  field. If pnpm is unavailable, enable the Corepack shim supplied with Node.
+  field. If `corepack --version` succeeds, run `corepack enable`; Corepack is
+  bundled with Node.js from 14.19 through 24.x, but not with Node.js 25 or newer.
+  If Corepack is absent, follow its
+  [official installation guide](https://github.com/nodejs/corepack#how-to-install)
+  and enable it, or install the pinned pnpm directly with
+  `npm install --global pnpm@11.23.0`.
 - Chromium and WebKit installed for the browser suite. After installing the
   locked dependencies, run `pnpm exec playwright install chromium webkit` once
   if the pinned browsers are not already present.

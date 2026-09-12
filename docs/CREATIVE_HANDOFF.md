@@ -44,10 +44,11 @@ controls, and team identity communicated by color, glyph, pattern, and semantic
 label. Server authority, role-safe projections, accessible interaction, and
 mobile readability continue to take precedence over prototype behavior.
 
-Task 1 preserves and documents that direction but does not port the prototype
-UI. The reviewed runtime still implements the two-team, 5×5, single-board,
-text-only Connected Classic boundary. Arcade presentation is a later integration
-task.
+Task 1 preserved and documented that direction without treating the prototypes
+as production code. Task 2 integrated the accepted arcade presentation and
+separate `/cards`, `/grid-order`, and `/ownership` board-sampling streams; that
+work passed independent review. The reviewed runtime remains within the
+two-team, 5×5, single-board, text-only Connected Classic boundary.
 
 The following remain experiments or later-milestone proposals unless a newer
 approved plan says otherwise:

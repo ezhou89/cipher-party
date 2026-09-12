@@ -406,15 +406,11 @@ describe("deterministic staging deployment", () => {
     const calls = setup.run.mock.calls.filter(([command]) => command !== "git");
     expect(calls.length).toBe(6);
     for (const [command] of calls) expect(command).toBe(process.execPath);
-    expect(
-      calls
-        .slice(0, 4)
-        .every(
-          ([, args]) =>
-            args[0]?.endsWith("typescript/bin/tsc") &&
-            args.includes("--noEmit"),
-        ),
-    ).toBe(true);
+    for (const [, args] of calls.slice(0, 4))
+      expect(args).toEqual([
+        expect.stringMatching(/typescript[/\\]bin[/\\]tsc$/u),
+        "--noEmit",
+      ]);
     expect(calls[4]?.[1]).toEqual([
       expect.stringMatching(/vite[/\\]bin[/\\]vite\.js$/u),
       "build",
