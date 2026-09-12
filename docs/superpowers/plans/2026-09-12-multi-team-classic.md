@@ -73,7 +73,7 @@
 
 - Create: `packages/game-core/src/team-rules.ts`
 - Modify: `packages/game-core/src/domain.ts`, `packages/game-core/src/index.ts`, `packages/game-core/src/board.ts`
-- Test: `packages/game-core/src/domain.test.ts`, `packages/game-core/src/board.test.ts`
+- Test: `packages/game-core/src/domain.test.ts`, `packages/game-core/src/board.test.ts`, `packages/game-core/src/reducer.test.ts` (compatibility fixture metadata only)
 
 **Interfaces:**
 
@@ -170,6 +170,7 @@ Return `rows`, `columns`, `teamCount`, and a copied `configuredTeams` array. Mak
 - [ ] **Step 5: Add RED-to-GREEN coverage for all distributions and determinism.**
 
 Extend `board.test.ts` to assert every table row, exact card/order lengths, all configured owners, one hazard, duplicate rejection, deterministic replay for the same seed/team count, different starting-team selection across eligible slots, and preservation of the existing 25-card two-team board shape.
+Update the existing fixed-board fixture in `reducer.test.ts` with the required two-team metadata so the new `ClassicBoard` interface remains strict without weakening reducer tests.
 
 Run:
 
