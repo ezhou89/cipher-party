@@ -1,16 +1,18 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 22
+**Snapshot revision:** 23
 
 **Last updated:** 2026-09-11
 
-**Project state:** Creative integration is complete and independently reviewed. Staging source `2c72751` passed the full release gate, authenticated deployment attestation, and desktop/mobile public browser smoke. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration is complete. The September 11 complexity/gap audit is now approved for targeted hardening; implementation is starting. Staging remains the previously verified `2c72751`. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
-**Active plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
+**Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** docs/runbooks/connected-classic-playtest.md — four-human Connected Classic exit session.
+**Next execution:** Hardening Task 1 — restore lint/artifact boundaries and track the read-only public staging smoke. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
+
+**Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
 **Original milestone plan:** docs/superpowers/plans/2026-08-30-connected-classic.md (historical implementation/review evidence).
 
@@ -64,9 +66,10 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 ## Work ledger
 
 - **Last accepted task:** Integration Task 4 — whole-branch review, live-regression fixes, verified staging update, and handoff. Final runtime source: `2c72751`; no open review findings.
-- **Current task:** Arrange and record the four-human playtest using the runbook, without substituting automated clients for people.
-- **Next task:** Milestone 2 planning after the human milestone exit gate passes.
-- **Current blockers:** No known integration blocker. Milestone exit requires the real session and resolution of any critical playtest findings. **Human playtest: NOT YET RUN.**
+- **Current task:** Hardening Task 1 — release hygiene and tracked public smoke; no fixes accepted yet.
+- **Next task:** Terminal/throttled reconnect regression fix, followed by bounded realtime resources and measured release safeguards.
+- **Current blockers:** Hosted CI has no configured repository/provider; local gate work can proceed. Milestone exit requires the real session and resolution of critical findings. **Human playtest: NOT YET RUN.**
+- **Audit baseline:** 377 runtime functions; classic mean 3.43, maximum 36, six above 20, all unchanged by creative integration. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
 
 ## Current integration evidence
 
