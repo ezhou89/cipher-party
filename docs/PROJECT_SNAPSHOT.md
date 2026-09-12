@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 25
+**Snapshot revision:** 26
 
-**Last updated:** 2026-09-11
+**Last updated:** 2026-09-12
 
-**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke) and 2 (terminal/throttled reconnect recovery) are implemented and independently reviewed; Task 3 (realtime resource budgets) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke), 2 (terminal/throttled reconnect recovery), and 3 (realtime resource budgets) are implemented and independently reviewed; Task 4 (snapshot compatibility/recovery characterization) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
 **Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** Hardening Task 3 — bound upgrades, live sockets, command rates, and failed-command fanout. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
+**Next execution:** Hardening Task 4 — validate persisted snapshots and characterize recovery faults. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -65,9 +65,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Hardening Task 2 — `39fb98f`; independent task review has no open findings. Task 1 remains accepted at `680000a`/`b54f048`.
-- **Current task:** Hardening Task 3 — realtime admission, socket caps, message budgets, and sender-only failed-command resync.
-- **Next task:** Snapshot compatibility/reconciliation, then measured quality and source-bound release safeguards.
+- **Last accepted task:** Hardening Task 3 — `df89864`; independent task review has no open findings. Task 2 remains accepted at `39fb98f`; Task 1 at `680000a`/`b54f048`.
+- **Current task:** Hardening Task 4 — persisted snapshot validation, recovery fault characterization, and bounded reconciliation.
+- **Next task:** Measured quality and source-bound release safeguards, then the two cohesive complexity refactors.
 - **Current blockers:** Hosted CI has no configured repository/provider; local gate work can proceed. Milestone exit requires the real session and resolution of critical findings. **Human playtest: NOT YET RUN.**
 - **Audit baseline:** 377 runtime functions; classic mean 3.43, maximum 36, six above 20, all unchanged by creative integration. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
 
@@ -77,6 +77,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Tracked `smoke:staging:public` discovers four public route/browser cases and stays outside local e2e discovery. It blocks socket creation and unsafe methods/origins/queries; a shared zero-redirect transport helper prevents redirects from contacting forbidden destinations. Eight local Chromium/WebKit policy regressions passed after meaningful RED; lint, types and diff checks passed. The tracked live smoke itself has not been run.
 - No hardening deployment, merge, push, or future-milestone feature is authorized by this plan. Hosted CI awaits a repository/provider; four-human acceptance remains pending.
 - Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
+- Task 3 bounds valid upgrades before Durable Object lookup, caps live socket inventory at four per seat/64 per room, caps outstanding unexpired tickets at eight per seat/256 per room, and applies stable purpose-scoped native command budgets (30/10s per seat, 120/10s per room) before frame parsing. Failed/replayed commands resync only their sender; accepted revision changes broadcast. Focused Worker tests passed 129/129; staging fixtures 47/47; `pnpm run check` passed 588 tests; local e2e 48/48; build, preflight 8/8, and diff checks passed. Counters are location-local/eventually consistent, and capacity denial may consume a one-use ticket; no deployment/live smoke occurred.
 
 ## Historical integration evidence
 
@@ -121,7 +122,7 @@ Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuit
 - Staging rejects noncanonical hosts, redirects canonical HTTP app requests to HTTPS, and rejects insecure APIs without redirecting credentials. All-request Worker-first asset serving applies the response policy; successful WebSocket upgrades remain intact.
 - HTML responses use `Cache-Control: no-store, no-transform` to opt out of injected body content without changing zone settings. Keep API/credential no-store behavior, JS/CSS policy, and the restrictive same-origin CSP; never add unsafe-eval or external analytics scripts to silence violations.
 - Web's first side-effect import initializes the directly declared, already-bundled Zod with `jitless: true` before App/router/protocol schema evaluation. Preserve strict parsing and the Worker/protocol API; retain no-Function and real production-CSP regressions.
-- Staging admission uses five stable Cloudflare rate bindings: create 10/min/IP, joins 60/min/IP and 120/min/room, tickets 120/min/IP and 240/min/room. Keys are hashed and purpose-scoped; all applicable counters settle before room access. Counters are location-local/eventually consistent, not globally exact. Local HTTP tests omit these bindings.
+- Staging admission uses nine stable Cloudflare rate bindings: create 10/min/IP, joins 60/min/IP and 120/min/room, tickets 120/min/IP and 240/min/room, valid connects 120/min/IP and 240/min/room, plus command frames 30/10s/seat and 120/10s/room. Keys are hashed and purpose-scoped; all applicable counters settle before room access or frame work. Counters are location-local/eventually consistent, not globally exact. Local HTTP tests omit these bindings; HTTPS missing/error/denial fails closed and local HTTP remains supported.
 - Use tracked `deploy:staging` and read-only `check:staging`; preserve the existing Worker, room namespace, class, and migration. Live attestation checks version/source/traffic/bindings and every built HTML/JS/CSS hash, with browser-navigation-like headers for HTML. No apex, paid-plan, R2, or AI change belongs to this integration.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
 - The shared TypeScript library is ES2022-only; only apps/web adds DOM and DOM.Iterable libraries.
