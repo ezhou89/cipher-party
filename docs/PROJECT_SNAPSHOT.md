@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 27
+**Snapshot revision:** 28
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke), 2 (terminal/throttled reconnect recovery), 3 (realtime resource budgets), and 4 (snapshot compatibility/recovery characterization) are implemented and independently reviewed; Task 5 (measured quality and source-bound release gates) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke), 2 (terminal/throttled reconnect recovery), 3 (realtime resource budgets), 4 (snapshot compatibility/recovery characterization), and 5 (measured quality/source-bound release gates) are implemented and independently reviewed; Task 6 (cohesive reducer/GameView complexity refactors) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
 **Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** Hardening Task 5 — establish measured complexity/coverage and source-bound staging release gates. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
+**Next execution:** Hardening Task 6 — refactor the reducer and GameView complexity hotspots without changing game rules, authorization, privacy, or confirmation behavior. Then complete the final independent review and truthful handoff; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -65,11 +65,11 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Hardening Task 4 — `4edd2ef` plus scoped fix `378bcbec`; independent task re-review has no open findings. Task 3 remains accepted at `df89864`; Task 2 at `39fb98f`; Task 1 at `680000a`/`b54f048`.
-- **Current task:** Hardening Task 5 — measured complexity/coverage and source-bound staging release safeguards.
-- **Next task:** Cohesive game complexity refactors, then final independent review and truthful handoff.
+- **Last accepted task:** Hardening Task 5 — `08b2e358`; independent task review has no open findings. The real clean-checkout release gate also passed from that exact commit. Task 4 remains accepted at `4edd2ef` plus scoped fix `378bcbec`; Task 3 at `df89864`; Task 2 at `39fb98f`; Task 1 at `680000a`/`b54f048`.
+- **Current task:** Hardening Task 6 — cohesive reducer/GameView complexity refactors with unchanged public APIs and confirmation/privacy behavior.
+- **Next task:** Final independent whole-branch review, fresh release verification, and truthful handoff.
 - **Current blockers:** Hosted CI has no configured repository/provider; local gate work can proceed. Milestone exit requires the real session and resolution of critical findings. **Human playtest: NOT YET RUN.**
-- **Audit baseline:** 377 runtime functions; classic mean 3.43, maximum 36, six above 20, all unchanged by creative integration. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
+- **Audit baseline:** 444 tracked runtime functions; classic mean 3.43, maximum 36, 27 above 10, and exactly six approved exceptions above 20. Task 6 must reduce/remove the GameWorkspace and applyGameAction exceptions without weakening the gate. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
 
 ## Current hardening evidence
 
@@ -79,6 +79,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
 - Task 3 bounds valid upgrades before Durable Object lookup, caps live socket inventory at four per seat/64 per room, caps outstanding unexpired tickets at eight per seat/256 per room, and applies stable purpose-scoped native command budgets (30/10s per seat, 120/10s per room) before frame parsing. Failed/replayed commands resync only their sender; accepted revision changes broadcast. Focused Worker tests passed 129/129; staging fixtures 47/47; `pnpm run check` passed 588 tests; local e2e 48/48; build, preflight 8/8, and diff checks passed. Counters are location-local/eventually consistent, and capacity denial may consume a one-use ticket; no deployment/live smoke occurred.
 - Task 4 validates complete v1 room snapshots before controller use, rejects unsupported/corrupt storage without writing, clearing, migrating, exposing details, or allowing initialization over it, and restores null-prototype card maps. Presence is reconciled from OPEN serialized attachments on load and later room events; repairs preserve `lastActivity`, retry after failed writes, and never run for over-budget or protocol-invalid frames. Focused resilience tests passed 133/133; `pnpm run check` passed 643 tests; local e2e 48/48; diff checks passed. Lost successful join responses still allocate a second seat on retry; retry-safe identity and replacement remain deferred. No deployment/live smoke occurred.
+- Task 5 adds tracked-runtime classic complexity measurement with stable file/function identities, exactly six explicit exceptions, and a >20 new-function gate; inline complexity waivers cannot suppress inventory. All five Vitest scopes use separate Istanbul reports and measured whole-number S/B/F/L floors: game-core 97/96/100/97, protocol 96/94/100/96, web 91/87/91/91, Worker 93/91/98/93, root 80/77/92/80. Source-bound `pnpm run deploy:staging` now requires clean exact SHA → full `check:release` → same clean SHA → low-level `expectedCommit`; direct low-level live CLI refuses and dry-run remains non-uploading. The optional clean gate clones without hardlinks, frozen-installs, runs only the inner release gate, and removes its task-owned checkout. Focused tooling/staging tests passed 76/76; full release gate passed 672 tests, builds/preflight, and local E2E 48/48; the separate real clean-checkout gate passed. No deployment/live smoke, hosted CI, or human playtest occurred.
 
 ## Historical integration evidence
 
