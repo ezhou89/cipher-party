@@ -430,6 +430,8 @@ git add apps/worker/src/room/room-state.ts apps/worker/src/room/room-snapshot.ts
 git commit -m "feat: migrate room snapshots to multi-team state"
 ```
 
+At this intermediate boundary, the Worker typecheck may report v2 adoption errors in `room-session.ts` or its existing tests; those files belong to Task 5. Record exact failures without changing room-session behavior in Task 4, and require the focused snapshot/durable-object tests and all Task 4-owned typechecks to pass.
+
 ### Task 5: Worker lobby, authorization, and atomic room transitions
 
 **Files:**
