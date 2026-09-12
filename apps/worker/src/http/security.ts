@@ -78,11 +78,10 @@ export function secureResponse(
   } else {
     headers.delete("Strict-Transport-Security");
   }
-  if (
-    isApiPath(url.pathname) ||
-    headers.get("Content-Type")?.toLowerCase().includes("text/html") ||
-    response.status >= 400
-  ) {
+  if (headers.get("Content-Type")?.toLowerCase().includes("text/html")) {
+    // Keep the shell fresh and prevent edge transforms such as analytics injection.
+    headers.set("Cache-Control", "no-store, no-transform");
+  } else if (isApiPath(url.pathname) || response.status >= 400) {
     headers.set("Cache-Control", "no-store");
   }
   return new Response(response.body, {

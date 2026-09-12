@@ -29,6 +29,8 @@ pnpm run check:release
 
 If `pnpm run check:release` reveals a critical defect, stop and apply the regression rule below before scheduling the human session. For the host-local option, also run `pnpm run dev` and open the one assigned window in each of Profiles A–D at <http://127.0.0.1:5173>.
 
+The release gate includes `e2e/production-csp.spec.ts`: Chromium and mobile WebKit load the actual built landing and invite pages from local files under the Worker's enforced security policy. It checks `securitypolicyviolation` events, console/page/request errors, and public controls, with room requests and WebSockets blocked. This catches eager validator initialization that can emit a caught eval violation while still rendering successfully. To run it alone after `pnpm run build`, use `pnpm exec playwright test e2e/production-csp.spec.ts`.
+
 Before every distributed session, the facilitator must attest the deployed build from the checkout and freshly built `apps/web/dist` used for that deployment. Use the full source SHA and Worker version recorded by the reviewed deployment:
 
 ```bash
@@ -36,6 +38,10 @@ pnpm run check:staging --expected-commit FULL_SOURCE_SHA --expected-version WORK
 ```
 
 Replace both placeholders with the recorded values; do not guess them. The command is read-only: authenticated Wrangler version/traffic/binding reads plus public HTTP GETs. It creates no rooms, issues no tickets, opens no WebSockets, and does not exhaust admission limits. It requires the expected version at 100% traffic, the existing ROOMS namespace, HTTPS transport and security headers, correct health/API routing, and matching SHA-256 bytes for the built index and every JS/CSS file. A deployment change during the check fails it. HTTP requests time out after 15 seconds and each CLI subprocess after 60 seconds. Stop session setup on any failure. Save the successful output in the record below, then open <https://staging.oddlyuseful.studio> on each assigned device/browser; no local server is required.
+
+HTML attestation uses a browser-navigation Accept/User-Agent pair because default Node requests previously missed an injected analytics script. The HTML shell requires `Cache-Control: no-store, no-transform`; the response-local `no-transform` directive opts out of Cloudflare's automatic analytics injection and may also disable other HTML transformations or compression. APIs and credentials retain `no-store`, and successful JS/CSS assets retain their cache policy. Keep CSP unchanged. See the [Cloudflare Web Analytics FAQ](https://developers.cloudflare.com/web-analytics/faq/) and [Cache-Control directives](https://developers.cloudflare.com/cache/concepts/cache-control/).
+
+The deployment handoff also requires a live public landing/invite smoke in desktop Chromium and mobile WebKit: browser-delivered HTML must match the local build, public controls must render, and CSP events, console/page/request failures, and unexpected requests must all be zero. Register the CSP listener before navigation; console errors alone miss caught eval probes. Use fresh contexts, block room writes and WebSockets, and retain public-only evidence. Record the live result with the deployed source/version before inviting participants.
 
 Do not use the apex `oddlyuseful.studio`, expose the loopback development server, or improvise a LAN or production deployment.
 

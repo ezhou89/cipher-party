@@ -24,11 +24,19 @@ const requiredHeaders = {
   "X-Robots-Tag": "noindex, nofollow",
 };
 
+// A default Node request missed the browser-only HTML rewrite in live smoke.
+// Use the diagnosed desktop navigation shape; assets and APIs keep plain GETs.
+const htmlNavigationHeaders = {
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36",
+};
+
 function requireValue(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-function checkHeaders(response, url, noStore = false) {
+function checkHeaders(response, url, cacheControl) {
   for (const [header, expected] of Object.entries(requiredHeaders)) {
     requireValue(
       response.headers.get(header) === expected,
@@ -40,10 +48,10 @@ function checkHeaders(response, url, noStore = false) {
       (url.startsWith("https:") ? "max-age=31536000" : null),
     `Required HTTPS-only HSTS header incorrect at ${url}`,
   );
-  if (noStore)
+  if (cacheControl !== undefined)
     requireValue(
-      response.headers.get("Cache-Control") === "no-store",
-      `Required no-store header incorrect at ${url}`,
+      response.headers.get("Cache-Control") === cacheControl,
+      `Required ${cacheControl} header incorrect at ${url}`,
     );
 }
 
@@ -209,13 +217,14 @@ export async function checkStaging({
   );
 
   const origin = config.vars.CANONICAL_ORIGIN;
-  async function probe(url) {
+  async function probe(url, headers) {
     try {
       return await fetchImpl(url, {
         method: "GET",
         redirect: "manual",
         cache: "no-store",
         signal: globalThis.AbortSignal.timeout(15_000),
+        ...(headers === undefined ? {} : { headers }),
       });
     } catch {
       throw new Error(
@@ -235,14 +244,14 @@ export async function checkStaging({
     (await redirect.arrayBuffer()).byteLength === 0,
     "HTTP app redirect must not serve content",
   );
-  checkHeaders(redirect, redirectUrl, true);
+  checkHeaders(redirect, redirectUrl, "no-store");
   const insecureApiUrl = `${httpOrigin}/api/health`;
   const insecureApi = await probe(insecureApiUrl);
   requireValue(
     insecureApi.status === 426 && !insecureApi.headers.has("Location"),
     "HTTP API must reject with 426 without redirecting credentials",
   );
-  checkHeaders(insecureApi, insecureApiUrl, true);
+  checkHeaders(insecureApi, insecureApiUrl, "no-store");
   const healthUrl = `${origin}/api/health`;
   const health = await probe(healthUrl);
   requireValue(
@@ -250,7 +259,7 @@ export async function checkStaging({
       health.headers.get("Content-Type")?.includes("application/json"),
     "Incorrect HTTPS health response",
   );
-  checkHeaders(health, healthUrl, true);
+  checkHeaders(health, healthUrl, "no-store");
   let healthBody;
   try {
     healthBody = await health.json();
@@ -268,7 +277,7 @@ export async function checkStaging({
       missing.headers.get("Content-Type")?.includes("application/json"),
     "Unmatched API must return JSON 404, not the SPA",
   );
-  checkHeaders(missing, missingUrl, true);
+  checkHeaders(missing, missingUrl, "no-store");
 
   const dist = resolve(root, "apps/web/dist");
   const files = await builtFiles(dist);
@@ -282,12 +291,19 @@ export async function checkStaging({
     files.map(async (file) => {
       const url = new URL(file === "index.html" ? "/" : `/${file}`, origin)
         .href;
-      const response = await probe(url);
+      const response = await probe(
+        url,
+        file === "index.html" ? htmlNavigationHeaders : undefined,
+      );
       requireValue(
         response.status === 200,
         `Bundle response status mismatch for ${file}`,
       );
-      checkHeaders(response, url, file === "index.html");
+      checkHeaders(
+        response,
+        url,
+        file === "index.html" ? "no-store, no-transform" : undefined,
+      );
       const mediaType = response.headers
         .get("Content-Type")
         ?.split(";", 1)[0]

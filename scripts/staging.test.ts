@@ -200,7 +200,8 @@ async function fixture() {
           ? "text/css"
           : "text/html",
     );
-    if (file === "index.html") headers.set("Cache-Control", "no-store");
+    if (file === "index.html")
+      headers.set("Cache-Control", "no-store, no-transform");
     return new Response(files.get(file), { headers });
   };
   const fetchImpl = vi.fn<
@@ -210,6 +211,22 @@ async function fixture() {
 }
 
 describe("read-only staging attestation", () => {
+  it.each(["no-store", "no-transform", "public, no-transform"])(
+    "rejects HTML cache policy %s that permits caching or transformation",
+    async (cacheControl) => {
+      const setup = await fixture();
+      setup.fetchImpl.mockImplementation(async (url) => {
+        const response = setup.respond(url);
+        if (url === `${ORIGIN}/`)
+          response.headers.set("Cache-Control", cacheControl);
+        return response;
+      });
+      await expect(
+        checkStaging({ ...setup, expectedCommit: COMMIT }),
+      ).rejects.toThrow(/header/i);
+    },
+  );
+
   it("attests the newest 100% version and every index/JS/CSS byte without room mutations", async () => {
     const setup = await fixture();
     const result = await checkStaging({
@@ -252,6 +269,48 @@ describe("read-only staging attestation", () => {
       expect(args).not.toContain("deploy");
       expect(options.cwd).toBe(join(setup.root, "apps/worker"));
     }
+  });
+
+  it("requests HTML as a browser navigation without applying document headers to APIs or assets", async () => {
+    const setup = await fixture();
+    await checkStaging({ ...setup, expectedCommit: COMMIT });
+    const htmlCalls = setup.fetchImpl.mock.calls.filter(
+      ([url]) => url === `${ORIGIN}/`,
+    );
+    expect(htmlCalls).toHaveLength(1);
+    const headers = new Headers(htmlCalls[0]?.[1].headers);
+    expect(headers.get("Accept")).toBe(
+      "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    );
+    expect(headers.get("User-Agent")).toMatch(/^Mozilla\/5\.0 .+Chrome\//u);
+    for (const [url, init] of setup.fetchImpl.mock.calls) {
+      if (url !== `${ORIGIN}/`) {
+        expect(new Headers(init.headers).get("Accept")).toBeNull();
+        expect(new Headers(init.headers).get("User-Agent")).toBeNull();
+      }
+    }
+  });
+
+  it("rejects HTML rewritten only for browser navigation requests", async () => {
+    const setup = await fixture();
+    setup.fetchImpl.mockImplementation(async (url, init) => {
+      const response = setup.respond(url);
+      const headers = new Headers(init.headers);
+      if (
+        url === `${ORIGIN}/` &&
+        headers.get("Accept")?.includes("text/html") &&
+        headers.get("User-Agent")?.startsWith("Mozilla/5.0")
+      ) {
+        return new Response(
+          `${files.get("index.html")}<script src="https://analytics.invalid/beacon.js"></script>`,
+          { headers: response.headers },
+        );
+      }
+      return response;
+    });
+    await expect(
+      checkStaging({ ...setup, expectedCommit: COMMIT }),
+    ).rejects.toThrow("Bundle hash mismatch for index.html");
   });
 
   it.each([

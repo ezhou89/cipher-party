@@ -187,35 +187,70 @@ describe("staging transport and response policy", () => {
     expect(created.headers.get("Cache-Control")).toBe("no-store");
   });
 
-  it.each(["/", "/room/ABC123", "/api/health", "/api/rooms/invalid/join"])(
-    "secures SPA and API response %s and prevents HTML/API caching",
-    async (path) => {
+  it.each([
+    ["/", "no-store, no-transform"],
+    ["/room/ABC123", "no-store, no-transform"],
+    ["/api/health", "no-store"],
+    ["/api/rooms/invalid/join", "no-store"],
+  ])(
+    "secures %s without caching or transforming HTML",
+    async (path, cacheControl) => {
       const { bindings } = fixture();
       const response = path.endsWith("join")
         ? await post(bindings, path)
         : await request(bindings, path);
       expectHeaders(response);
-      expect(response.headers.get("Cache-Control")).toBe("no-store");
+      expect(response.headers.get("Cache-Control")).toBe(cacheControl);
     },
   );
 
-  it("preserves hashed asset bytes and successful asset caching while adding headers", async () => {
+  it("preserves HTML bytes and disables transformations even on an HTML error", async () => {
     const { bindings, assets } = fixture();
+    const html = "<!doctype html><title>Unavailable</title>";
     assets.mockResolvedValueOnce(
-      new Response("console.log('public')", {
+      new Response(html, {
+        status: 404,
         headers: {
-          "Content-Type": "application/javascript",
+          "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "public, max-age=31536000, immutable",
         },
       }),
     );
-    const response = await request(bindings, "/assets/index-abc123.js");
+    const response = await request(bindings, "/missing");
+    expect(response.status).toBe(404);
     expectHeaders(response);
     expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=31536000, immutable",
+      "no-store, no-transform",
     );
-    expect(await response.text()).toBe("console.log('public')");
+    expect(await response.text()).toBe(html);
   });
+
+  it.each([
+    ["js", "application/javascript", "console.log('public')"],
+    ["css", "text/css", "body { color: black; }"],
+  ])(
+    "preserves hashed %s bytes and successful asset caching while adding headers",
+    async (extension, contentType, bytes) => {
+      const { bindings, assets } = fixture();
+      assets.mockResolvedValueOnce(
+        new Response(bytes, {
+          headers: {
+            "Content-Type": contentType,
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        }),
+      );
+      const response = await request(
+        bindings,
+        `/assets/index-abc123.${extension}`,
+      );
+      expectHeaders(response);
+      expect(response.headers.get("Cache-Control")).toBe(
+        "public, max-age=31536000, immutable",
+      );
+      expect(await response.text()).toBe(bytes);
+    },
+  );
 
   it.each([
     "/api",
