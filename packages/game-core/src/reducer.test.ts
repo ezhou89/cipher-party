@@ -411,6 +411,37 @@ describe("Classic game reducer", () => {
   });
 
   describe("invalid transitions", () => {
+    it("prioritizes wrong_phase for a compound-invalid clue", () => {
+      expectTransitionError(
+        guessingState(),
+        { type: "submit_clue", teamId: "blue", word: "Invalid", count: -1 },
+        "wrong_phase",
+      );
+    });
+    it("prioritizes already_revealed over a missing nomination", () => {
+      expectTransitionError(
+        guessingState(withRevealed(fixedBoard(), "red-1")),
+        {
+          type: "confirm_reveal",
+          teamId: "red",
+          playerId: "red-op",
+          cardId: "red-1",
+        },
+        "already_revealed",
+      );
+    });
+    it("prioritizes wrong_team over an unknown reveal card", () => {
+      expectTransitionError(
+        guessingState(),
+        {
+          type: "confirm_reveal",
+          teamId: "blue",
+          playerId: "blue-op",
+          cardId: "unknown",
+        },
+        "wrong_team",
+      );
+    });
     const wrongPhaseCases: Array<{
       name: string;
       state: () => ClassicGameState;

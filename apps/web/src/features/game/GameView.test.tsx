@@ -9,6 +9,7 @@ import {
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -29,6 +30,8 @@ import type { SeatCredentials, SeatStore } from "../../lib/seat-store";
 import globalCss from "../../styles/globals.css?raw";
 import tokenCss from "../../styles/tokens.css?raw";
 import { GameView } from "./GameView";
+import { deriveGameAvailability } from "./game-availability";
+import { useGameConfirmation } from "./useGameConfirmation";
 
 const NO_PERMISSIONS: ClientProjection["permissions"] = {
   configure: false,
@@ -229,6 +232,90 @@ function mediaCssRule(condition: string, selector: string): CSSStyleRule {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("game confirmation ownership", () => {
+  it("retires hook intent on identity change even without a workspace remount", () => {
+    const current = projection({
+      role: "operative",
+      permissions: { endTurn: true },
+    });
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const input = {
+      roomPhase: current.roomPhase,
+      board: current.board!,
+      permissions: current.permissions,
+    };
+    const availability = deriveGameAvailability({
+      ...input,
+      connection: "open",
+      pending: false,
+    });
+    const { result, rerender } = renderHook(
+      ({ identity }) =>
+        useGameConfirmation({ ...input, identity, availability, send }),
+      { initialProps: { identity: "seat-a" } },
+    );
+    act(() => result.current.requestEndTurn(document.createElement("button")));
+    expect(result.current.dialog).not.toBeNull();
+    rerender({ identity: "seat-b" });
+    expect(result.current.dialog).toBeNull();
+    rerender({ identity: "seat-a" });
+    expect(result.current.dialog).toBeNull();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(["reconnecting", "pending"] as const)(
+    "guards a direct destructive callback during %s without relying on a disabled button",
+    (blocked) => {
+      const current = projection({
+        role: "operative",
+        permissions: { confirmReveal: true },
+        board: { nomination: { playerId: "red-op", cardId: "card-01" } },
+      });
+      const send = vi.fn<(command: ClientCommand) => void>();
+      const input = {
+        identity: "seat-a",
+        roomPhase: current.roomPhase,
+        board: current.board!,
+        permissions: current.permissions,
+      };
+      const { result, rerender } = renderHook(
+        ({
+          connection,
+          pending,
+        }: {
+          connection: RoomConnectionState;
+          pending: boolean;
+        }) =>
+          useGameConfirmation({
+            ...input,
+            availability: deriveGameAvailability({
+              ...input,
+              connection,
+              pending,
+            }),
+            send,
+          }),
+        {
+          initialProps: {
+            connection: "open" as RoomConnectionState,
+            pending: false,
+          },
+        },
+      );
+      act(() => result.current.handleCardAction("card-01"));
+      expect(result.current.dialog).not.toBeNull();
+      rerender({
+        connection: blocked === "reconnecting" ? "reconnecting" : "open",
+        pending: blocked === "pending",
+      });
+      expect(result.current.dialog?.confirmDisabled).toBe(true);
+      act(() => result.current.dialog!.onConfirm());
+      expect(send).not.toHaveBeenCalled();
+      expect(result.current.dialog).toBeNull();
+    },
+  );
 });
 
 describe("GameView public board", () => {
@@ -1113,6 +1200,106 @@ describe("GameView operative and moderation interactions", () => {
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("does not resurrect reveal intent when nomination cycles A to B to A", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const current = projection({
+      role: "operative",
+      permissions: { nominate: true, confirmReveal: true },
+      board: { nomination: { playerId: "red-op", cardId: "card-01" } },
+    });
+    const { rerender } = renderGame(current, { send });
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("button", { name: "Archive 01, nominated" }),
+    );
+    expect(screen.getByRole("dialog")).toBeVisible();
+    rerender(
+      <GameView
+        projection={projection({
+          role: "operative",
+          revision: 13,
+          permissions: { nominate: true, confirmReveal: true },
+          board: { nomination: { playerId: "red-op", cardId: "card-02" } },
+        })}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    rerender(
+      <GameView
+        projection={{ ...current, revision: 14 }}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", { name: "Archive 01, nominated" }),
+    );
+    await user.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Confirm reveal",
+      }),
+    );
+    expect(send.mock.calls).toEqual([
+      [{ type: "confirm_reveal", cardId: "card-01" }],
+    ]);
+  });
+
+  it.each(["active team", "role"] as const)(
+    "does not resurrect end-turn intent when %s cycles back",
+    async (change) => {
+      const send = vi.fn<(command: ClientCommand) => void>();
+      const current = projection({
+        role: "operative",
+        permissions: { endTurn: true },
+      });
+      const { rerender } = renderGame(current, { send });
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: "End turn" }));
+      expect(screen.getByRole("dialog")).toBeVisible();
+      // Retain stale permission bits: intent identity must still be retired.
+      const changed = projection({
+        role: change === "role" ? "unassigned" : "operative",
+        playerId: "red-op",
+        teamId: "red",
+        permissions: { endTurn: true },
+        board: { activeTeam: change === "active team" ? "blue" : "red" },
+        revision: 13,
+      });
+      rerender(
+        <GameView
+          projection={changed}
+          connection="open"
+          pending={false}
+          send={send}
+        />,
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      rerender(
+        <GameView
+          projection={{ ...current, revision: 14 }}
+          connection="open"
+          pending={false}
+          send={send}
+        />,
+      );
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(send).not.toHaveBeenCalled();
+      await user.click(screen.getByRole("button", { name: "End turn" }));
+      await user.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Confirm end turn",
+        }),
+      );
+      expect(send.mock.calls).toEqual([[{ type: "end_turn" }]]);
+    },
+  );
 
   it("never confirms an inactive, revealed, or different non-nominated card", async () => {
     const send = vi.fn<(command: ClientCommand) => void>();

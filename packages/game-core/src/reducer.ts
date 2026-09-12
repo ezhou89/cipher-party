@@ -175,6 +175,62 @@ function completeBoard(
   };
 }
 
+function applySubmitClue(
+  state: ClassicGameState,
+  action: Extract<GameAction, { type: "submit_clue" }>,
+): ClassicGameState {
+  requirePhase(state, "clue");
+  requireActiveTeam(state, action.teamId);
+  const remainingTargets = unrevealedTargetCount(state, state.activeTeam);
+  if (
+    !Number.isInteger(action.count) ||
+    action.count <= 0 ||
+    action.count > remainingTargets
+  ) {
+    throw new GameTransitionError("invalid_count");
+  }
+  return {
+    ...state,
+    phase: "guess",
+    clue: { word: action.word, count: action.count },
+    guessesRemaining: action.count + 1,
+    nomination: null,
+  };
+}
+
+function applyConfirmReveal(
+  state: ClassicGameState,
+  action: Extract<GameAction, { type: "confirm_reveal" }>,
+): ClassicGameState {
+  requirePhase(state, "guess");
+  requireActiveTeam(state, action.teamId);
+  const card = requireCard(state, action.cardId);
+  if (card.revealed) {
+    throw new GameTransitionError("already_revealed");
+  }
+  if (state.nomination === null) {
+    throw new GameTransitionError("missing_nomination");
+  }
+  if (state.nomination.cardId !== action.cardId) {
+    throw new GameTransitionError("nomination_mismatch");
+  }
+
+  const revealedState = revealCard(state, action.cardId, card);
+  if (card.owner === "hazard") {
+    return completeBoard(revealedState, otherTeam(state.activeTeam), "hazard");
+  }
+  if (
+    (card.owner === "red" || card.owner === "blue") &&
+    hasRevealedAllTargets(revealedState, card.owner)
+  ) {
+    return completeBoard(revealedState, card.owner, "targets");
+  }
+  if (card.owner !== state.activeTeam || revealedState.guessesRemaining === 0) {
+    return advanceTurn(revealedState);
+  }
+  return revealedState;
+}
+
 export function applyGameAction(
   state: ClassicGameState,
   action: GameAction,
@@ -184,25 +240,8 @@ export function applyGameAction(
   }
 
   switch (action.type) {
-    case "submit_clue": {
-      requirePhase(state, "clue");
-      requireActiveTeam(state, action.teamId);
-      const remainingTargets = unrevealedTargetCount(state, state.activeTeam);
-      if (
-        !Number.isInteger(action.count) ||
-        action.count <= 0 ||
-        action.count > remainingTargets
-      ) {
-        throw new GameTransitionError("invalid_count");
-      }
-      return {
-        ...state,
-        phase: "guess",
-        clue: { word: action.word, count: action.count },
-        guessesRemaining: action.count + 1,
-        nomination: null,
-      };
-    }
+    case "submit_clue":
+      return applySubmitClue(state, action);
     case "challenge_clue":
       requirePhase(state, "guess");
       requireOpposingTeam(state, action.teamId);
@@ -231,42 +270,8 @@ export function applyGameAction(
         throw new GameTransitionError("missing_nomination");
       }
       return { ...state, nomination: null };
-    case "confirm_reveal": {
-      requirePhase(state, "guess");
-      requireActiveTeam(state, action.teamId);
-      const card = requireCard(state, action.cardId);
-      if (card.revealed) {
-        throw new GameTransitionError("already_revealed");
-      }
-      if (state.nomination === null) {
-        throw new GameTransitionError("missing_nomination");
-      }
-      if (state.nomination.cardId !== action.cardId) {
-        throw new GameTransitionError("nomination_mismatch");
-      }
-
-      const revealedState = revealCard(state, action.cardId, card);
-      if (card.owner === "hazard") {
-        return completeBoard(
-          revealedState,
-          otherTeam(state.activeTeam),
-          "hazard",
-        );
-      }
-      if (
-        (card.owner === "red" || card.owner === "blue") &&
-        hasRevealedAllTargets(revealedState, card.owner)
-      ) {
-        return completeBoard(revealedState, card.owner, "targets");
-      }
-      if (
-        card.owner !== state.activeTeam ||
-        revealedState.guessesRemaining === 0
-      ) {
-        return advanceTurn(revealedState);
-      }
-      return revealedState;
-    }
+    case "confirm_reveal":
+      return applyConfirmReveal(state, action);
     case "end_turn":
       requirePhase(state, "guess");
       requireActiveTeam(state, action.teamId);

@@ -5,7 +5,6 @@ import type {
 } from "@cipher-party/protocol";
 import {
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -22,8 +21,9 @@ import { GameHistory } from "./GameHistory";
 import { GuessPanel } from "./GuessPanel";
 import { PrivacyVeil } from "./PrivacyVeil";
 import { TeamScore } from "./TeamScore";
+import { deriveGameAvailability, type GameBoard } from "./game-availability";
+import { useGameConfirmation } from "./useGameConfirmation";
 
-type GameBoard = NonNullable<ClientProjection["board"]>;
 type PublicOwner = Extract<
   GameBoard["cards"][number],
   { revealed: true }
@@ -347,19 +347,6 @@ interface GameWorkspaceProps {
   send(command: ClientCommand): void;
 }
 
-type ConfirmationIntent =
-  | {
-      type: "reveal";
-      cardId: string;
-      returnFocus: HTMLElement | null;
-    }
-  | {
-      type: "end-turn";
-      activeTeam: GameBoard["activeTeam"];
-      guessesRemaining: number;
-      returnFocus: HTMLElement | null;
-    };
-
 function GameWorkspace({
   projection,
   board,
@@ -372,92 +359,23 @@ function GameWorkspace({
   send,
 }: GameWorkspaceProps) {
   const focusFallbackRef = useRef<HTMLElement>(null);
-  const [confirmation, setConfirmation] = useState<ConfirmationIntent | null>(
-    null,
-  );
-  const transportDisabled = pending || connection !== "open";
-  const gameActionsDisabled =
-    transportDisabled ||
-    board.phase === "paused" ||
-    board.phase === "board_complete" ||
-    projection.roomPhase === "complete";
-  const revealIntent = confirmation?.type === "reveal" ? confirmation : null;
-  const revealCard =
-    revealIntent !== null &&
-    board.phase === "guess" &&
-    projection.permissions.confirmReveal &&
-    board.nomination?.cardId === revealIntent.cardId
-      ? (board.cards.find(
-          (card) => card.id === revealIntent.cardId && card.revealed === false,
-        ) ?? null)
-      : null;
-  const endTurnIntent = confirmation?.type === "end-turn" ? confirmation : null;
-  const endTurnIntentIsCurrent =
-    endTurnIntent !== null &&
-    projection.roomPhase === "playing" &&
-    board.phase === "guess" &&
-    projection.permissions.endTurn &&
-    board.guessesRemaining > 0 &&
-    board.activeTeam === endTurnIntent.activeTeam &&
-    board.guessesRemaining === endTurnIntent.guessesRemaining;
-  const confirmationIsCurrent =
-    confirmation === null ||
-    (confirmation.type === "reveal"
-      ? revealCard !== null
-      : endTurnIntentIsCurrent);
-
-  useLayoutEffect(() => {
-    if (!confirmationIsCurrent) {
-      setConfirmation(null);
-    }
-  }, [confirmationIsCurrent]);
-
-  const cardActionsAvailable =
-    projection.permissions.nominate || projection.permissions.confirmReveal;
-  const handleCardAction = (cardId: string) => {
-    const card = board.cards.find((candidate) => candidate.id === cardId);
-    if (card === undefined || card.revealed || gameActionsDisabled) {
-      return;
-    }
-    if (
-      projection.permissions.confirmReveal &&
-      board.phase === "guess" &&
-      board.nomination?.cardId === cardId
-    ) {
-      setConfirmation({
-        type: "reveal",
-        cardId,
-        returnFocus:
-          document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null,
-      });
-      return;
-    }
-    if (projection.permissions.nominate && board.phase === "guess") {
-      send({ type: "nominate_card", cardId });
-    }
-  };
-  const requestEndTurn = (returnFocus: HTMLButtonElement) => {
-    if (
-      gameActionsDisabled ||
-      projection.roomPhase !== "playing" ||
-      board.phase !== "guess" ||
-      !projection.permissions.endTurn
-    ) {
-      return;
-    }
-    if (board.guessesRemaining > 0) {
-      setConfirmation({
-        type: "end-turn",
-        activeTeam: board.activeTeam,
-        guessesRemaining: board.guessesRemaining,
-        returnFocus,
-      });
-      return;
-    }
-    send({ type: "end_turn" });
-  };
+  const availability = deriveGameAvailability({
+    roomPhase: projection.roomPhase,
+    board,
+    permissions: projection.permissions,
+    connection,
+    pending,
+  });
+  const { transportDisabled, gameActionsDisabled, cardActionsAvailable } =
+    availability;
+  const { dialog, handleCardAction, requestEndTurn } = useGameConfirmation({
+    identity: workspaceIdentity(projection, board),
+    roomPhase: projection.roomPhase,
+    board,
+    permissions: projection.permissions,
+    availability,
+    send,
+  });
 
   return (
     <>
@@ -509,57 +427,8 @@ function GameWorkspace({
           <GameHistory entries={projection.publicHistory} cards={board.cards} />
         </aside>
       </div>
-      {revealCard !== null && revealIntent !== null ? (
-        <ConfirmDialog
-          title={`Confirm reveal of ${revealCard.label}`}
-          description={`Reveal ${revealCard.label}? This cannot be undone.`}
-          confirmLabel="Confirm reveal"
-          cancelLabel="Cancel reveal"
-          confirmDisabled={gameActionsDisabled}
-          returnFocus={revealIntent.returnFocus}
-          fallbackFocus={focusFallbackRef.current}
-          onCancel={() => setConfirmation(null)}
-          onConfirm={() => {
-            const currentCard = board.cards.find(
-              (card) => card.id === revealCard.id,
-            );
-            if (
-              !gameActionsDisabled &&
-              projection.permissions.confirmReveal &&
-              board.phase === "guess" &&
-              board.nomination?.cardId === revealCard.id &&
-              currentCard?.revealed === false
-            ) {
-              send({ type: "confirm_reveal", cardId: revealCard.id });
-            }
-            setConfirmation(null);
-          }}
-        />
-      ) : endTurnIntentIsCurrent && endTurnIntent !== null ? (
-        <ConfirmDialog
-          title="Confirm end turn"
-          description={`End the turn with ${board.guessesRemaining} guesses remaining?`}
-          confirmLabel="Confirm end turn"
-          cancelLabel="Keep guessing"
-          confirmDisabled={gameActionsDisabled}
-          returnFocus={endTurnIntent.returnFocus}
-          fallbackFocus={focusFallbackRef.current}
-          onCancel={() => setConfirmation(null)}
-          onConfirm={() => {
-            if (
-              !gameActionsDisabled &&
-              projection.roomPhase === "playing" &&
-              projection.permissions.endTurn &&
-              board.phase === "guess" &&
-              board.guessesRemaining > 0 &&
-              board.activeTeam === endTurnIntent.activeTeam &&
-              board.guessesRemaining === endTurnIntent.guessesRemaining
-            ) {
-              send({ type: "end_turn" });
-            }
-            setConfirmation(null);
-          }}
-        />
+      {dialog !== null ? (
+        <ConfirmDialog {...dialog} fallbackFocus={focusFallbackRef.current} />
       ) : null}
     </>
   );
@@ -609,12 +478,13 @@ function ClueGiverWorkspace({
       }
     }
   }
-  const gameActionsDisabled =
-    pending ||
-    connection !== "open" ||
-    board.phase === "paused" ||
-    board.phase === "board_complete" ||
-    projection.roomPhase === "complete";
+  const { gameActionsDisabled } = deriveGameAvailability({
+    roomPhase: projection.roomPhase,
+    board,
+    permissions: projection.permissions,
+    connection,
+    pending,
+  });
 
   return (
     <GameWorkspace
