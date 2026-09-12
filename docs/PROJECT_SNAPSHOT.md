@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 19
+**Snapshot revision:** 20
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-11
 
-**Project state:** Creative archive, pnpm workflow, and arcade presentation are integrated and independently reviewed on `feature/creative-integration`, based on reviewed `fe264e3`. Staging hardening and deployment are next; existing staging still serves the historical build. The four-human playtest remains NOT YET RUN.
+**Project state:** Creative archive, pnpm workflow, arcade presentation, and staging safeguards are integrated and independently task-reviewed on `feature/creative-integration`, based on reviewed `fe264e3`. Whole-branch review and a fresh release gate precede deployment; existing staging still serves the historical build. The four-human playtest remains NOT YET RUN.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -61,10 +61,10 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted implementation task:** Integration Task 2 — arcade presentation and board sampling, `6ffad0f` plus committed geometry-regression review fix `8c34a6f`.
-- **Current task:** Integration Task 3 — staging hardening and reproducible deployment.
-- **Next task:** Integration Task 4 — whole-branch review, verified staging update, and human playtest handoff.
-- **Current blockers:** None for integration. The milestone exit still requires four real humans after the combined build is deployed. **Human playtest: NOT YET RUN.**
+- **Last accepted implementation task:** Integration Task 3 — staging hardening and reproducible deployment, `96e381e`; independent review found no Critical/Important code issue.
+- **Current task:** Integration Task 4 — whole-branch review, verified staging update, and human playtest handoff.
+- **Next task:** Four-human Connected Classic exit session, then Milestone 2 planning.
+- **Current blockers:** Fresh controller release verification must pass before deployment. One rerun hit Cloudflare runner-startup timeouts; the focused follow-up passed, but does not replace the full gate. The milestone exit still requires four real humans. **Human playtest: NOT YET RUN.**
 
 ## Current integration evidence
 
@@ -82,6 +82,12 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Review fix `8c34a6f` added committed value-free one-line/no-clipping checks for all 25 phone labels. Restoring faulty font/spacing failed both browsers; final styling passed both focused five-client flows (2/2), lint, format, and diff-check.
 - Root `@cipher-party/protocol: workspace:*` devDependency restores existing E2E imports under isolated pnpm; no external resolutions changed. Known test-runner color-environment notice is non-blocking.
 
+- Task 3 independently reviewed at `96e381e`; one minor Windows path assertion and the known upstream tooling notices await final-review triage.
+- Implementer fresh September 11 `pnpm run check:release` passed 525 repository tests (core 68, protocol 95, web 123, Worker 159, root 80), builds, 8/8 preflight with seven expiry identities, and 36/36 browser tests. `pnpm run deploy:staging --dry-run` passed with the existing room class and five admission limiters; no deployment occurred.
+- Controller rerun passed docs/format/lint/types and core/protocol/web tests, then reported three Cloudflare runner-startup timeouts (67 Worker tests completed). Lingering teardown was interrupted. One focused diagnostic passed all 39 staging tests in 3.70s with clean teardown; the exact startup cause remains unproven. No test settings or dependencies were changed.
+- The read-only live checker authenticated and correctly rejected historical source metadata; this is not a passing live attestation. September 11 authenticated traffic reads still showed the historical version at 100%.
+- Controller independently rechecked all 26 archive/source/manifest checksums and byte lengths on September 11.
+
 ## Historical reviewed baseline
 
 The original milestone plan and Git history retain detailed Task 1–13 implementation/review evidence. Reviewed source is `fe264e3`; its release gate passed 439 repository tests, 36 browser tests, and eight preflight rows before this integration.
@@ -95,6 +101,9 @@ Existing staging remains Worker `cipher-party-staging`, version `bc8b1dc2-0e65-4
 - pnpm 11 workspaces with portable local dependency resolution; subprocess tools launch through Node/local JS entrypoints, not bare command shims.
 - Board membership, grid order, and ownership use independent `/cards`, `/grid-order`, and `/ownership` seed streams; retain duplicate rejection, null-prototype card map, stable IDs, and starting-team distribution.
 - Arcade presentation uses local/system fonts, warm word cards, redundant Ruby/Red and Cobalt/Blue identity, and public-only scores. Keep committed 320px nomination/word geometry checks.
+- Staging rejects noncanonical hosts, redirects canonical HTTP app requests to HTTPS, and rejects insecure APIs without redirecting credentials. All-request Worker-first asset serving applies the response policy; successful WebSocket upgrades remain intact.
+- Staging admission uses five stable Cloudflare rate bindings: create 10/min/IP, joins 60/min/IP and 120/min/room, tickets 120/min/IP and 240/min/room. Keys are hashed and purpose-scoped; all applicable counters settle before room access. Counters are location-local/eventually consistent, not globally exact. Local HTTP tests omit these bindings.
+- Use tracked `deploy:staging` and read-only `check:staging`; preserve the existing Worker, room namespace, class, and migration. Live attestation checks version/source/traffic/bindings and every built HTML/JS/CSS hash. No apex, paid-plan, R2, or AI change belongs to this integration.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
 - The shared TypeScript library is ES2022-only; only apps/web adds DOM and DOM.Iterable libraries.
 - Responsive website first, PWA-ready structure, no offline match behavior.
