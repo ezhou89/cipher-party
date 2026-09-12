@@ -107,6 +107,7 @@ export interface ProjectionPermissions {
 }
 
 export interface PublicBoard {
+  teamCount: TeamCount;
   rows: 5 | 6;
   columns: 5 | 6;
   configuredTeams: TeamId[];
@@ -331,6 +332,7 @@ const PublicTeamSummarySchema = z
 
 const PublicBoardSchema = z
   .object({
+    teamCount: TeamCountSchema,
     rows: z.union([z.literal(5), z.literal(6)]),
     columns: z.union([z.literal(5), z.literal(6)]),
     configuredTeams: z.array(TeamIdSchema),
@@ -462,7 +464,15 @@ function validatePublicBoard(
   board: PublicBoard,
   context: z.RefinementCtx,
 ): void {
-  const dimensions = BOARD_DIMENSIONS[teamCount];
+  if (board.teamCount !== teamCount) {
+    context.addIssue({
+      code: "custom",
+      path: ["board", "teamCount"],
+      message: "Board team count must match the projection team count",
+    });
+  }
+
+  const dimensions = BOARD_DIMENSIONS[board.teamCount];
   if (
     board.rows !== dimensions.rows ||
     board.columns !== dimensions.columns ||
@@ -693,6 +703,7 @@ function publicBoard(game: ClassicGameState | null): PublicBoard | null {
   });
 
   return {
+    teamCount: game.board.teamCount,
     rows: game.board.rows,
     columns: game.board.columns,
     configuredTeams: [...game.board.configuredTeams],

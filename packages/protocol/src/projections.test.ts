@@ -240,6 +240,7 @@ describe("projectRoomForSeat hidden-information boundary", () => {
       teamCount: 4,
       configuredTeams: ["red", "blue", "green", "yellow"],
       board: {
+        teamCount: 4,
         rows: 6,
         columns: 6,
         configuredTeams: ["red", "blue", "green", "yellow"],
@@ -747,6 +748,16 @@ describe("ClientProjectionSchema", () => {
     expect(ClientProjectionSchema.safeParse(wrongBoardTeams).success).toBe(
       false,
     );
+  });
+
+  it("requires board team count to match the projection team count", () => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const mismatched = JSON.parse(JSON.stringify(projection)) as {
+      board: { teamCount: number };
+    };
+    mismatched.board.teamCount = 4;
+
+    expect(ClientProjectionSchema.safeParse(mismatched).success).toBe(false);
   });
 
   it("requires eliminated teams to be unique configured teams", () => {
