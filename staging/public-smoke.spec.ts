@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
+import { installPublicSmokeTransport } from "./public-smoke-transport";
 
 const origin = "https://staging.oddlyuseful.studio";
 const publicPaths = ["/", "/room/ABC123"] as const;
@@ -24,6 +25,7 @@ for (const path of publicPaths) {
   }) => {
     const failures = {
       unexpectedRequests: 0,
+      redirects: 0,
       sockets: 0,
       cspViolations: 0,
       consoleErrors: 0,
@@ -45,20 +47,7 @@ for (const path of publicPaths) {
       failures.sockets += 1;
       socket.close();
     });
-    await context.route("**/*", async (route) => {
-      const request = route.request();
-      const url = new URL(request.url());
-      if (
-        url.origin !== origin ||
-        !["GET", "HEAD"].includes(request.method()) ||
-        url.search !== ""
-      ) {
-        failures.unexpectedRequests += 1;
-        await route.abort("blockedbyclient");
-        return;
-      }
-      await route.continue();
-    });
+    await installPublicSmokeTransport(context, origin, failures);
     page.on("console", (message) => {
       if (message.type() === "error") failures.consoleErrors += 1;
     });
@@ -133,6 +122,7 @@ for (const path of publicPaths) {
     );
     expect(failures).toEqual({
       unexpectedRequests: 0,
+      redirects: 0,
       sockets: 0,
       cspViolations: 0,
       consoleErrors: 0,
