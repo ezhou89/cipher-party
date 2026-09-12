@@ -1,9 +1,11 @@
 import {
-  createSeededRandom,
+  chooseStartingTeam,
+  configuredTeams,
   type ClassicGameState,
   type PlayerId,
   type RoomCode,
   type SeatRole,
+  type TeamCount,
   type TeamId,
 } from "@cipher-party/game-core";
 import type { CommandResult, PublicHistoryEntry } from "@cipher-party/protocol";
@@ -19,8 +21,10 @@ export interface RoomSeat {
 }
 
 export interface RoomState {
-  schemaVersion: 1;
-  protocolVersion: 1;
+  schemaVersion: 2;
+  protocolVersion: 2;
+  teamCount: TeamCount;
+  configuredTeams: TeamId[];
   code: RoomCode;
   inviteUrl: string;
   revision: number;
@@ -65,14 +69,14 @@ export interface CreateLobbyStateInput {
 }
 
 export function createLobbyState(input: CreateLobbyStateInput): RoomState {
-  const startingTeam: TeamId =
-    createSeededRandom(`${input.boardSeed}/starting-team`)() < 0.5
-      ? "red"
-      : "blue";
+  const teamCount: TeamCount = 2;
+  const startingTeam = chooseStartingTeam(teamCount, input.boardSeed);
 
   return {
-    schemaVersion: 1,
-    protocolVersion: 1,
+    schemaVersion: 2,
+    protocolVersion: 2,
+    teamCount,
+    configuredTeams: configuredTeams(teamCount),
     code: input.code,
     inviteUrl: input.inviteUrl,
     revision: 0,

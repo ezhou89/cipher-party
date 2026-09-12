@@ -21,7 +21,10 @@ import {
   type RoomSnapshotStore,
 } from "../src/room/room-durable-object";
 import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
-import { InvalidRoomSnapshotError } from "../src/room/room-snapshot";
+import {
+  InvalidRoomSnapshotError,
+  parseRoomSnapshot,
+} from "../src/room/room-snapshot";
 import {
   createLobbyState,
   type RoomActor,
@@ -53,7 +56,7 @@ function envelope(
   id = commandId(),
 ): CommandEnvelope {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     commandId: id,
     expectedRevision,
     command,
@@ -80,6 +83,26 @@ function roomInitialization(
   });
   state.seats[0]!.connected = true;
   return { ...state, ...structuredClone(overrides) };
+}
+
+function legacySnapshot(state: RoomState): unknown {
+  const legacy = structuredClone(state) as unknown as Record<string, unknown>;
+  legacy.schemaVersion = 1;
+  legacy.protocolVersion = 1;
+  delete legacy.teamCount;
+  delete legacy.configuredTeams;
+  const game = legacy.game as {
+    board: Record<string, unknown>;
+    eliminatedTeams?: unknown;
+  } | null;
+  if (game !== null) {
+    delete game.board.teamCount;
+    delete game.board.configuredTeams;
+    delete game.board.rows;
+    delete game.board.columns;
+    delete game.eliminatedTeams;
+  }
+  return legacy;
 }
 
 function configuredRoom(code: string): RoomState {
@@ -163,6 +186,28 @@ class FakeRoomStorage implements RoomSnapshotStore {
 
   async clear(): Promise<void> {
     this.snapshot = undefined;
+  }
+}
+
+class RawRoomStorage implements RoomSnapshotStore {
+  raw: unknown;
+  writes: RoomState[] = [];
+
+  constructor(raw: unknown) {
+    this.raw = structuredClone(raw);
+  }
+
+  async read(): Promise<RoomState | undefined> {
+    return this.raw === undefined ? undefined : parseRoomSnapshot(this.raw);
+  }
+
+  async write(state: RoomState): Promise<void> {
+    this.raw = structuredClone(state);
+    this.writes.push(structuredClone(state));
+  }
+
+  async clear(): Promise<void> {
+    this.raw = undefined;
   }
 }
 
@@ -444,6 +489,46 @@ describe("PersistentRoomController failure atomicity", () => {
 });
 
 describe("RoomDurableObject persistence", () => {
+  it("normalizes v1 storage in memory and writes v2 only after an accepted mutation", async () => {
+    const storage = new RawRoomStorage(
+      legacySnapshot(roomInitialization("M1GR8T")),
+    );
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+
+    await controller.load();
+
+    expect(controller.getSnapshot()).toMatchObject({
+      schemaVersion: 2,
+      protocolVersion: 2,
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+    });
+    expect(storage.raw).toMatchObject({
+      schemaVersion: 1,
+      protocolVersion: 1,
+    });
+    expect(storage.writes).toHaveLength(0);
+
+    await expect(
+      controller.dispatch(
+        hostActor(),
+        envelope(0, { type: "lock_room", locked: true }),
+      ),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    expect(storage.raw).toMatchObject({
+      schemaVersion: 2,
+      protocolVersion: 2,
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+      revision: 1,
+      locked: true,
+    });
+    expect(storage.writes).toHaveLength(1);
+  });
+
   it("is explicit and non-mutating before initialization", async () => {
     const room = stub("EMPTY1");
 

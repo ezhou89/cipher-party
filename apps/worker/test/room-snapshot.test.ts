@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  createClassicBoard,
+  createClassicGame,
+  type TeamId,
+} from "@cipher-party/game-core";
 import type { ClientCommand, CommandEnvelope } from "@cipher-party/protocol";
 import { RoomSession } from "../src/room/room-session";
 import { RoomStorage } from "../src/room/room-storage";
@@ -21,6 +26,112 @@ function lobby(): RoomState {
     hostTokenHash: "b".repeat(64),
     createdAt: timestamp,
   });
+}
+
+function fourTeamState(): RoomState {
+  const state = lobby();
+  const teams = ["red", "blue", "green", "yellow"] as const;
+  state.teamCount = 4;
+  state.configuredTeams = [...teams];
+  state.startingTeam = "red";
+  state.phase = "playing";
+  state.seats = teams.flatMap((teamId, teamIndex) =>
+    (["clue-giver", "operative"] as const).map((role, roleIndex) => ({
+      playerId:
+        teamId === "red" && role === "clue-giver"
+          ? "host"
+          : `${teamId}-${role}`,
+      displayName: `${teamId} ${role}`,
+      seatClass: "active" as const,
+      teamId,
+      role,
+      connected: true,
+      seatTokenHash: (teamIndex * 2 + roleIndex).toString(16).repeat(64),
+    })),
+  );
+  state.game = createClassicGame(
+    createClassicBoard({
+      cards: Array.from({ length: 36 }, (_, index) => ({
+        id: `card-${String(index).padStart(2, "0")}`,
+        label: `Card ${index}`,
+      })),
+      seed: "four-team-snapshot",
+      startingTeam: "red",
+      teamCount: 4,
+    }),
+  );
+  return state;
+}
+
+function threeTeamState(): RoomState {
+  const state = fourTeamState();
+  state.teamCount = 3;
+  state.configuredTeams = ["red", "blue", "green"];
+  state.seats = state.seats.filter((seat) => seat.teamId !== "yellow");
+  state.game = createClassicGame(
+    createClassicBoard({
+      cards: Array.from({ length: 30 }, (_, index) => ({
+        id: `card-${String(index).padStart(2, "0")}`,
+        label: `Card ${index}`,
+      })),
+      seed: "three-team-snapshot",
+      startingTeam: "red",
+      teamCount: 3,
+    }),
+  );
+  return state;
+}
+
+function legacyV1State(state: RoomState): unknown {
+  const legacy = structuredClone(state) as unknown as Record<string, unknown>;
+  legacy.schemaVersion = 1;
+  legacy.protocolVersion = 1;
+  delete legacy.teamCount;
+  delete legacy.configuredTeams;
+  const game = legacy.game as {
+    board: Record<string, unknown>;
+    eliminatedTeams?: unknown;
+  } | null;
+  if (game !== null) {
+    delete game.board.teamCount;
+    delete game.board.configuredTeams;
+    delete game.board.rows;
+    delete game.board.columns;
+    delete game.eliminatedTeams;
+  }
+  return legacy;
+}
+
+function eliminatedFourTeamState(): RoomState {
+  const state = fourTeamState();
+  const game = state.game!;
+  const eliminatedTeam = game.activeTeam;
+  const hazard = Object.values(game.board.cards).find(
+    (card) => card.owner === "hazard",
+  )!;
+  hazard.revealed = true;
+  for (const card of Object.values(game.board.cards)) {
+    if (card.owner === eliminatedTeam && !card.revealed) {
+      card.owner = "neutral";
+    }
+  }
+  game.eliminatedTeams = [eliminatedTeam];
+  game.activeTeam = game.board.configuredTeams.find(
+    (teamId) => teamId !== eliminatedTeam,
+  )!;
+  state.revision = 1;
+  state.publicHistory = [
+    {
+      revision: 1,
+      at: timestamp,
+      type: "card_revealed",
+      teamId: eliminatedTeam,
+      cardId: hazard.id,
+      owner: "hazard",
+      eliminatedTeam,
+    },
+  ];
+  return state;
 }
 
 async function generatedStates(
@@ -47,7 +158,7 @@ async function generatedStates(
   let sequence = 0;
   async function command(command: ClientCommand, playerId = "host") {
     const envelope: CommandEnvelope = {
-      protocolVersion: 1,
+      protocolVersion: 2,
       commandId: `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,
       expectedRevision: session.snapshot().revision,
       command,
@@ -121,7 +232,219 @@ function boundary(value: unknown) {
   };
 }
 
-describe("strict v1 snapshot storage boundary", () => {
+describe("strict v1/v2 snapshot storage boundary", () => {
+  it("parses a generated four-team v2 snapshot", () => {
+    const state = fourTeamState();
+
+    const restored = parseRoomSnapshot(state);
+
+    expect(restored).toEqual(state);
+    expect(restored).toMatchObject({
+      schemaVersion: 2,
+      protocolVersion: 2,
+      teamCount: 4,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+      game: {
+        board: { teamCount: 4, rows: 6, columns: 6 },
+        eliminatedTeams: [],
+      },
+    });
+    expect(Object.getPrototypeOf(restored.game!.board.cards)).toBeNull();
+  });
+
+  it("parses the supported three-team geometry and distribution", () => {
+    const restored = parseRoomSnapshot(threeTeamState());
+
+    expect(restored).toMatchObject({
+      teamCount: 3,
+      configuredTeams: ["red", "blue", "green"],
+      game: { board: { teamCount: 3, rows: 5, columns: 6 } },
+    });
+    expect(restored.game?.board.order).toHaveLength(30);
+  });
+
+  it("normalizes a complete valid v1 two-team snapshot to v2", async () => {
+    const legacy = legacyV1State((await generatedStates())[3]!);
+
+    const normalized = parseRoomSnapshot(legacy);
+
+    expect(normalized.schemaVersion).toBe(2);
+    expect(normalized.protocolVersion).toBe(2);
+    expect(normalized.teamCount).toBe(2);
+    expect(normalized.configuredTeams).toEqual(["red", "blue"]);
+    expect(normalized.game?.board).toMatchObject({
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+      rows: 5,
+      columns: 5,
+    });
+    expect(normalized.game?.eliminatedTeams).toEqual([]);
+    expect(Object.getPrototypeOf(normalized.game!.board.cards)).toBeNull();
+  });
+
+  it("accepts coherent multi-team hazard elimination metadata", () => {
+    const state = eliminatedFourTeamState();
+
+    expect(parseRoomSnapshot(state)).toEqual(state);
+
+    const withoutRetainedMetadata = eliminatedFourTeamState();
+    const entry = withoutRetainedMetadata.publicHistory[0]!;
+    if (entry.type === "card_revealed") delete entry.eliminatedTeam;
+    expect(parseRoomSnapshot(withoutRetainedMetadata)).toEqual(
+      withoutRetainedMetadata,
+    );
+  });
+
+  it("accepts target completion after a prior multi-team hazard", () => {
+    const state = eliminatedFourTeamState();
+    const game = state.game!;
+    const targets = Object.values(game.board.cards).filter(
+      (card) => card.owner === game.activeTeam,
+    );
+    for (const card of targets) {
+      card.revealed = true;
+    }
+    state.publicHistory.push(
+      ...targets.map((card, index) => ({
+        revision: index + 2,
+        at: timestamp,
+        type: "card_revealed" as const,
+        teamId: game.activeTeam,
+        cardId: card.id,
+        owner: game.activeTeam,
+      })),
+    );
+    state.revision = targets.length + 1;
+    game.phase = "board_complete";
+    game.clue = { word: "Signal", count: targets.length };
+    game.guessesRemaining = 1;
+    game.winner = game.activeTeam;
+    game.completionReason = "targets";
+    state.phase = "complete";
+
+    expect(parseRoomSnapshot(state)).toEqual(state);
+  });
+
+  it.each([
+    [
+      "root configured-team order",
+      (state: RoomState) => {
+        state.configuredTeams = ["red", "blue", "yellow", "green"];
+      },
+    ],
+    [
+      "board dimensions",
+      (state: RoomState) => {
+        state.game!.board.rows = 5;
+      },
+    ],
+    [
+      "board team metadata",
+      (state: RoomState) => {
+        state.game!.board.configuredTeams = ["red", "blue", "green"];
+      },
+    ],
+    [
+      "ownership distribution",
+      (state: RoomState) => {
+        const neutral = Object.values(state.game!.board.cards).find(
+          (card) => card.owner === "neutral",
+        )!;
+        neutral.owner = "red";
+      },
+    ],
+    [
+      "unconfigured seat assignment",
+      (state: RoomState) => {
+        state.teamCount = 3;
+        state.configuredTeams = ["red", "blue", "green"];
+      },
+    ],
+    [
+      "missing configured-team operative",
+      (state: RoomState) => {
+        state.seats.find(
+          (seat) => seat.teamId === "green" && seat.role === "operative",
+        )!.role = "clue-giver";
+      },
+    ],
+    [
+      "room starting-team mirror",
+      (state: RoomState) => {
+        state.startingTeam = "blue";
+      },
+    ],
+    [
+      "zero history revision",
+      (state: RoomState) => {
+        state.publicHistory = [
+          { revision: 0, at: timestamp, type: "room_paused" },
+        ];
+      },
+    ],
+    [
+      "duplicate history revision",
+      (state: RoomState) => {
+        state.revision = 2;
+        state.publicHistory = [
+          { revision: 1, at: timestamp, type: "room_paused" },
+          { revision: 1, at: timestamp, type: "room_resumed" },
+        ];
+      },
+    ],
+  ] as Array<[string, (state: RoomState) => void]>)(
+    "rejects invalid four-team %s",
+    (_name, mutate) => {
+      const state = fourTeamState();
+      mutate(state);
+
+      expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
+    },
+  );
+
+  it.each([
+    [
+      "active team",
+      (state: RoomState, eliminatedTeam: TeamId) => {
+        state.game!.activeTeam = eliminatedTeam;
+      },
+    ],
+    [
+      "duplicate elimination",
+      (state: RoomState, eliminatedTeam: TeamId) => {
+        state.game!.eliminatedTeams.push(eliminatedTeam);
+      },
+    ],
+    [
+      "history elimination team",
+      (state: RoomState) => {
+        const entry = state.publicHistory[0]!;
+        if (entry.type === "card_revealed") entry.eliminatedTeam = "blue";
+      },
+    ],
+    [
+      "history owner metadata",
+      (state: RoomState) => {
+        const entry = state.publicHistory[0]!;
+        if (entry.type === "card_revealed") entry.owner = "neutral";
+      },
+    ],
+    [
+      "history elimination without state elimination",
+      (state: RoomState) => {
+        state.game!.eliminatedTeams = [];
+      },
+    ],
+  ] as Array<[string, (state: RoomState, eliminatedTeam: TeamId) => void]>)(
+    "rejects incoherent multi-team hazard %s",
+    (_name, mutate) => {
+      const state = eliminatedFourTeamState();
+      mutate(state, state.game!.eliminatedTeams[0]!);
+
+      expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
+    },
+  );
+
   it.each(["targets", "hazard"] as const)(
     "accepts genuine %s completion with its retained clue and rejects synthetic null-clue completion",
     async (reason) => {
@@ -139,11 +462,16 @@ describe("strict v1 snapshot storage boundary", () => {
       expect(() => parseRoomSnapshot(synthetic)).toThrow(
         InvalidRoomSnapshotError,
       );
+      const unconfiguredWinner = structuredClone(complete);
+      unconfiguredWinner.game!.winner = "green";
+      expect(() => parseRoomSnapshot(unconfiguredWinner)).toThrow(
+        InvalidRoomSnapshotError,
+      );
     },
   );
 
   it("distinguishes typed unsupported versions from invalid shapes with no raw validation details", () => {
-    expect(() => parseRoomSnapshot({ ...lobby(), schemaVersion: 2 })).toThrow(
+    expect(() => parseRoomSnapshot({ ...lobby(), schemaVersion: 3 })).toThrow(
       UnsupportedRoomSnapshotError,
     );
     expect(() =>
@@ -200,10 +528,10 @@ describe("strict v1 snapshot storage boundary", () => {
   });
 
   const mutations: Array<[string, (state: RoomState) => void]> = [
-    ["schema upgrade", (state) => Object.assign(state, { schemaVersion: 2 })],
+    ["schema upgrade", (state) => Object.assign(state, { schemaVersion: 3 })],
     [
       "protocol upgrade",
-      (state) => Object.assign(state, { protocolVersion: 2 }),
+      (state) => Object.assign(state, { protocolVersion: 3 }),
     ],
     [
       "unknown root key",
