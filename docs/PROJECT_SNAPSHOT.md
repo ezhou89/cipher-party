@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 30
+**Snapshot revision:** 31
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration and audit hardening Tasks 1–6 are complete and independently reviewed. Task 7’s whole-branch review and fresh release verification are complete with no open material findings. The hardening plan is complete; staging remains the previously verified `2c72751` because this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening Tasks 1–6 are complete and independently reviewed. Task 7’s whole-branch review and fresh release verification are complete with no open material findings. After explicit deployment authorization, the guarded release is now live and attested on staging at the current reviewed source; the apex was not changed. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
 **Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** Authorize and prepare the real four-human Connected Classic session using docs/runbooks/connected-classic-playtest.md. Before inviting players, build the exact source intended for staging and run the read-only staging attestation; deploy/live smoke remain separately authorized operations.
+**Next execution:** Prepare and run the real four-human Connected Classic session using docs/runbooks/connected-classic-playtest.md. Staging attestation and the artifact-free public landing/invite smoke have passed for the current source; the multiplayer session is the remaining acceptance gate.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -67,7 +67,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 - **Last accepted task:** Hardening Task 7 — final handoff at `7746288` (with snapshot/plan completion at `92f77df`); implementation commits remain `db5b18e`, `08b2e358`, `4edd2ef` plus `378bcbec`, `df89864`, `39fb98f`, and `680000a`/`b54f048`.
 - **Current task:** Hardening complete; Connected Classic human acceptance is the next milestone activity.
-- **Next task:** Four-human connected Classic session, after the user separately authorizes any staging deployment/live smoke needed for that session.
+- **Next task:** Four-human connected Classic session on the attested staging version.
 - **Current blockers:** Hosted CI has no configured repository/provider, and the real four-human session has not been run. Milestone exit requires that session and resolution of any critical findings. **Human playtest: NOT YET RUN.**
 - **Audit baseline:** 445 tracked runtime functions; classic mean 3.38 after Task 6, maximum 34, 26 above 10, and exactly four approved exceptions above 20. GameWorkspace fell 36→10 and applyGameAction 30→18; both exceptions were removed. Remaining exceptions are permissionsFor 34, authorize 24, ModerationPanel 21, and applyLobbyCommand 21. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace until Task 7 reruns it.
 
@@ -81,7 +81,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Task 4 validates complete v1 room snapshots before controller use, rejects unsupported/corrupt storage without writing, clearing, migrating, exposing details, or allowing initialization over it, and restores null-prototype card maps. Presence is reconciled from OPEN serialized attachments on load and later room events; repairs preserve `lastActivity`, retry after failed writes, and never run for over-budget or protocol-invalid frames. Focused resilience tests passed 133/133; `pnpm run check` passed 643 tests; local e2e 48/48; diff checks passed. Lost successful join responses still allocate a second seat on retry; retry-safe identity and replacement remain deferred. No deployment/live smoke occurred.
 - Task 5 adds tracked-runtime classic complexity measurement with stable file/function identities, exactly six explicit exceptions, and a >20 new-function gate; inline complexity waivers cannot suppress inventory. All five Vitest scopes use separate Istanbul reports and measured whole-number S/B/F/L floors: game-core 97/96/100/97, protocol 96/94/100/96, web 91/87/91/91, Worker 93/91/98/93, root 80/77/92/80. Source-bound `pnpm run deploy:staging` now requires clean exact SHA → full `check:release` → same clean SHA → low-level `expectedCommit`; direct low-level live CLI refuses and dry-run remains non-uploading. The optional clean gate clones without hardlinks, frozen-installs, runs only the inner release gate, and removes its task-owned checkout. Focused tooling/staging tests passed 76/76; full release gate passed 672 tests, builds/preflight, and local E2E 48/48; the separate real clean-checkout gate passed. No deployment/live smoke, hosted CI, or human playtest occurred.
 - Task 6 extracted typed private reducer clue/reveal handlers, pure game availability derivation, and a single identity/projection-scoped confirmation hook. Transport gating remains separate from intent validity so reconnect keeps Cancel/focus recovery while disabling destructive sends; clue-giver keys remain outside the hook. Focused reducer/UI tests passed 57/57 and 71/71; full release gate passed 681 tests, unchanged coverage floors, builds/preflight, and local E2E 48/48. Classic GameWorkspace fell 36→10 and applyGameAction 30→18, removing both exceptions. No deployment/live smoke or human playtest occurred.
-- Task 7 completed the coordinator whole-branch review from `7142f5481e72c7e49d127e4877b4e7ee5502df1b` through `db5b18e71418a948149e15e0af872282730c2e0d`; accepted task reviews remain clean and no material finding is open. Fresh elevated `pnpm run check:release` passed 681 tests, complexity (445 functions, mean 3.38, maximum 34, four explicit exceptions), all five coverage floors, builds/local Worker dry run, preflight, and 48/48 local E2E. The unprivileged sandbox attempt failed only at the Worker listener/log boundary; the approved elevated rerun passed. `git diff --check` and `git status --short` are clean. No deploy/live smoke occurred. Deferred boundaries remain lost-join retry identity/seat and host replacement, hosted CI provider selection, browser/screen-reader/real-device and operational drills, and the still-pending four-human session.
+- Task 7 completed the coordinator whole-branch review from `7142f5481e72c7e49d127e4877b4e7ee5502df1b` through `db5b18e71418a948149e15e0af872282730c2e0d`; accepted task reviews remain clean and no material finding is open. Fresh elevated `pnpm run check:release` passed 681 tests, complexity (445 functions, mean 3.38, maximum 34, four explicit exceptions), all five coverage floors, builds/local Worker dry run, preflight, and 48/48 local E2E. The unprivileged sandbox attempt failed only at the Worker listener/log boundary; the approved elevated rerun passed. After explicit user authorization, guarded deployment of source `290e8d05d847f2ba80e2625a13222134fe4927ba` completed; read-only staging attestation passed at 100% version `27df01fb-da1f-4e20-8944-a667dba560a4`, and artifact-free public smoke passed 4/4 across desktop Chromium and 320px mobile WebKit. `git diff --check` and `git status --short` were clean before deployment. Deferred boundaries remain lost-join retry identity/seat and host replacement, hosted CI provider selection, browser/screen-reader/real-device and operational drills, and the still-pending four-human multiplayer session.
 
 ## Historical integration evidence
 
@@ -100,14 +100,14 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 ## Verified staging deployment
 
 - URL: `https://staging.oddlyuseful.studio`; Worker: `cipher-party-staging`.
-- Deployed source: `2c727519a69347bd1b914d990f10bb6fa1c5724c`.
-- Active version at 100%: `9d7bb74d-5eca-4e0a-8b01-da1ebcb206f2`.
+- Deployed source: `290e8d05d847f2ba80e2625a13222134fe4927ba`.
+- Active version at 100%: `27df01fb-da1f-4e20-8944-a667dba560a4`.
 - Preserved `ROOMS` namespace: `f2766441dfa24d10bef55dd8ee4f5599`; class `RoomDurableObject`, SQLite migration `v1`, compatibility date `2026-08-30`.
 
-This snapshot's documentation-only commit is newer than the deployed runtime. Build matching source and pass explicit expectations for pre-session attestation; do not assume current Git HEAD is the deployed source:
+This snapshot's documentation-only commits are newer than the deployed runtime. Build matching source and pass explicit expectations for pre-session attestation; do not assume current Git HEAD is the deployed source:
 
 ```sh
-pnpm run check:staging --expected-commit 2c727519a69347bd1b914d990f10bb6fa1c5724c --expected-version 9d7bb74d-5eca-4e0a-8b01-da1ebcb206f2 --expected-rooms-namespace f2766441dfa24d10bef55dd8ee4f5599
+pnpm run check:staging --expected-commit 290e8d05d847f2ba80e2625a13222134fe4927ba --expected-version 27df01fb-da1f-4e20-8944-a667dba560a4 --expected-rooms-namespace f2766441dfa24d10bef55dd8ee4f5599
 ```
 
 ## Historical reviewed baseline
