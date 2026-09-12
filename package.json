@@ -11,6 +11,8 @@
     "check": "pnpm run check:docs && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "check:release": "pnpm run check && pnpm run build && pnpm run preflight && pnpm run test:e2e",
     "check:docs": "node scripts/check-project-docs.mjs",
+    "check:staging": "node scripts/check-staging.mjs",
+    "deploy:staging": "node scripts/deploy-staging.mjs",
     "dev": "concurrently -k -n worker,web \"pnpm --filter @cipher-party/worker run dev\" \"pnpm --filter @cipher-party/web run dev\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

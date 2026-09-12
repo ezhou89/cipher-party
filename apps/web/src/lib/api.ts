@@ -11,6 +11,7 @@ export type PublicApiErrorCode =
   | "room_in_progress"
   | "room_full"
   | "unauthorized"
+  | "rate_limited"
   | "network_error"
   | "unexpected_response";
 
@@ -21,6 +22,7 @@ const PUBLIC_ERROR_MESSAGES: Record<PublicApiErrorCode, string> = {
   room_in_progress: "Room is already in progress.",
   room_full: "Room is full.",
   unauthorized: "This room credential is no longer valid.",
+  rate_limited: "Too many attempts. Please wait a minute and try again.",
   network_error:
     "Unable to reach Cipher Party. Check your connection and try again.",
   unexpected_response:
@@ -248,7 +250,13 @@ export async function requestConnectionTicket(
     { method: "POST", headers },
   );
   if (!response.ok) {
-    throw new Error("Room connection ticket request failed");
+    let error: unknown;
+    try {
+      error = await response.json();
+    } catch {
+      throw new ApiError("unexpected_response", response.status);
+    }
+    throw parsePublicError(error, response.status);
   }
   const value: unknown = await response.json();
   const record =
