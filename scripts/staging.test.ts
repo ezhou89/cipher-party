@@ -2,9 +2,16 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { checkStaging } from "./check-staging.mjs";
 import { deployStaging } from "./deploy-staging.mjs";
+import rootVitest from "../vitest.config";
+import coreVitest from "../packages/game-core/vitest.config";
+import protocolVitest from "../packages/protocol/vitest.config";
+import workerVitest from "../apps/worker/vitest.config";
+import webVitest from "../apps/web/vitest.config";
 
 const ORIGIN = "https://staging.oddlyuseful.studio";
 const COMMIT = "a".repeat(40);
@@ -99,6 +106,36 @@ const files = new Map([
   ["assets/lazy-two.js", "export default 'lazy'"],
   ["assets/index-one.css", "body{color:black}"],
 ]);
+
+describe("coverage report isolation", () => {
+  it("configures Istanbul independently for every runtime/test scope", async () => {
+    const configs = [
+      rootVitest,
+      coreVitest,
+      protocolVitest,
+      webVitest,
+      workerVitest,
+    ];
+    const directories: string[] = [];
+    for (const config of configs) {
+      expect(config.test?.coverage?.provider).toBe("istanbul");
+      expect(config.test?.coverage?.include?.length).toBeGreaterThan(0);
+      expect(config.test?.coverage?.exclude?.length).toBeGreaterThan(0);
+      for (const metric of [
+        "statements",
+        "branches",
+        "functions",
+        "lines",
+      ] as const) {
+        const floor = config.test?.coverage?.thresholds?.[metric];
+        expect(Number.isInteger(floor)).toBe(true);
+        expect(floor).toBeGreaterThan(0);
+      }
+      directories.push(config.test?.coverage?.reportsDirectory as string);
+    }
+    expect(new Set(directories).size).toBe(5);
+  });
+});
 
 afterEach(async () => {
   await Promise.all(
@@ -479,9 +516,88 @@ describe("read-only staging attestation", () => {
 });
 
 describe("deterministic staging deployment", () => {
+  it("refuses the old direct live CLI before any tooling or upload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cipher-party-cli-"));
+    temporaryRoots.push(root);
+    const result = await promisify(execFile)(
+      process.execPath,
+      [resolve("scripts/deploy-staging.mjs")],
+      { cwd: root },
+    ).then(
+      () => ({ code: 0, stderr: "" }),
+      (error: { code: number; stderr: string }) => ({
+        code: error.code,
+        stderr: error.stderr,
+      }),
+    );
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(
+      "live deployment must use pnpm run deploy:staging",
+    );
+  });
+
+  it.each(["revision", "dirt"])(
+    "refuses source %s drift after building",
+    async (kind) => {
+      const setup = await fixture();
+      const initial = setup.run.getMockImplementation()!;
+      let built = false;
+      setup.run.mockImplementation(async (command, args, options) => {
+        if (args.includes("build")) built = true;
+        if (
+          built &&
+          command === "git" &&
+          args[0] === (kind === "revision" ? "rev-parse" : "status")
+        )
+          return {
+            stdout: kind === "revision" ? "b".repeat(40) : " M changed",
+          };
+        return initial(command, args, options);
+      });
+      await expect(
+        deployStaging({
+          root: setup.root,
+          run: setup.run,
+          expectedCommit: COMMIT,
+        }),
+      ).rejects.toThrow(/changed/u);
+      expect(
+        setup.run.mock.calls.some(([, args]) => args.includes("deploy")),
+      ).toBe(false);
+    },
+  );
+
+  it("refuses live low-level deployment without an explicit verified full source revision", async () => {
+    const setup = await fixture();
+    await expect(
+      deployStaging({ root: setup.root, run: setup.run }),
+    ).rejects.toThrow(/expectedCommit/u);
+    expect(
+      setup.run.mock.calls.some(([, args]) => args.includes("deploy")),
+    ).toBe(false);
+  });
+
+  it("refuses a mismatched expected source before any build", async () => {
+    const setup = await fixture();
+    await expect(
+      deployStaging({
+        root: setup.root,
+        run: setup.run,
+        expectedCommit: "b".repeat(40),
+      }),
+    ).rejects.toThrow(/source|revision/iu);
+    expect(setup.run.mock.calls.some(([command]) => command !== "git")).toBe(
+      false,
+    );
+  });
+
   it("builds with local JavaScript CLIs through Node before a strict source-tagged deployment", async () => {
     const setup = await fixture();
-    await deployStaging({ root: setup.root, run: setup.run });
+    await deployStaging({
+      root: setup.root,
+      run: setup.run,
+      expectedCommit: COMMIT,
+    });
     const calls = setup.run.mock.calls.filter(([command]) => command !== "git");
     expect(calls.length).toBe(6);
     for (const [command] of calls) expect(command).toBe(process.execPath);
@@ -514,7 +630,11 @@ describe("deterministic staging deployment", () => {
         : cleanRun(command, args, options),
     );
     await expect(
-      deployStaging({ root: setup.root, run: setup.run }),
+      deployStaging({
+        root: setup.root,
+        run: setup.run,
+        expectedCommit: COMMIT,
+      }),
     ).rejects.toThrow(/clean/i);
     expect(
       setup.run.mock.calls.some(([, args]) => args.includes("deploy")),
@@ -553,7 +673,11 @@ describe("deterministic staging deployment", () => {
         }),
       );
       await expect(
-        deployStaging({ root: setup.root, run: setup.run }),
+        deployStaging({
+          root: setup.root,
+          run: setup.run,
+          expectedCommit: COMMIT,
+        }),
       ).rejects.toThrow(/config/i);
       expect(setup.run).not.toHaveBeenCalled();
     },
@@ -567,7 +691,11 @@ describe("deterministic staging deployment", () => {
       return cleanRun(command, args, options);
     });
     await expect(
-      deployStaging({ root: setup.root, run: setup.run }),
+      deployStaging({
+        root: setup.root,
+        run: setup.run,
+        expectedCommit: COMMIT,
+      }),
     ).rejects.toThrow(/failed/i);
     expect(
       setup.run.mock.calls.some(([, args]) => args.includes("deploy")),

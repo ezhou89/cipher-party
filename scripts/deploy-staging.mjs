@@ -15,9 +15,14 @@ export async function deployStaging({
   root = projectRoot,
   run = defaultRun,
   dryRun = false,
+  expectedCommit,
 } = {}) {
+  if (!dryRun && !/^[a-f0-9]{40}$/u.test(expectedCommit ?? ""))
+    throw new Error("Live deployment requires a full verified expectedCommit");
   const { path } = await readStagingConfig(root);
   const source = await sourceState(root, run);
+  if (!dryRun && source.commit !== expectedCommit)
+    throw new Error("Verified source revision does not match expectedCommit");
   if (source.dirty && !dryRun)
     throw new Error("Staging deployment requires a clean, committed worktree");
   const tsc = localCli("typescript", "bin/tsc", root);
@@ -60,7 +65,7 @@ export async function deployStaging({
     message,
   ];
   if (dryRun) args.push("--dry-run");
-  const result = await runChecked(
+  await runChecked(
     run,
     process.execPath,
     args,
@@ -71,7 +76,6 @@ export async function deployStaging({
     commit: source.commit,
     dryRun,
     dirty: current.dirty,
-    output: result.stdout,
   };
 }
 
@@ -88,18 +92,19 @@ if (
     });
     if (values.help) {
       console.log(
-        "Usage: pnpm run deploy:staging [--dry-run]\nBuilds from this worktree; live deployment requires a clean source commit.",
+        "Usage: node scripts/deploy-staging.mjs --dry-run\nLive deployment must use pnpm run deploy:staging and its source-bound release gate.",
       );
     } else {
+      if (!values["dry-run"])
+        throw new Error("Live deployment must use pnpm run deploy:staging");
       const result = await deployStaging({ dryRun: values["dry-run"] });
-      console.log(result.output);
       console.log(
         `Staging ${result.dryRun ? "dry run" : "deployment"}: source ${result.commit}${result.dirty ? " (dirty dry run)" : ""}`,
       );
     }
-  } catch (error) {
+  } catch {
     console.error(
-      error instanceof Error ? error.message : "Staging deployment failed",
+      "Staging command refused or failed; live deployment must use pnpm run deploy:staging (direct CLI supports --dry-run only)",
     );
     process.exitCode = 1;
   }
