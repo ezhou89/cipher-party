@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 31
+**Snapshot revision:** 32
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration and audit hardening Tasks 1–6 are complete and independently reviewed. Task 7’s whole-branch review and fresh release verification are complete with no open material findings. After explicit deployment authorization, the guarded release is now live and attested on staging at the current reviewed source; the apex was not changed. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. After explicit deployment authorization, the guarded release is live and attested on staging at the current reviewed source; the apex was not changed. The amended multi-team Classic direction is approved and its implementation plan is committed, but no multi-team runtime work has started. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
-**Active milestone:** Milestone 1 — Connected Classic
+**Active milestone:** Milestone 1 — Connected Classic (multi-team expansion planned)
 
-**Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
+**Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Prepare and run the real four-human Connected Classic session using docs/runbooks/connected-classic-playtest.md. Staging attestation and the artifact-free public landing/invite smoke have passed for the current source; the multiplayer session is the remaining acceptance gate.
+**Next execution:** Select the execution mode, then begin Task 1 of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow implementation and fresh verification.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -24,13 +24,15 @@
 
 **Approved spec:** docs/superpowers/specs/2026-08-30-cipher-party-design.md
 
+**Approved multi-team spec:** docs/superpowers/specs/2026-09-12-multi-team-design.md
+
 ## What we are building
 
 A private, account-free multiplayer association game for 4–16 active players on phones and laptops. The MVP uses a server-authoritative Cloudflare room, role-safe views, text/picture/mixed theme packs, Classic and Blitz rules, two to four teams, and best-of-3/5/7 campaigns.
 
 ## Current delivery boundary
 
-Milestone 1 delivers a deployable two-team Classic game with:
+The current deployed/runtime baseline is a deployable two-team Classic game with:
 
 - Account-free room creation and invite-code joining.
 - Host, clue-giver, operative, and spectator roles.
@@ -42,7 +44,7 @@ Milestone 1 delivers a deployable two-team Classic game with:
 - A 24-hour inactivity alarm that closes sockets and clears room storage.
 - A responsive phone/laptop lobby and game board.
 
-Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs.
+The current runtime does not yet deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The approved next slice is a single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms; Blitz, campaigns, packs, picture/mixed cards, and licensed content remain out of scope for that slice.
 
 ## Architecture snapshot
 
@@ -65,10 +67,10 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Hardening Task 7 — final handoff at `7746288` (with snapshot/plan completion at `92f77df`); implementation commits remain `db5b18e`, `08b2e358`, `4edd2ef` plus `378bcbec`, `df89864`, `39fb98f`, and `680000a`/`b54f048`.
-- **Current task:** Hardening complete; Connected Classic human acceptance is the next milestone activity.
-- **Next task:** Four-human connected Classic session on the attested staging version.
-- **Current blockers:** Hosted CI has no configured repository/provider, and the real four-human session has not been run. Milestone exit requires that session and resolution of any critical findings. **Human playtest: NOT YET RUN.**
+- **Last accepted task:** Approved multi-team design/spec and implementation-plan checkpoint at `db0635f`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
+- **Current task:** Pre-execution checkpoint; multi-team Classic implementation has not started.
+- **Next task:** Execute Task 1 (canonical teams and board geometry) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md` after the execution mode is selected.
+- **Current blockers:** Execution mode choice is pending; hosted CI has no configured repository/provider; the real four-human two-team session has not been run; the eight-player four-team session cannot run until implementation and deployment are authorized. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
 - **Audit baseline:** 445 tracked runtime functions; classic mean 3.38 after Task 6, maximum 34, 26 above 10, and exactly four approved exceptions above 20. GameWorkspace fell 36→10 and applyGameAction 30→18; both exceptions were removed. Remaining exceptions are permissionsFor 34, authorize 24, ModerationPanel 21, and applyLobbyCommand 21. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace until Task 7 reruns it.
 
 ## Current hardening evidence
@@ -135,7 +137,12 @@ Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuit
 - Host-owned local/exported packs; temporary server copies expire after 24 hours.
 - AI generates text suggestions only; hosts provide permitted images.
 - Clue-givers rotate only between campaign boards.
-- Multi-team hazard behavior eliminates the team that revealed it.
+- The approved multi-team Classic slice uses host-selected 2/3/4 teams with canonical ordered slots `red`, `blue`, `green`, `yellow`; two teams remain the default.
+- Multi-team hazard behavior eliminates only the active team, converts its unrevealed targets to neutral, skips it in future turns, and awards the board only when one team remains; two-team hazard loss remains unchanged.
+- New room/projection contracts are v2; valid v1 two-team snapshots normalize to v2 defaults without a SQLite migration.
+- A multi-team hazard is one accepted command, one revision, and one public `card_revealed` history entry with optional `eliminatedTeam` metadata.
+- The multi-team increment stays React DOM/CSS and text-only; no Phaser/canvas, Blitz, campaigns, packs, picture/mixed cards, or licensed content is pulled forward.
+- Preserve the existing four-human two-team regression gate and add a separate eight-active-player four-team gate before claiming social validation.
 - Canonical invite URLs come from validated server configuration, never the incoming Host header.
 - The complete-`RoomState` initializer remains a trusted internal/test-only overload; browser routes accept only the strict Task 8 bootstrap DTO and never replacement state.
 - Room-code input must be six original ASCII alphanumeric characters before Crockford uppercasing and O/I/L alias mapping; Unicode case expansion is never accepted.
