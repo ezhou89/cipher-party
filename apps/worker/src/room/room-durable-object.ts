@@ -20,11 +20,20 @@ import {
 import { createLobbyState, type RoomActor, type RoomState } from "./room-state";
 import {
   MAX_CLIENT_MESSAGE_BYTES,
+  OVERLOAD_CLOSE_CODE,
+  OVERLOAD_CLOSE_REASON,
   opaqueAdmissionFailure,
   parseRoomSocketAttachment,
   readUpgradeTicket,
   type RoomSocketAttachment,
 } from "./room-websocket";
+import { rateLimitedResponse } from "../http/admission-limits";
+import {
+  checkMessageBudget,
+  hasSocketCapacity,
+  MAX_TICKETS_PER_ROOM,
+  MAX_TICKETS_PER_SEAT,
+} from "./connection-budget";
 
 export type { RoomSnapshotStore } from "./room-storage";
 
@@ -64,7 +73,7 @@ export interface IssueTicketInput {
 
 type IssueTicketResult =
   | { ok: true; ticket: string; expiresAt: number }
-  | { ok: false; code: "room_unavailable" | "unauthorized" };
+  | { ok: false; code: "room_unavailable" | "unauthorized" | "rate_limited" };
 
 export interface ConsumeTicketInput {
   ticket: string;
@@ -76,6 +85,11 @@ type ConsumeTicketResult =
   | { ok: false; code: "unauthorized" };
 
 type MarkConnectedResult = { ok: true } | { ok: false };
+
+interface DispatchOutcome {
+  result: CommandResult;
+  changed: boolean;
+}
 
 type PostPersistHook = (state: RoomState) => void | Promise<void>;
 
@@ -192,14 +206,22 @@ export class PersistentRoomController {
         })),
       );
       const seat = verification.find(({ valid }) => valid)?.seat;
-      if (seat === undefined) {
+      const atCapacity =
+        next.connectionTickets.length >= MAX_TICKETS_PER_ROOM ||
+        next.connectionTickets.filter(
+          (ticket) => ticket.playerId === seat?.playerId,
+        ).length >= MAX_TICKETS_PER_SEAT;
+      if (seat === undefined || atCapacity) {
         if (
           next.connectionTickets.length !== current.connectionTickets.length
         ) {
           await this.#storage.write(next);
           this.#state = clone(next);
         }
-        return { ok: false, code: "unauthorized" };
+        return {
+          ok: false,
+          code: seat === undefined ? "unauthorized" : "rate_limited",
+        };
       }
 
       const hostAuthority =
@@ -317,14 +339,26 @@ export class PersistentRoomController {
     actor: RoomActor,
     envelope: CommandEnvelope,
   ): Promise<CommandResult> {
+    return this.dispatchWithOutcome(actor, envelope).then(
+      ({ result }) => result,
+    );
+  }
+
+  dispatchWithOutcome(
+    actor: RoomActor,
+    envelope: CommandEnvelope,
+  ): Promise<DispatchOutcome> {
     return this.#serialize(async () => {
       const current = this.#state;
       if (current === undefined) {
         return {
-          ok: false,
-          revision: 0,
-          code: "invalid_command",
-          message: "Room is not initialized",
+          changed: false,
+          result: {
+            ok: false,
+            revision: 0,
+            code: "invalid_command",
+            message: "Room is not initialized",
+          },
         };
       }
 
@@ -332,24 +366,31 @@ export class PersistentRoomController {
       const result = await session.dispatch(actor, envelope, this.#now());
       const next = session.snapshot();
       if (next.revision === current.revision) {
-        return result;
+        return { result, changed: false };
       }
 
       try {
         await this.#storage.write(next);
       } catch {
         return {
-          ok: false,
-          revision: current.revision,
-          code: "storage_failed",
-          message: "Room state could not be persisted",
+          changed: false,
+          result: {
+            ok: false,
+            revision: current.revision,
+            code: "storage_failed",
+            message: "Room state could not be persisted",
+          },
         };
       }
 
       this.#state = clone(next);
       await this.#postPersist?.(clone(next));
-      return result;
+      return { result, changed: true };
     });
+  }
+
+  getCode(): string | undefined {
+    return this.#state?.code;
   }
 
   getSnapshot(): RoomState | undefined {
@@ -503,6 +544,10 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     let serverSocket: WebSocket | undefined;
     try {
+      // No await may separate capacity accounting from accept/attach. The
+      // accepted socket reserves its slot before markConnected yields.
+      if (!hasSocketCapacity(this.ctx, admission.playerId))
+        return rateLimitedResponse();
       const pair = new WebSocketPair();
       const clientSocket = pair[0];
       serverSocket = pair[1];
@@ -549,7 +594,20 @@ export class RoomDurableObject extends DurableObject<Env> {
     socket: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    if (socket.readyState !== WebSocket.OPEN) return;
     const attachment = parseRoomSocketAttachment(socket);
+    if (attachment !== null) {
+      const roomCode = this.#controller.getCode();
+      if (
+        roomCode === undefined ||
+        !(await checkMessageBudget(this.env, roomCode, attachment.playerId))
+      ) {
+        socket.close(OVERLOAD_CLOSE_CODE, OVERLOAD_CLOSE_REASON);
+        return;
+      }
+      // A budget await can overlap a close or terminal room event.
+      if (socket.readyState !== WebSocket.OPEN) return;
+    }
     if (
       attachment === null ||
       typeof message !== "string" ||
@@ -597,13 +655,17 @@ export class RoomDurableObject extends DurableObject<Env> {
       return;
     }
     try {
-      const result = await this.#controller.dispatch(actor, parsed.data);
+      const { result, changed } = await this.#controller.dispatchWithOutcome(
+        actor,
+        parsed.data,
+      );
       this.#send(socket, {
         type: "command_result",
         commandId: parsed.data.commandId,
         result,
       });
-      await this.#broadcastProjections();
+      if (changed) await this.#broadcastProjections();
+      else this.#sendProjection(socket, attachment);
     } catch {
       this.#send(socket, {
         type: "error",
@@ -660,6 +722,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   #send(socket: WebSocket, message: ServerMessage): boolean {
+    if (socket.readyState !== WebSocket.OPEN) return false;
     try {
       socket.send(JSON.stringify(message));
       return true;

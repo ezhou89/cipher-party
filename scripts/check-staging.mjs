@@ -106,8 +106,8 @@ function checkVersion(version, active, config, commit, expectedNamespace) {
   );
   const bindings = version.resources?.bindings;
   requireValue(
-    Array.isArray(bindings) && bindings.length === 8,
-    "Deployed bindings must contain only staging origin, ROOMS, ASSETS and five admission limiters",
+    Array.isArray(bindings) && bindings.length === 12,
+    "Deployed bindings must contain only staging origin, ROOMS, ASSETS and nine admission/message limiters",
   );
   const binding = (name, type) => {
     const found = bindings.filter((entry) => entry.name === name);

@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { apiError } from "./http/json";
+import { checkAdmissionLimits } from "./http/admission-limits";
 import { routeApiRequest } from "./http/router";
 import { normalizeRoomCode } from "./http/schemas";
 import { checkTransport, isApiPath, secureResponse } from "./http/security";
@@ -31,6 +32,8 @@ async function dispatch(request: Request, env: Env): Promise<Response> {
     ) {
       return opaqueAdmissionFailure();
     }
+    const limited = await checkAdmissionLimits(request, env, "connect", code);
+    if (limited !== null) return limited;
     const forwardedUrl = new URL(
       `/api/rooms/${code}/connect`,
       "https://room.internal",

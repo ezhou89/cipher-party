@@ -6,6 +6,10 @@ interface AdmissionBindings {
   JOIN_BY_ROOM?: RateLimit;
   TICKET_BY_IP?: RateLimit;
   TICKET_BY_ROOM?: RateLimit;
+  CONNECT_BY_IP?: RateLimit;
+  CONNECT_BY_ROOM?: RateLimit;
+  COMMAND_BY_SEAT?: RateLimit;
+  COMMAND_BY_ROOM?: RateLimit;
 }
 
 export interface Env extends AdmissionBindings {

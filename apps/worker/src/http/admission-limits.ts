@@ -3,7 +3,20 @@ import type { Env } from "../env";
 import { apiError } from "./json";
 import { normalizeRoomCode } from "./schemas";
 
-type Admission = "create" | "join" | "ticket";
+type Admission = "create" | "join" | "ticket" | "connect";
+
+const admissionBindings = {
+  create: { ip: "CREATE_BY_IP", room: undefined },
+  join: { ip: "JOIN_BY_IP", room: "JOIN_BY_ROOM" },
+  ticket: { ip: "TICKET_BY_IP", room: "TICKET_BY_ROOM" },
+  connect: { ip: "CONNECT_BY_IP", room: "CONNECT_BY_ROOM" },
+} as const;
+
+export function rateLimitedResponse(): Response {
+  const response = apiError(429, "rate_limited");
+  response.headers.set("Retry-After", "60");
+  return response;
+}
 
 export async function checkAdmissionLimits(
   request: Request,
@@ -15,20 +28,15 @@ export async function checkAdmissionLimits(
   const ip = request.headers.get("CF-Connecting-IP")?.trim() || null;
   const code =
     untrustedCode === undefined ? null : normalizeRoomCode(untrustedCode);
-  const ipBinding =
-    admission === "create"
-      ? env.CREATE_BY_IP
-      : admission === "join"
-        ? env.JOIN_BY_IP
-        : env.TICKET_BY_IP;
+  const names = admissionBindings[admission];
   const checks: Array<{
     binding: RateLimit | undefined;
     kind: string;
     value: string | null;
-  }> = [{ binding: ipBinding, kind: "ip", value: ip }];
-  if (code !== null) {
+  }> = [{ binding: env[names.ip], kind: "ip", value: ip }];
+  if (code !== null && names.room !== undefined) {
     checks.push({
-      binding: admission === "join" ? env.JOIN_BY_ROOM : env.TICKET_BY_ROOM,
+      binding: env[names.room],
       kind: "room",
       value: code,
     });
@@ -46,7 +54,5 @@ export async function checkAdmissionLimits(
   );
   if (results.every((result) => result.status === "fulfilled" && result.value))
     return null;
-  const response = apiError(429, "rate_limited");
-  response.headers.set("Retry-After", "60");
-  return response;
+  return rateLimitedResponse();
 }

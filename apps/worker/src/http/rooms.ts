@@ -1,6 +1,7 @@
 import { hashToken, randomToken } from "../auth/token";
 import type { Env } from "../env";
 import { apiError, parseJson, tokenResponse } from "./json";
+import { rateLimitedResponse } from "./admission-limits";
 import {
   CreateRoomRequestSchema,
   JoinRoomRequestSchema,
@@ -180,6 +181,7 @@ export async function issueRoomTicket(
     now: Date.now(),
   });
   if (!result.ok) {
+    if (result.code === "rate_limited") return rateLimitedResponse();
     return result.code === "room_unavailable"
       ? unavailable()
       : apiError(401, "unauthorized");

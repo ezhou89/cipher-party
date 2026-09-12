@@ -12,6 +12,8 @@ const limiterNames = [
   "JOIN_BY_ROOM",
   "TICKET_BY_IP",
   "TICKET_BY_ROOM",
+  "CONNECT_BY_IP",
+  "CONNECT_BY_ROOM",
 ] as const;
 
 function fixture() {
@@ -313,6 +315,64 @@ describe("staging transport and response policy", () => {
 });
 
 describe("staging admission limits", () => {
+  it("rejects malformed upgrade syntax without charging connect counters or looking up a room", async () => {
+    const { bindings, limits, idFromName } = fixture();
+    const ticket = "a".repeat(43);
+    for (const [path, init] of [
+      [
+        `/api/rooms/ABC123/connect?ticket=${ticket}`,
+        { method: "POST", headers: { Upgrade: "websocket" } },
+      ],
+      [`/api/rooms/ABC123/connect?ticket=${ticket}`, {}],
+      [
+        `/api/rooms/invalid/connect?ticket=${ticket}`,
+        { headers: { Upgrade: "websocket" } },
+      ],
+      [
+        "/api/rooms/ABC123/connect?ticket=bad",
+        { headers: { Upgrade: "websocket" } },
+      ],
+      [
+        `/api/rooms/ABC123/connect?ticket=${ticket}&extra=1`,
+        { headers: { Upgrade: "websocket" } },
+      ],
+    ] as const)
+      expect((await request(bindings, path, init)).status).toBe(401);
+    expect(limits.CONNECT_BY_IP.limit).not.toHaveBeenCalled();
+    expect(limits.CONNECT_BY_ROOM.limit).not.toHaveBeenCalled();
+    expect(idFromName).not.toHaveBeenCalled();
+  });
+
+  it.each(["deny", "fail", "missing"] as const)(
+    "blocks upgrades before room lookup when a connect limiter is %s",
+    async (mode) => {
+      for (const name of ["CONNECT_BY_IP", "CONNECT_BY_ROOM"] as const) {
+        const { bindings, limits, idFromName, get } = fixture();
+        if (mode === "deny")
+          limits[name].limit.mockResolvedValue({ success: false });
+        if (mode === "fail")
+          limits[name].limit.mockRejectedValue(new Error("unavailable"));
+        if (mode === "missing")
+          delete (bindings as Partial<typeof bindings>)[name];
+        const response = await request(
+          bindings,
+          `/api/rooms/ABC123/connect?ticket=${"a".repeat(43)}`,
+          { headers: { Upgrade: "websocket" } },
+        );
+        expect(response.status).toBe(429);
+        expect(response.headers.get("Retry-After")).toBe("60");
+        expect(idFromName).not.toHaveBeenCalled();
+        expect(get).not.toHaveBeenCalled();
+        const other =
+          name === "CONNECT_BY_IP" ? "CONNECT_BY_ROOM" : "CONNECT_BY_IP";
+        expect(limits[other].limit).toHaveBeenCalledOnce();
+        expect(limits[other].limit.mock.calls[0]![0].key).toMatch(
+          /^cipher-party:https:\/\/staging\.oddlyuseful\.studio:connect:(?:ip|room):[a-f0-9]{64}$/u,
+        );
+      }
+    },
+  );
+
   it.each([
     ["/api/rooms", "CREATE_BY_IP"],
     ["/api/rooms/ABC123/join", "JOIN_BY_IP"],

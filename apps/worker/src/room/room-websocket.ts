@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const MAX_CLIENT_MESSAGE_BYTES = 16 * 1024;
+export const OVERLOAD_CLOSE_CODE = 1013;
+export const OVERLOAD_CLOSE_REASON = "Room connection is busy";
 export const CONNECTION_TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
 export const RoomSocketAttachmentSchema = z

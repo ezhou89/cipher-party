@@ -61,6 +61,26 @@ const expectedConfig = {
       namespace_id: "2026090705",
       simple: { limit: 240, period: 60 },
     },
+    {
+      name: "CONNECT_BY_IP",
+      namespace_id: "2026091101",
+      simple: { limit: 120, period: 60 },
+    },
+    {
+      name: "CONNECT_BY_ROOM",
+      namespace_id: "2026091102",
+      simple: { limit: 240, period: 60 },
+    },
+    {
+      name: "COMMAND_BY_SEAT",
+      namespace_id: "2026091103",
+      simple: { limit: 30, period: 10 },
+    },
+    {
+      name: "COMMAND_BY_ROOM",
+      namespace_id: "2026091104",
+      simple: { limit: 120, period: 10 },
+    },
   ],
 };
 

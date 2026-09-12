@@ -10,6 +10,7 @@ import {
   runInDurableObject,
 } from "cloudflare:test";
 import { parse } from "jsonc-parser";
+import { hashToken } from "../src/auth/token";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import developmentConfigSource from "../wrangler.dev.jsonc?raw";
@@ -199,6 +200,87 @@ describe("Cloudflare Durable Object configuration", () => {
 });
 
 describe("PersistentRoomController failure atomicity", () => {
+  it("keeps each concurrent dispatch outcome tied to its own committed mutation", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(roomInitialization("BUDG01"));
+    const mutation = envelope(0, { type: "lock_room", locked: true });
+    const [accepted, replay, unauthorized] = await Promise.all([
+      controller.dispatchWithOutcome(hostActor(), mutation),
+      controller.dispatchWithOutcome(hostActor(), mutation),
+      controller.dispatchWithOutcome(
+        { playerId: "host", hostAuthority: false },
+        envelope(1, { type: "lock_room", locked: false }),
+      ),
+    ]);
+    expect(accepted).toEqual({
+      changed: true,
+      result: { ok: true, revision: 1 },
+    });
+    expect(replay).toEqual({ changed: false, result: accepted.result });
+    expect(unauthorized).toMatchObject({
+      changed: false,
+      result: { ok: false, code: "unauthorized" },
+    });
+    storage.rejectWrites = true;
+    expect(
+      await controller.dispatchWithOutcome(
+        hostActor(),
+        envelope(1, { type: "lock_room", locked: false }),
+      ),
+    ).toMatchObject({
+      changed: false,
+      result: { ok: false, code: "storage_failed" },
+    });
+    expect(controller.getSnapshot()?.locked).toBe(true);
+  });
+
+  it("caps room tickets without rejecting older excess snapshots and recovers after expiry", async () => {
+    const storage = new FakeRoomStorage();
+    const now = INITIALIZED_AT.getTime();
+    const state = roomInitialization("BUDG02");
+    state.seats[0]!.seatTokenHash = await hashToken("known-seat");
+    state.connectionTickets = Array.from({ length: 257 }, (_, index) => ({
+      ticketHash: `legacy-hash-${index}`,
+      playerId: "legacy-player",
+      hostAuthority: false,
+      expiresAt: now + 60_000,
+    }));
+    storage.snapshot = state;
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.load();
+    const before = controller.getSnapshot();
+    expect(
+      await controller.issueTicket({
+        seatToken: "known-seat",
+        hostToken: null,
+        now,
+      }),
+    ).toEqual({ ok: false, code: "rate_limited" });
+    expect(controller.getSnapshot()).toEqual(before);
+    expect(storage.writes).toHaveLength(0);
+    expect(
+      await controller.issueTicket({
+        seatToken: "incorrect-seat",
+        hostToken: null,
+        now,
+      }),
+    ).toEqual({ ok: false, code: "unauthorized" });
+    const issued = await controller.issueTicket({
+      seatToken: "known-seat",
+      hostToken: null,
+      now: now + 60_000,
+    });
+    expect(issued.ok).toBe(true);
+    expect(controller.getSnapshot()?.connectionTickets).toHaveLength(1);
+  });
+
   it("persists initialization before exposing a trusted defensive snapshot", async () => {
     const storage = new FakeRoomStorage();
     const initializedAt = new Date(INITIALIZED_AT.getTime() + 60 * 60 * 1000);

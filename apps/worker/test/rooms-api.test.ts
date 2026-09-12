@@ -942,6 +942,37 @@ describe("trusted seat mutation persistence", () => {
   });
 });
 
+describe("outstanding ticket budgets", () => {
+  it("returns recoverable throttling after eight tickets without changing existing tickets or activity", async () => {
+    const created = await createRoom();
+    const tickets = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        issueTicket(created.body.code, created.body.seatToken),
+      ),
+    );
+    const before = await room(created.body.code).getSnapshot();
+    const response = await request(`/api/rooms/${created.body.code}/tickets`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${created.body.seatToken}` },
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(await response.json()).toMatchObject({
+      error: { code: "rate_limited" },
+    });
+    expect(await room(created.body.code).getSnapshot()).toEqual(before);
+    const first = tickets[0]!.body;
+    expect(
+      (
+        await room(created.body.code).consumeTicket({
+          ticket: first.ticket,
+          now: first.expiresAt - 1,
+        })
+      ).ok,
+    ).toBe(true);
+  });
+});
+
 describe("Worker routing compatibility", () => {
   it("preserves health and static fallback behavior", async () => {
     const health = await request("/api/health");

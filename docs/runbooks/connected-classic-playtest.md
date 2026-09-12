@@ -156,16 +156,22 @@ pnpm run deploy:staging
 
 Both commands run local TypeScript/Vite builds and the staging Wrangler configuration through the current Node executable. Live deployment requires a clean committed worktree, checks the source again after building, and records `source:FULL_SOURCE_SHA` as version metadata. A dry run permits uncommitted work and labels it `dirty dry run`; it uploads nothing. `pnpm run check:staging` defaults to HEAD and the recorded ROOMS namespace; its explicit expected inputs above are preferred when handing a deployment to a facilitator. Neither command changes the apex. The historical version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuity/rollback reference, not evidence of the integrated build. Any rollback is a separate operator decision requiring fresh attestation; the historical build lacks these staging safeguards.
 
-Staging uses Cloudflare's current rate-limit bindings; no R2, AI, extra database, or paid service is activated. These budgets apply to attempts before any room lookup or mutation:
+The staged source configures Cloudflare rate-limit bindings; this table is source policy, not evidence that a version was deployed. No R2, AI, extra database, or paid service is activated. HTTP admission budgets apply after syntax validation and before room lookup or mutation:
 
-| Binding        | Namespace ID | Budget per 60 seconds | Key scope                  |
-| -------------- | ------------ | --------------------- | -------------------------- |
-| CREATE_BY_IP   | 2026090701   | 10                    | Trusted client IP          |
-| JOIN_BY_IP     | 2026090702   | 60                    | Trusted client IP / misses |
-| JOIN_BY_ROOM   | 2026090703   | 120                   | Normalized room code       |
-| TICKET_BY_IP   | 2026090704   | 120                   | Trusted client IP          |
-| TICKET_BY_ROOM | 2026090705   | 240                   | Normalized room code       |
+| Binding         | Namespace ID | Budget per 60 seconds | Key scope                  |
+| --------------- | ------------ | --------------------- | -------------------------- |
+| CREATE_BY_IP    | 2026090701   | 10                    | Trusted client IP          |
+| JOIN_BY_IP      | 2026090702   | 60                    | Trusted client IP / misses |
+| JOIN_BY_ROOM    | 2026090703   | 120                   | Normalized room code       |
+| TICKET_BY_IP    | 2026090704   | 120                   | Trusted client IP          |
+| TICKET_BY_ROOM  | 2026090705   | 240                   | Normalized room code       |
+| CONNECT_BY_IP   | 2026091101   | 120                   | Trusted client IP          |
+| CONNECT_BY_ROOM | 2026091102   | 240                   | Normalized room code       |
 
 These IDs are reserved for this app in the account. Keys contain an app/origin/purpose prefix and a SHA-256 digest of the trusted `CF-Connecting-IP` or normalized room code; aliases share the same room counter. IPs, keys, and credentials are not logged. All applicable counters are awaited; denial returns friendly `429` with `Retry-After: 60` and `Cache-Control: no-store`. Missing IP/bindings or limiter errors fail closed on HTTPS staging. Local HTTP configurations omit the staging bindings so automated multi-browser runs do not share these small budgets.
+
+Every attached open-socket frame also consumes `COMMAND_BY_SEAT` (namespace `2026091103`, 30 frames per 10 seconds) and `COMMAND_BY_ROOM` (`2026091104`, 120 frames per 10 seconds) before encoding, parsing, or dispatch, including malformed, rejected, and replayed commands. Their distinct-purpose keys hash origin/room/player identity; all tabs for one seat and rehydrated objects share the same native budget. Both counters settle on denial or failure. HTTPS missing/error/denial closes that socket with retryable code `1013` and the fixed public reason `Room connection is busy`; `1008` remains terminal. No counters enter attachments or room snapshots.
+
+Room admission permits at most four attached sockets per seat and 64 per room, including closing sockets until runtime detachment. Capacity rejection occurs before accept without evicting existing sockets, returns the existing `429 rate_limited` response with `Retry-After: 60`, and may safely consume the one-use ticket first. Outstanding unexpired tickets are capped at eight per seat and 256 per room; authenticated excess issuance uses the same response without extending room activity or deleting unexpired tickets. Older persisted excess tickets expire normally. Only accepted revision-changing commands broadcast projections; failed and replayed commands resynchronize their sender alone.
 
 Cloudflare counters are local to each location and eventually consistent, so these are bounded abuse controls, not exact global accounting. Shared NAT/mobile IPs share an IP budget; wait a minute after a 429. Routing all assets through the Worker counts those requests toward the account's existing Worker invocation allowance. [Cloudflare rate-limit documentation](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) describes counter locality and accuracy; [asset billing documentation](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) describes Worker-first billing. No plan change or payment authorization is part of this workflow.
