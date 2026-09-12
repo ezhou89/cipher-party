@@ -311,6 +311,24 @@ describe("createClassicBoard", () => {
     },
   );
 
+  it.each([
+    [2, "green"],
+    [2, "yellow"],
+    [3, "yellow"],
+  ] as const)(
+    "rejects an unconfigured starter for a %d-team board (%s)",
+    (teamCount, startingTeam) => {
+      expect(() =>
+        createClassicBoard({
+          cards,
+          seed: "invalid-starting-team",
+          startingTeam,
+          teamCount,
+        }),
+      ).toThrow("Classic board starting team must be configured");
+    },
+  );
+
   it.each([2, 3, 4] as const)(
     "returns isolated configured-team metadata for %d teams",
     (teamCount: TeamCount) => {

@@ -39,6 +39,9 @@ export function createClassicBoard(input: {
   if (cardIds.size !== input.cards.length) {
     throw new Error("Classic board requires unique card IDs");
   }
+  if (!teams.includes(input.startingTeam)) {
+    throw new Error("Classic board starting team must be configured");
+  }
 
   const selectedCards = shuffled(
     input.cards,
