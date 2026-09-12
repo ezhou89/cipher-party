@@ -14,6 +14,10 @@ const validEnvelope = (command: unknown) => ({
 });
 
 describe("CommandEnvelopeSchema", () => {
+  it("uses protocol version 2", () => {
+    expect(PROTOCOL_VERSION).toBe(2);
+  });
+
   it("accepts a valid submit clue command", () => {
     expect(
       CommandEnvelopeSchema.parse(
@@ -83,7 +87,10 @@ describe("CommandEnvelopeSchema", () => {
 
   it.each([
     { type: "randomize_teams" },
+    { type: "set_team_count", teamCount: 4 },
     { type: "assign_seat", playerId: "player-1", teamId: "red" },
+    { type: "assign_seat", playerId: "player-2", teamId: "green" },
+    { type: "assign_seat", playerId: "player-3", teamId: "yellow" },
     { type: "set_role", playerId: "player-1", role: "operative" },
     { type: "lock_room", locked: true },
     { type: "start_board" },
@@ -98,6 +105,24 @@ describe("CommandEnvelopeSchema", () => {
     { type: "resume_room" },
   ])("accepts command variant %#", (command) => {
     expect(ClientCommandSchema.safeParse(command).success).toBe(true);
+  });
+
+  it.each([2, 3, 4])("accepts supported team count: %s", (teamCount) => {
+    expect(
+      ClientCommandSchema.safeParse({
+        type: "set_team_count",
+        teamCount,
+      }).success,
+    ).toBe(true);
+  });
+
+  it.each([1, 5, 2.5])("rejects unsupported team count: %s", (teamCount) => {
+    expect(
+      ClientCommandSchema.safeParse({
+        type: "set_team_count",
+        teamCount,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects unknown envelope fields", () => {

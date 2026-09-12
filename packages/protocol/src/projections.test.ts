@@ -3,6 +3,7 @@ import type {
   ClassicGameState,
   PlayPhase,
   SeatRole,
+  TeamCount,
   TeamId,
 } from "@cipher-party/game-core";
 import { describe, expect, it } from "vitest";
@@ -32,7 +33,17 @@ const allFalsePermissions = {
 function gameState(
   phase: PlayPhase = "clue",
   overrides: Partial<ClassicGameState> = {},
+  teamCount: TeamCount = 2,
 ): ClassicGameState {
+  const boardSpecs = {
+    2: { rows: 5 as const, columns: 5 as const, cardCount: 25 },
+    3: { rows: 5 as const, columns: 6 as const, cardCount: 30 },
+    4: { rows: 6 as const, columns: 6 as const, cardCount: 36 },
+  };
+  const configuredTeams = ["red", "blue", "green", "yellow"].slice(
+    0,
+    teamCount,
+  ) as TeamId[];
   const cards: Record<string, BoardCard> = Object.create(null);
   cards["red-1"] = {
     id: "red-1",
@@ -70,27 +81,44 @@ function gameState(
     owner: "blue",
     revealed: false,
   };
+  const order = [
+    "red-1",
+    "blue-1",
+    "neutral-1",
+    "hazard-1",
+    "__proto__",
+    "constructor",
+  ];
+  for (
+    let index = order.length;
+    index < boardSpecs[teamCount].cardCount;
+    index += 1
+  ) {
+    const id = `filler-${index}`;
+    const teamOwner = configuredTeams[index % configuredTeams.length]!;
+    cards[id] = {
+      id,
+      label: `Filler ${index}`,
+      owner: index % 3 === 0 ? teamOwner : "neutral",
+      revealed: false,
+    };
+    order.push(id);
+  }
 
   return {
     board: {
-      teamCount: 2,
-      configuredTeams: ["red", "blue"],
-      rows: 5,
-      columns: 5,
-      order: [
-        "red-1",
-        "blue-1",
-        "neutral-1",
-        "hazard-1",
-        "__proto__",
-        "constructor",
-      ],
+      teamCount,
+      configuredTeams,
+      rows: boardSpecs[teamCount].rows,
+      columns: boardSpecs[teamCount].columns,
+      order,
       cards,
       startingTeam: "red",
     },
     phase,
     resumePhase: null,
     activeTeam: "red",
+    eliminatedTeams: [],
     clue: phase === "clue" ? null : { word: "ember", count: 2 },
     guessesRemaining: phase === "clue" ? 0 : 3,
     nomination: null,
@@ -107,6 +135,8 @@ function roomSource(input?: {
   game?: ClassicGameState | null;
   publicHistory?: PublicHistoryEntry[];
   protocolVersion?: number;
+  teamCount?: TeamCount;
+  configuredTeams?: TeamId[];
 }): RoomProjectionSource {
   const viewer: ViewerContext = {
     playerId: "viewer",
@@ -116,13 +146,22 @@ function roomSource(input?: {
     ...input?.viewer,
   };
 
+  const game = input?.game === undefined ? gameState() : input.game;
+  const teamCount = input?.teamCount ?? game?.board.teamCount ?? 2;
+  const configuredTeams =
+    input?.configuredTeams ??
+    game?.board.configuredTeams ??
+    (["red", "blue", "green", "yellow"].slice(0, teamCount) as TeamId[]);
+
   return {
-    protocolVersion: input?.protocolVersion ?? 1,
+    protocolVersion: input?.protocolVersion ?? 2,
     code: "ABC123",
     inviteUrl: "https://cipher.example/room/ABC123",
     revision: 42,
     roomPhase: input?.roomPhase ?? "playing",
     locked: true,
+    teamCount,
+    configuredTeams,
     seats: [
       {
         playerId: viewer.playerId,
@@ -149,7 +188,7 @@ function roomSource(input?: {
         owner: "red",
       },
     ],
-    game: input?.game === undefined ? gameState() : input.game,
+    game,
   };
 }
 
@@ -188,6 +227,50 @@ function projectionFor(input: {
 }
 
 describe("projectRoomForSeat hidden-information boundary", () => {
+  it("projects a four-team board with exact grid and revealed-only team summaries", () => {
+    const context = viewer("operative", "yellow");
+    const game = gameState("guess", { eliminatedTeams: ["green"] }, 4);
+    const fourTeamOperativeProjection = projectRoomForSeat(
+      roomSource({ viewer: context, game }),
+      context,
+    );
+
+    expect(fourTeamOperativeProjection).toMatchObject({
+      protocolVersion: 2,
+      teamCount: 4,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+      board: {
+        rows: 6,
+        columns: 6,
+        configuredTeams: ["red", "blue", "green", "yellow"],
+        eliminatedTeams: ["green"],
+        teamSummaries: [
+          { teamId: "red", revealedTargets: 1, eliminated: false },
+          { teamId: "blue", revealedTargets: 0, eliminated: false },
+          { teamId: "green", revealedTargets: 0, eliminated: true },
+          { teamId: "yellow", revealedTargets: 0, eliminated: false },
+        ],
+      },
+    });
+    expect(
+      ClientProjectionSchema.safeParse(fourTeamOperativeProjection).success,
+    ).toBe(true);
+    expect(
+      ClientProjectionSchema.safeParse({
+        ...fourTeamOperativeProjection,
+        board: {
+          ...fourTeamOperativeProjection.board,
+          teamSummaries: fourTeamOperativeProjection.board!.teamSummaries.map(
+            (summary) =>
+              summary.teamId === "red"
+                ? { ...summary, targetTotal: 8 }
+                : summary,
+          ),
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it.each([
     { role: "operative" as const, teamId: "red" as const, isHost: false },
     { role: "spectator" as const, teamId: null, isHost: false },
@@ -345,7 +428,7 @@ describe("projectRoomForSeat hidden-information boundary", () => {
   it("rejects an unsupported source protocol version instead of relabeling it", () => {
     expect(() =>
       projectRoomForSeat(
-        roomSource({ protocolVersion: 2 }),
+        roomSource({ protocolVersion: 1 }),
         viewer("operative", "red"),
       ),
     ).toThrow(/protocol version/i);
@@ -526,6 +609,31 @@ describe("projection permission derivation", () => {
 
 describe("ClientProjectionSchema", () => {
   it.each([
+    { teamCount: 2 as const, rows: 5, columns: 5, cardCount: 25 },
+    { teamCount: 3 as const, rows: 5, columns: 6, cardCount: 30 },
+    { teamCount: 4 as const, rows: 6, columns: 6, cardCount: 36 },
+  ])(
+    "accepts the exact $teamCount-team board dimensions",
+    ({ teamCount, rows, columns, cardCount }) => {
+      const context = viewer("clue-giver", "red");
+      const projection = projectRoomForSeat(
+        roomSource({ viewer: context, game: gameState("clue", {}, teamCount) }),
+        context,
+      );
+
+      expect(projection.board).toMatchObject({ rows, columns });
+      expect(projection.board?.order).toHaveLength(cardCount);
+      expect(projection.board?.cards).toHaveLength(cardCount);
+      expect(projection.viewRole).toBe("clue-giver");
+      if (projection.viewRole !== "clue-giver") {
+        throw new Error("expected clue-giver projection");
+      }
+      expect(Object.keys(projection.key)).toEqual(projection.board?.order);
+      expect(ClientProjectionSchema.safeParse(projection).success).toBe(true);
+    },
+  );
+
+  it.each([
     ["unassigned", null, false],
     ["unassigned", null, true],
     ["operative", "red", false],
@@ -580,6 +688,97 @@ describe("ClientProjectionSchema", () => {
     const extra = JSON.parse(JSON.stringify(projection)) as typeof projection;
     extra.key["not-on-board"] = "hazard";
     expect(ClientProjectionSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it.each([
+    { field: "rows", value: 6 },
+    { field: "columns", value: 6 },
+  ])("rejects a 2-team board with an invalid $field", ({ field, value }) => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const candidate = JSON.parse(JSON.stringify(projection)) as {
+      board: Record<string, unknown>;
+    };
+    candidate.board[field] = value;
+
+    expect(ClientProjectionSchema.safeParse(candidate).success).toBe(false);
+  });
+
+  it("rejects board card collections that do not exactly match the grid order", () => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const missingOrderCard = JSON.parse(JSON.stringify(projection)) as {
+      board: { order: string[] };
+    };
+    missingOrderCard.board.order.pop();
+    expect(ClientProjectionSchema.safeParse(missingOrderCard).success).toBe(
+      false,
+    );
+
+    const mismatchedCard = JSON.parse(JSON.stringify(projection)) as {
+      board: { cards: Array<{ id: string }> };
+    };
+    mismatchedCard.board.cards[0]!.id = "not-in-order";
+    expect(ClientProjectionSchema.safeParse(mismatchedCard).success).toBe(
+      false,
+    );
+  });
+
+  it("requires configured teams and summaries to exactly match team count", () => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const missingSummary = JSON.parse(JSON.stringify(projection)) as {
+      board: { teamSummaries: unknown[] };
+    };
+    missingSummary.board.teamSummaries.pop();
+    expect(ClientProjectionSchema.safeParse(missingSummary).success).toBe(
+      false,
+    );
+
+    const wrongConfiguredTeams = JSON.parse(JSON.stringify(projection)) as {
+      configuredTeams: string[];
+    };
+    wrongConfiguredTeams.configuredTeams = ["red", "green"];
+    expect(ClientProjectionSchema.safeParse(wrongConfiguredTeams).success).toBe(
+      false,
+    );
+
+    const wrongBoardTeams = JSON.parse(JSON.stringify(projection)) as {
+      board: { configuredTeams: string[] };
+    };
+    wrongBoardTeams.board.configuredTeams = ["red", "green"];
+    expect(ClientProjectionSchema.safeParse(wrongBoardTeams).success).toBe(
+      false,
+    );
+  });
+
+  it("requires eliminated teams to be unique configured teams", () => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const duplicated = JSON.parse(JSON.stringify(projection)) as {
+      board: { eliminatedTeams: string[] };
+    };
+    duplicated.board.eliminatedTeams = ["red", "red"];
+    expect(ClientProjectionSchema.safeParse(duplicated).success).toBe(false);
+
+    const unconfigured = JSON.parse(JSON.stringify(projection)) as {
+      board: { eliminatedTeams: string[] };
+    };
+    unconfigured.board.eliminatedTeams = ["green"];
+    expect(ClientProjectionSchema.safeParse(unconfigured).success).toBe(false);
+  });
+
+  it("requires team summaries to match revealed target counts and elimination state", () => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const wrongCount = JSON.parse(JSON.stringify(projection)) as {
+      board: { teamSummaries: Array<{ revealedTargets: number }> };
+    };
+    wrongCount.board.teamSummaries[0]!.revealedTargets = 0;
+    expect(ClientProjectionSchema.safeParse(wrongCount).success).toBe(false);
+
+    const wrongElimination = JSON.parse(JSON.stringify(projection)) as {
+      board: { teamSummaries: Array<{ eliminated: boolean }> };
+    };
+    wrongElimination.board.teamSummaries[0]!.eliminated = true;
+    expect(ClientProjectionSchema.safeParse(wrongElimination).success).toBe(
+      false,
+    );
   });
 
   it("rejects ownership on an unrevealed public card and requires it when revealed", () => {
@@ -701,4 +900,50 @@ describe("ClientProjectionSchema", () => {
       expect(ClientProjectionSchema.safeParse(candidate).success).toBe(false);
     },
   );
+
+  it("accepts hazard elimination history metadata and preserves it in projection", () => {
+    const entry: PublicHistoryEntry = {
+      revision: 4,
+      at: "2026-08-30T17:03:00.000Z",
+      type: "card_revealed",
+      teamId: "red",
+      cardId: "hazard-1",
+      owner: "hazard",
+      eliminatedTeam: "red",
+    };
+    const projection = projectRoomForSeat(
+      roomSource({ publicHistory: [entry] }),
+      viewer("operative", "red"),
+    );
+
+    expect(projection.publicHistory).toEqual([entry]);
+    expect(ClientProjectionSchema.safeParse(projection).success).toBe(true);
+  });
+
+  it("rejects elimination history metadata for a non-hazard reveal", () => {
+    const projection = projectionFor({ role: "operative", teamId: "red" });
+    const candidate = JSON.parse(JSON.stringify(projection)) as {
+      publicHistory: Array<Record<string, unknown>>;
+    };
+    candidate.publicHistory[0]!.eliminatedTeam = "red";
+
+    expect(ClientProjectionSchema.safeParse(candidate).success).toBe(false);
+  });
+
+  it("accepts a hazard reveal without elimination history metadata", () => {
+    const entry: PublicHistoryEntry = {
+      revision: 4,
+      at: "2026-08-30T17:03:00.000Z",
+      type: "card_revealed",
+      teamId: "red",
+      cardId: "hazard-1",
+      owner: "hazard",
+    };
+    const projection = projectRoomForSeat(
+      roomSource({ publicHistory: [entry] }),
+      viewer("operative", "red"),
+    );
+
+    expect(ClientProjectionSchema.safeParse(projection).success).toBe(true);
+  });
 });

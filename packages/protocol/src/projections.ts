@@ -5,11 +5,13 @@ import type {
   PlayerId,
   PlayPhase,
   SeatRole,
+  TeamCount,
   TeamId,
 } from "@cipher-party/game-core";
+import { TEAM_IDS } from "@cipher-party/game-core";
 import { z } from "zod";
 
-import { PROTOCOL_VERSION } from "./commands";
+import { PROTOCOL_VERSION, TeamCountSchema, TeamIdSchema } from "./commands";
 
 export interface SeatSummary {
   playerId: PlayerId;
@@ -47,6 +49,7 @@ export type PublicHistoryEntry =
       teamId: TeamId;
       cardId: CardId;
       owner: Ownership;
+      eliminatedTeam?: TeamId;
     }
   | {
       revision: number;
@@ -67,6 +70,8 @@ export interface RoomProjectionSource {
   revision: number;
   roomPhase: "lobby" | "playing" | "complete";
   locked: boolean;
+  teamCount: TeamCount;
+  configuredTeams: TeamId[];
   seats: SeatSummary[];
   publicHistory: PublicHistoryEntry[];
   game: ClassicGameState | null;
@@ -102,6 +107,11 @@ export interface ProjectionPermissions {
 }
 
 export interface PublicBoard {
+  rows: 5 | 6;
+  columns: 5 | 6;
+  configuredTeams: TeamId[];
+  eliminatedTeams: TeamId[];
+  teamSummaries: PublicTeamSummary[];
   order: CardId[];
   cards: PublicCard[];
   activeTeam: TeamId;
@@ -113,13 +123,21 @@ export interface PublicBoard {
   completionReason: "targets" | "hazard" | null;
 }
 
+export interface PublicTeamSummary {
+  teamId: TeamId;
+  revealedTargets: number;
+  eliminated: boolean;
+}
+
 export interface ProjectionBase {
-  protocolVersion: 1;
+  protocolVersion: 2;
   revision: number;
   code: string;
   inviteUrl: string;
   roomPhase: "lobby" | "playing" | "complete";
   locked: boolean;
+  teamCount: TeamCount;
+  configuredTeams: TeamId[];
   viewer: ViewerContext;
   permissions: ProjectionPermissions;
   seats: SeatSummary[];
@@ -155,14 +173,13 @@ export type ClientProjection =
   | ClueGiverProjection
   | SpectatorProjection;
 
-const TeamIdSchema = z.enum(["red", "blue"]);
 const SeatRoleSchema = z.enum([
   "unassigned",
   "clue-giver",
   "operative",
   "spectator",
 ]);
-const OwnershipSchema = z.enum(["red", "blue", "neutral", "hazard"]);
+const OwnershipSchema = z.enum([...TEAM_IDS, "neutral", "hazard"]);
 const PlayPhaseSchema = z.enum([
   "clue",
   "guess",
@@ -240,8 +257,18 @@ const PublicHistoryEntrySchema = z.discriminatedUnion("type", [
       teamId: TeamIdSchema,
       cardId: z.string(),
       owner: OwnershipSchema,
+      eliminatedTeam: TeamIdSchema.optional(),
     })
-    .strict(),
+    .strict()
+    .superRefine((entry, context) => {
+      if (entry.eliminatedTeam !== undefined && entry.owner !== "hazard") {
+        context.addIssue({
+          code: "custom",
+          path: ["eliminatedTeam"],
+          message: "Only hazard reveals may eliminate a team",
+        });
+      }
+    }),
   z
     .object({
       revision: z.number().int().nonnegative(),
@@ -294,8 +321,21 @@ const PublicNominationSchema = z
   .object({ playerId: z.string(), cardId: z.string() })
   .strict();
 
+const PublicTeamSummarySchema = z
+  .object({
+    teamId: TeamIdSchema,
+    revealedTargets: z.number().int().nonnegative(),
+    eliminated: z.boolean(),
+  })
+  .strict();
+
 const PublicBoardSchema = z
   .object({
+    rows: z.union([z.literal(5), z.literal(6)]),
+    columns: z.union([z.literal(5), z.literal(6)]),
+    configuredTeams: z.array(TeamIdSchema),
+    eliminatedTeams: z.array(TeamIdSchema),
+    teamSummaries: z.array(PublicTeamSummarySchema),
     order: z.array(z.string()),
     cards: z.array(PublicCardSchema),
     activeTeam: TeamIdSchema,
@@ -336,6 +376,8 @@ const projectionBaseShape = {
   inviteUrl: z.string(),
   roomPhase: z.enum(["lobby", "playing", "complete"]),
   locked: z.boolean(),
+  teamCount: TeamCountSchema,
+  configuredTeams: z.array(TeamIdSchema),
   viewer: ViewerContextSchema,
   permissions: ProjectionPermissionsSchema,
   seats: z.array(SeatSummarySchema),
@@ -368,23 +410,142 @@ export const ClientProjectionSchema = z
     SpectatorProjectionSchema,
   ])
   .superRefine((projection, context) => {
-    if (projection.viewRole !== "clue-giver") {
-      return;
+    const expectedTeams = TEAM_IDS.slice(0, projection.teamCount);
+    if (!arraysEqual(projection.configuredTeams, expectedTeams)) {
+      context.addIssue({
+        code: "custom",
+        path: ["configuredTeams"],
+        message: "Configured teams must exactly match the team count",
+      });
     }
 
-    const boardCardIds = new Set(projection.board?.order ?? []);
-    const keyCardIds = Object.keys(projection.key);
+    const board = projection.board;
+    if (board !== null) {
+      validatePublicBoard(projection.teamCount, expectedTeams, board, context);
+    }
+
+    if (projection.viewRole === "clue-giver") {
+      const boardCardIds = new Set(board?.order ?? []);
+      const keyCardIds = Object.keys(projection.key);
+      if (
+        keyCardIds.length !== boardCardIds.size ||
+        keyCardIds.some((cardId) => !boardCardIds.has(cardId))
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["key"],
+          message: "Clue-giver key must exactly cover the current board",
+        });
+      }
+    }
+  });
+
+const BOARD_DIMENSIONS: Record<
+  TeamCount,
+  { rows: 5 | 6; columns: 5 | 6; cardCount: 25 | 30 | 36 }
+> = {
+  2: { rows: 5, columns: 5, cardCount: 25 },
+  3: { rows: 5, columns: 6, cardCount: 30 },
+  4: { rows: 6, columns: 6, cardCount: 36 },
+};
+
+function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function validatePublicBoard(
+  teamCount: TeamCount,
+  expectedTeams: readonly TeamId[],
+  board: PublicBoard,
+  context: z.RefinementCtx,
+): void {
+  const dimensions = BOARD_DIMENSIONS[teamCount];
+  if (
+    board.rows !== dimensions.rows ||
+    board.columns !== dimensions.columns ||
+    board.order.length !== dimensions.cardCount ||
+    board.cards.length !== dimensions.cardCount
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["board"],
+      message: "Board dimensions must match the configured team count",
+    });
+  }
+
+  if (!arraysEqual(board.configuredTeams, expectedTeams)) {
+    context.addIssue({
+      code: "custom",
+      path: ["board", "configuredTeams"],
+      message: "Board teams must match the projection teams",
+    });
+  }
+
+  const orderIds = new Set(board.order);
+  const cardIds = new Set(board.cards.map((card) => card.id));
+  if (
+    orderIds.size !== board.order.length ||
+    cardIds.size !== board.cards.length ||
+    !arraysEqual([...cardIds].sort(), [...orderIds].sort())
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["board", "cards"],
+      message: "Public cards must exactly cover the board order",
+    });
+  }
+
+  const eliminatedTeams = new Set(board.eliminatedTeams);
+  if (
+    eliminatedTeams.size !== board.eliminatedTeams.length ||
+    board.eliminatedTeams.some((teamId) => !expectedTeams.includes(teamId))
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["board", "eliminatedTeams"],
+      message: "Eliminated teams must be unique configured teams",
+    });
+  }
+
+  const summaries = new Map(
+    board.teamSummaries.map((summary) => [summary.teamId, summary]),
+  );
+  if (
+    summaries.size !== board.teamSummaries.length ||
+    !arraysEqual(
+      board.teamSummaries.map((summary) => summary.teamId),
+      expectedTeams,
+    )
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["board", "teamSummaries"],
+      message: "Team summaries must exactly cover configured teams in order",
+    });
+  }
+
+  for (const teamId of expectedTeams) {
+    const summary = summaries.get(teamId);
+    const revealedTargets = board.cards.filter(
+      (card) => card.revealed && card.owner === teamId,
+    ).length;
     if (
-      keyCardIds.length !== boardCardIds.size ||
-      keyCardIds.some((cardId) => !boardCardIds.has(cardId))
+      summary === undefined ||
+      summary.revealedTargets !== revealedTargets ||
+      summary.eliminated !== eliminatedTeams.has(teamId)
     ) {
       context.addIssue({
         code: "custom",
-        path: ["key"],
-        message: "Clue-giver key must exactly cover the current board",
+        path: ["board", "teamSummaries"],
+        message: "Team summaries must contain only current public board facts",
       });
+      break;
     }
-  });
+  }
+}
 
 function copyViewer(viewer: ViewerContext): ViewerContext {
   return {
@@ -438,6 +599,9 @@ function copyHistoryEntry(entry: PublicHistoryEntry): PublicHistoryEntry {
         teamId: entry.teamId,
         cardId: entry.cardId,
         owner: entry.owner,
+        ...(entry.eliminatedTeam === undefined
+          ? {}
+          : { eliminatedTeam: entry.eliminatedTeam }),
       };
     case "turn_ended":
       return {
@@ -529,6 +693,17 @@ function publicBoard(game: ClassicGameState | null): PublicBoard | null {
   });
 
   return {
+    rows: game.board.rows,
+    columns: game.board.columns,
+    configuredTeams: [...game.board.configuredTeams],
+    eliminatedTeams: [...game.eliminatedTeams],
+    teamSummaries: game.board.configuredTeams.map((teamId) => ({
+      teamId,
+      revealedTargets: cards.filter(
+        (card) => card.revealed && card.owner === teamId,
+      ).length,
+      eliminated: game.eliminatedTeams.includes(teamId),
+    })),
     order,
     cards,
     activeTeam: game.activeTeam,
@@ -555,12 +730,14 @@ function projectionBase(
   viewer: ViewerContext,
 ): ProjectionBase {
   return {
-    protocolVersion: 1,
+    protocolVersion: PROTOCOL_VERSION,
     revision: source.revision,
     code: source.code,
     inviteUrl: source.inviteUrl,
     roomPhase: source.roomPhase,
     locked: source.locked,
+    teamCount: source.teamCount,
+    configuredTeams: [...source.configuredTeams],
     viewer: copyViewer(viewer),
     permissions: permissionsFor(source, viewer),
     seats: source.seats.map(copySeat),

@@ -18,12 +18,14 @@ const permissions = {
 
 function operativeProjection() {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     revision: 5,
     code: "ABC123",
     inviteUrl: "https://cipher.example/room/ABC123",
     roomPhase: "lobby",
     locked: false,
+    teamCount: 4,
+    configuredTeams: ["red", "blue", "green", "yellow"],
     viewRole: "operative",
     viewer: {
       playerId: "operative",
@@ -89,7 +91,7 @@ describe("ServerMessageSchema", () => {
   it("aliases the strict command envelope schema for client messages", async () => {
     const transport = await import("./transport");
     const message = {
-      protocolVersion: 1,
+      protocolVersion: 2,
       commandId: "018f6c2e-6f44-7ef0-8000-000000000001",
       expectedRevision: 5,
       command: { type: "end_turn" },
