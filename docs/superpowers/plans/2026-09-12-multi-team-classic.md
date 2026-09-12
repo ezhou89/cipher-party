@@ -199,7 +199,7 @@ git commit -m "feat: generalize classic boards to four teams"
 - Consumes: `ClassicBoard` team metadata and `TeamId` helpers from Task 1.
 - Produces: `ClassicGameState.eliminatedTeams`, `GameTransitionEvent`, `GameTransition`, `applyGameActionWithEvent(state, action)`, and backward-compatible `applyGameAction(state, action)`.
 
-- [ ] **Step 1: Add failing reducer tests for rotation, challenges, and hazard elimination.**
+- [x] **Step 1: Add failing reducer tests for rotation, challenges, and hazard elimination.**
 
 Add a three-team fixed-board fixture and tests with these exact assertions:
 
@@ -224,7 +224,7 @@ expect(transition.state.winner).toBeNull();
 
 Also add tests for a four-team turn skipping an eliminated team, any non-active active clue-giver challenging, two-team hazard immediate loss, last-team-wins after elimination, target-to-neutral conversion, stale/duplicate card rejection, and no mutation of the input state.
 
-- [ ] **Step 2: Run the focused reducer tests and verify the RED failure.**
+- [x] **Step 2: Run the focused reducer tests and verify the RED failure.**
 
 ```bash
 pnpm --filter @cipher-party/game-core test -- src/reducer.test.ts
@@ -232,7 +232,7 @@ pnpm --filter @cipher-party/game-core test -- src/reducer.test.ts
 
 Expected: failures because state has no elimination list, turn advancement calls `otherTeam`, and hazard always completes the board.
 
-- [ ] **Step 3: Add transition metadata without changing existing callers.**
+- [x] **Step 3: Add transition metadata without changing existing callers.**
 
 Add these exported types and wrapper:
 
@@ -264,11 +264,11 @@ export function applyGameAction(
 
 All non-reveal actions return `event: null`; every accepted reveal returns the authoritative card ID/owner, with `eliminatedTeam` only for a non-two-team hazard.
 
-- [ ] **Step 4: Implement active-team iteration and hazard semantics.**
+- [x] **Step 4: Implement active-team iteration and hazard semantics.**
 
 Replace `otherTeam` with helpers that filter `board.configuredTeams` by `eliminatedTeams`. Ensure `requireOpposingTeam` accepts any non-eliminated team other than `activeTeam`, and `advanceTurn` wraps over the remaining teams. On a multi-team hazard, reveal the hazard, convert only unrevealed cards owned by the active team to neutral, append the team once to `eliminatedTeams`, and either advance to the next remaining team or complete the board for the sole remaining team. Keep two-team hazard loss unchanged.
 
-- [ ] **Step 5: Run reducer, type, and property coverage.**
+- [x] **Step 5: Run reducer, type, and property coverage.**
 
 ```bash
 pnpm --filter @cipher-party/game-core test -- src/reducer.test.ts
@@ -277,7 +277,7 @@ pnpm --filter @cipher-party/game-core typecheck
 
 Add a fast-check property that every non-terminal transition leaves `activeTeam` configured and non-eliminated, and that `eliminatedTeams` remains unique and a subset of configured teams.
 
-- [ ] **Step 6: Commit the reducer slice.**
+- [x] **Step 6: Commit the reducer slice.**
 
 ```bash
 git add packages/game-core/src/reducer.ts packages/game-core/src/reducer.test.ts
