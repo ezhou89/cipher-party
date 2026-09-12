@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 26
+**Snapshot revision:** 27
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke), 2 (terminal/throttled reconnect recovery), and 3 (realtime resource budgets) are implemented and independently reviewed; Task 4 (snapshot compatibility/recovery characterization) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration is complete. Audit hardening Tasks 1 (release hygiene/public smoke), 2 (terminal/throttled reconnect recovery), 3 (realtime resource budgets), and 4 (snapshot compatibility/recovery characterization) are implemented and independently reviewed; Task 5 (measured quality and source-bound release gates) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
 **Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** Hardening Task 4 — validate persisted snapshots and characterize recovery faults. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
+**Next execution:** Hardening Task 5 — establish measured complexity/coverage and source-bound staging release gates. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -65,9 +65,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Hardening Task 3 — `df89864`; independent task review has no open findings. Task 2 remains accepted at `39fb98f`; Task 1 at `680000a`/`b54f048`.
-- **Current task:** Hardening Task 4 — persisted snapshot validation, recovery fault characterization, and bounded reconciliation.
-- **Next task:** Measured quality and source-bound release safeguards, then the two cohesive complexity refactors.
+- **Last accepted task:** Hardening Task 4 — `4edd2ef` plus scoped fix `378bcbec`; independent task re-review has no open findings. Task 3 remains accepted at `df89864`; Task 2 at `39fb98f`; Task 1 at `680000a`/`b54f048`.
+- **Current task:** Hardening Task 5 — measured complexity/coverage and source-bound staging release safeguards.
+- **Next task:** Cohesive game complexity refactors, then final independent review and truthful handoff.
 - **Current blockers:** Hosted CI has no configured repository/provider; local gate work can proceed. Milestone exit requires the real session and resolution of critical findings. **Human playtest: NOT YET RUN.**
 - **Audit baseline:** 377 runtime functions; classic mean 3.43, maximum 36, six above 20, all unchanged by creative integration. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
 
@@ -78,6 +78,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - No hardening deployment, merge, push, or future-milestone feature is authorized by this plan. Hosted CI awaits a repository/provider; four-human acceptance remains pending.
 - Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
 - Task 3 bounds valid upgrades before Durable Object lookup, caps live socket inventory at four per seat/64 per room, caps outstanding unexpired tickets at eight per seat/256 per room, and applies stable purpose-scoped native command budgets (30/10s per seat, 120/10s per room) before frame parsing. Failed/replayed commands resync only their sender; accepted revision changes broadcast. Focused Worker tests passed 129/129; staging fixtures 47/47; `pnpm run check` passed 588 tests; local e2e 48/48; build, preflight 8/8, and diff checks passed. Counters are location-local/eventually consistent, and capacity denial may consume a one-use ticket; no deployment/live smoke occurred.
+- Task 4 validates complete v1 room snapshots before controller use, rejects unsupported/corrupt storage without writing, clearing, migrating, exposing details, or allowing initialization over it, and restores null-prototype card maps. Presence is reconciled from OPEN serialized attachments on load and later room events; repairs preserve `lastActivity`, retry after failed writes, and never run for over-budget or protocol-invalid frames. Focused resilience tests passed 133/133; `pnpm run check` passed 643 tests; local e2e 48/48; diff checks passed. Lost successful join responses still allocate a second seat on retry; retry-safe identity and replacement remain deferred. No deployment/live smoke occurred.
 
 ## Historical integration evidence
 
