@@ -1,10 +1,10 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 20
+**Snapshot revision:** 21
 
 **Last updated:** 2026-09-11
 
-**Project state:** Creative archive, pnpm workflow, arcade presentation, and staging safeguards are integrated and independently task-reviewed on `feature/creative-integration`, based on reviewed `fe264e3`. Whole-branch review and a fresh release gate precede deployment; existing staging still serves the historical build. The four-human playtest remains NOT YET RUN.
+**Project state:** The reviewed integration is deployed to staging from `e780d60`, with source/version/bindings/security/hash attestation passing. Live browser smoke exposed blocked analytics injection and a dynamic-evaluation probe; investigation is underway before the handoff can be called verified. The four-human playtest remains NOT YET RUN.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
@@ -64,7 +64,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - **Last accepted implementation task:** Integration Task 3 — staging hardening and reproducible deployment, `96e381e`; independent review found no Critical/Important code issue.
 - **Current task:** Integration Task 4 — whole-branch review, verified staging update, and human playtest handoff.
 - **Next task:** Four-human Connected Classic exit session, then Milestone 2 planning.
-- **Current blockers:** Fresh controller release verification must pass before deployment. One rerun hit Cloudflare runner-startup timeouts; the focused follow-up passed, but does not replace the full gate. The milestone exit still requires four real humans. **Human playtest: NOT YET RUN.**
+- **Current blockers:** Live public browser smoke reports CSP-related console/request errors despite successful UI checks. Keep the restrictive CSP; investigate Cloudflare analytics injection and the bundled validator's dynamic-evaluation probe. The milestone exit still requires four real humans. **Human playtest: NOT YET RUN.**
 
 ## Current integration evidence
 
@@ -74,7 +74,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - `pnpm install --frozen-lockfile`, `pnpm run check` (439 tests before the additional portability regression), `pnpm run build`, and `pnpm run preflight` (8/8 rows) passed.
 - Review fix: `pnpm exec vitest run scripts/preflight.test.ts` passed 35/35; real preflight passed 8/8 with all seven expiry identities; all three Worker-local schema references resolved; focused lint/format/diff-check passed.
 - The reviewed dependency resolutions remain unchanged under pnpm. Known non-blocking tooling notices: Node DEP0040 and Wrangler's update notice.
-- Current staging is still the historical version below; no integration deployment has occurred. `ROOMS` namespace continuity baseline is `f2766441dfa24d10bef55dd8ee4f5599` (`RoomDurableObject`, migration `v1`).
+- `ROOMS` namespace continuity is verified at `f2766441dfa24d10bef55dd8ee4f5599` (`RoomDurableObject`, migration `v1`).
 
 - Task 2 independently reviewed; the geometry fix addressed its sole Important finding with no new breakage.
 - `pnpm run check:release` passed on `6ffad0f`: 441 repository tests (core 68, protocol 95, web 120, Worker 120, root 38), builds/dry run, 8/8 preflight rows with seven expiry identities, and 36/36 Chromium/WebKit tests.
@@ -82,17 +82,19 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Review fix `8c34a6f` added committed value-free one-line/no-clipping checks for all 25 phone labels. Restoring faulty font/spacing failed both browsers; final styling passed both focused five-client flows (2/2), lint, format, and diff-check.
 - Root `@cipher-party/protocol: workspace:*` devDependency restores existing E2E imports under isolated pnpm; no external resolutions changed. Known test-runner color-environment notice is non-blocking.
 
-- Task 3 independently reviewed at `96e381e`; one minor Windows path assertion and the known upstream tooling notices await final-review triage.
+- Task 3 independently reviewed at `96e381e`; whole-branch review found no Critical/Important issue. Final fix `e780d60` addressed three test/documentation minors and passed scoped re-review; upstream tooling notices are accepted nonblocking.
 - Implementer fresh September 11 `pnpm run check:release` passed 525 repository tests (core 68, protocol 95, web 123, Worker 159, root 80), builds, 8/8 preflight with seven expiry identities, and 36/36 browser tests. `pnpm run deploy:staging --dry-run` passed with the existing room class and five admission limiters; no deployment occurred.
 - Controller rerun passed docs/format/lint/types and core/protocol/web tests, then reported three Cloudflare runner-startup timeouts (67 Worker tests completed). Lingering teardown was interrupted. One focused diagnostic passed all 39 staging tests in 3.70s with clean teardown; the exact startup cause remains unproven. No test settings or dependencies were changed.
-- The read-only live checker authenticated and correctly rejected historical source metadata; this is not a passing live attestation. September 11 authenticated traffic reads still showed the historical version at 100%.
+- Root's unchanged full release rerun on `d6dc022` passed all 525 repository tests, builds, 8/8 preflight with seven expiry identities, and 36/36 browser tests. No startup timeout recurred. Final `e780d60` changed tests/docs only; root reran 42/42 staging script tests, docs/format/diff checks, and a clean-source staging dry run successfully.
+- Tracked deployment of source `e780d60891601e554255fc3608876c188825c9ef` produced Worker version `aa78dd0c-54f5-4ef5-a647-606c1d8e7ab1`. Explicit `check:staging` passed version at 100%, original room namespace, eight bindings, transport/health/headers, and three built HTML/JS/CSS hashes.
+- Live public smoke remains FAILED: desktop/mobile landing and invite UI/viewport checks passed and four screenshots were inspected, but Chromium reported two console/two request errors and WebKit four console errors. No rooms or sockets were created. Diagnostics identified CSP-blocked Cloudflare analytics injection and a lazy `Function` availability probe with a `jitless` guard. Exact remediation is still under investigation; do not allow third-party scripts or unsafe-eval merely to silence errors.
 - Controller independently rechecked all 26 archive/source/manifest checksums and byte lengths on September 11.
 
 ## Historical reviewed baseline
 
 The original milestone plan and Git history retain detailed Task 1–13 implementation/review evidence. Reviewed source is `fe264e3`; its release gate passed 439 repository tests, 36 browser tests, and eight preflight rows before this integration.
 
-Existing staging remains Worker `cipher-party-staging`, version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94`, at `https://staging.oddlyuseful.studio`. Authenticated September 7 reads confirmed one version at 100% traffic, canonical origin, migration `v1`, and the recorded `ROOMS` namespace. The apex was not changed. This is a continuity/rollback reference, not proof that the integrated build is deployed.
+Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuity/rollback reference only. Current staging is the integrated version above at `https://staging.oddlyuseful.studio`. The apex was not changed.
 
 ## Decisions agents must preserve
 
