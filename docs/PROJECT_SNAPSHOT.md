@@ -65,7 +65,7 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Hardening Task 7 — final handoff at `92f77df`; implementation commits remain `db5b18e`, `08b2e358`, `4edd2ef` plus `378bcbec`, `df89864`, `39fb98f`, and `680000a`/`b54f048`.
+- **Last accepted task:** Hardening Task 7 — final handoff at `7746288` (with snapshot/plan completion at `92f77df`); implementation commits remain `db5b18e`, `08b2e358`, `4edd2ef` plus `378bcbec`, `df89864`, `39fb98f`, and `680000a`/`b54f048`.
 - **Current task:** Hardening complete; Connected Classic human acceptance is the next milestone activity.
 - **Next task:** Four-human connected Classic session, after the user separately authorizes any staging deployment/live smoke needed for that session.
 - **Current blockers:** Hosted CI has no configured repository/provider, and the real four-human session has not been run. Milestone exit requires that session and resolution of any critical findings. **Human playtest: NOT YET RUN.**
