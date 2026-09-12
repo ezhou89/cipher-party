@@ -379,7 +379,7 @@ git commit -m "feat: version protocol for multi-team projections"
 
 - [ ] **Step 1: Add failing v1/v2 snapshot tests.**
 
-Add tests that a generated v2 four-team snapshot parses, a v1 two-team fixture parses and normalizes, and invalid dimensions/teams/eliminations/history metadata fail closed:
+Add tests that a generated v2 four-team snapshot parses, a post-hazard v2 snapshot keeps eliminated-team seats as spectators and preserves revealed target ownership, a v1 two-team fixture parses and normalizes, and invalid dimensions/teams/eliminations/history metadata fail closed:
 
 ```ts
 const normalized = parseRoomSnapshot(legacyV1State);
@@ -418,7 +418,7 @@ Keep v1 and v2 Zod schemas separate. The parser first recognizes the version, va
 
 - [ ] **Step 4: Generalize snapshot invariants.**
 
-Validate exact board dimensions/distribution using `classicBoardSpec`, configured/eliminated subsets, active-team/winner coherence, role minimums for every configured team, strict history revisions, and optional hazard metadata. Keep the existing null-prototype card map restoration. Preserve room-level `startingTeam` as a mirror of `game.board.startingTeam` once a board exists.
+Validate exact board dimensions/distribution using `classicBoardSpec`, configured/eliminated subsets, active-team/winner coherence, role minimums for every non-eliminated configured team, and spectator-only seats for eliminated teams. Validate post-hazard ownership against the original board ownership so only unrevealed targets of the eliminated team may have become neutral; revealed target ownership must remain unchanged even when old history entries are absent. Keep the existing null-prototype card map restoration. Preserve room-level `startingTeam` as a mirror of `game.board.startingTeam` once a board exists.
 
 - [ ] **Step 5: Run focused Worker tests and commit.**
 
