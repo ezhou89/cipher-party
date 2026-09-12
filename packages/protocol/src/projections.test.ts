@@ -73,6 +73,10 @@ function gameState(
 
   return {
     board: {
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+      rows: 5,
+      columns: 5,
       order: [
         "red-1",
         "blue-1",

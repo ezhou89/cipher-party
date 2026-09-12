@@ -44,6 +44,10 @@ function fixedBoard(): ClassicBoard {
   }
 
   return {
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
+    rows: 5,
+    columns: 5,
     order: fixtures.map((card) => card.id),
     cards,
     startingTeam: "red",

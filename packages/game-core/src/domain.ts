@@ -1,5 +1,13 @@
-export const TEAM_IDS = ["red", "blue"] as const;
-export type TeamId = (typeof TEAM_IDS)[number];
+import type { TeamId } from "./team-rules";
+
+export {
+  TEAM_COUNTS,
+  TEAM_IDS,
+  chooseStartingTeam,
+  classicBoardSpec,
+  configuredTeams,
+} from "./team-rules";
+export type { ClassicBoardSpec, TeamCount, TeamId } from "./team-rules";
 
 export type PlayerId = string;
 export type CardId = string;
