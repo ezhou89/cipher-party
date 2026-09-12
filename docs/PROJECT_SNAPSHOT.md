@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 23
+**Snapshot revision:** 24
 
 **Last updated:** 2026-09-11
 
-**Project state:** Creative integration is complete. The September 11 complexity/gap audit is now approved for targeted hardening; implementation is starting. Staging remains the previously verified `2c72751`. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration is complete. Audit hardening Task 1 (release hygiene/public smoke) is implemented and independently reviewed; Task 2 (reconnect) is next. Staging remains the previously verified `2c72751`; this plan does not deploy. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic
 
 **Active plan:** docs/superpowers/plans/2026-09-11-audit-hardening.md
 
-**Next execution:** Hardening Task 1 — restore lint/artifact boundaries and track the read-only public staging smoke. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
+**Next execution:** Hardening Task 2 — terminal/throttled reconnect recovery. Then execute the remaining hardening tasks; the four-human session still uses docs/runbooks/connected-classic-playtest.md.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -65,13 +65,19 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 
 ## Work ledger
 
-- **Last accepted task:** Integration Task 4 — whole-branch review, live-regression fixes, verified staging update, and handoff. Final runtime source: `2c72751`; no open review findings.
-- **Current task:** Hardening Task 1 — release hygiene and tracked public smoke; no fixes accepted yet.
-- **Next task:** Terminal/throttled reconnect regression fix, followed by bounded realtime resources and measured release safeguards.
+- **Last accepted task:** Hardening Task 1 — `680000a` and redirect-regression fix `b54f048`; independent task review and scoped re-review have no open findings.
+- **Current task:** Hardening Task 2 — terminal/throttled reconnect regression fix.
+- **Next task:** Bounded realtime resources, then snapshot compatibility and measured release safeguards.
 - **Current blockers:** Hosted CI has no configured repository/provider; local gate work can proceed. Milestone exit requires the real session and resolution of critical findings. **Human playtest: NOT YET RUN.**
 - **Audit baseline:** 377 runtime functions; classic mean 3.43, maximum 36, six above 20, all unchanged by creative integration. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace.
 
-## Current integration evidence
+## Current hardening evidence
+
+- Task 1 restored the Git/ESLint scratch boundary and validates the snapshot's actual active-plan target. `pnpm run check` passed **542 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 94). The coordinator separately reran the 46 focused docs/hygiene/preflight tests successfully.
+- Tracked `smoke:staging:public` discovers four public route/browser cases and stays outside local e2e discovery. It blocks socket creation and unsafe methods/origins/queries; a shared zero-redirect transport helper prevents redirects from contacting forbidden destinations. Eight local Chromium/WebKit policy regressions passed after meaningful RED; lint, types and diff checks passed. The tracked live smoke itself has not been run.
+- No hardening deployment, merge, push, or future-milestone feature is authorized by this plan. Hosted CI awaits a repository/provider; four-human acceptance remains pending.
+
+## Historical integration evidence
 
 - Tasks 1–3, whole-branch review, the three-minor final fix wave, and the subsequently discovered live-CSP fix all completed independent review. No findings remain open. Detailed history is retained in the integration plan and Git.
 - `creative/manifest.json` inventories 26 byte-preserved originals; the coordinator independently rechecked every source/archive checksum and byte length on September 11. `docs/CREATIVE_HANDOFF.md` supplies approved-versus-draft status and a reusable Gemini submission template. Content remains 700 draft rows / 682 unique labels; the runtime still uses its 50-word fixture.
