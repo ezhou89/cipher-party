@@ -43,13 +43,20 @@ function renameFirstCard(state: RoomState, replacementId: string): void {
   const originalOwner = state.initialOwners![originalId]!;
 
   delete game.board.cards[originalId];
-  game.board.cards[replacementId] = {
-    ...originalCard,
-    id: replacementId,
-  };
+  Object.defineProperty(game.board.cards, replacementId, {
+    value: { ...originalCard, id: replacementId },
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
   game.board.order[0] = replacementId;
   delete state.initialOwners![originalId];
-  state.initialOwners![replacementId] = originalOwner;
+  Object.defineProperty(state.initialOwners!, replacementId, {
+    value: originalOwner,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
 }
 
 function fourTeamState(): RoomState {
@@ -300,7 +307,7 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(Object.getPrototypeOf(restored.game!.board.cards)).toBeNull();
   });
 
-  it.each(["constructor", "toString", "hasOwnProperty"])(
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
     "parses a v2 snapshot whose board contains the inherited-property card ID %s",
     (cardId) => {
       const state = fourTeamState();
@@ -310,6 +317,9 @@ describe("strict v1/v2 snapshot storage boundary", () => {
 
       expect(restored.game?.board.order[0]).toBe(cardId);
       expect(Object.hasOwn(restored.game!.board.cards, cardId)).toBe(true);
+      expect(Object.getPrototypeOf(restored.game!.board.cards)).toBeNull();
+      expect(Object.getPrototypeOf(restored.initialOwners!)).toBeNull();
+      expect(Object.getPrototypeOf(restored.eliminationConversions)).toBeNull();
     },
   );
 
@@ -347,7 +357,7 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(Object.getPrototypeOf(normalized.game!.board.cards)).toBeNull();
   });
 
-  it.each(["constructor", "toString", "hasOwnProperty"])(
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
     "normalizes a v1 snapshot whose board contains the inherited-property card ID %s",
     async (cardId) => {
       const source = (await generatedStates())[2]!;
@@ -358,6 +368,11 @@ describe("strict v1/v2 snapshot storage boundary", () => {
       expect(normalized.game?.board.order[0]).toBe(cardId);
       expect(Object.hasOwn(normalized.game!.board.cards, cardId)).toBe(true);
       expect(normalized.eliminationConversions).toEqual({});
+      expect(Object.getPrototypeOf(normalized.game!.board.cards)).toBeNull();
+      expect(Object.getPrototypeOf(normalized.initialOwners!)).toBeNull();
+      expect(
+        Object.getPrototypeOf(normalized.eliminationConversions),
+      ).toBeNull();
     },
   );
 

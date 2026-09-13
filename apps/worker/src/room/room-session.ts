@@ -41,6 +41,16 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function copyToNullPrototypeRecord<Value>(
+  source: Record<string, Value>,
+): Record<string, Value> {
+  const record: Record<string, Value> = Object.create(null);
+  for (const key of Object.keys(source)) {
+    record[key] = source[key]!;
+  }
+  return record;
+}
+
 function outstandingEliminationSpectatorReserve(state: RoomState): number {
   if (
     state.phase === "complete" ||
@@ -412,7 +422,7 @@ function applyLobbyCommand(
       state.initialOwners = Object.fromEntries(
         board.order.map((cardId) => [cardId, board.cards[cardId]!.owner]),
       );
-      state.eliminationConversions = {};
+      state.eliminationConversions = Object.create(null);
       state.game = createClassicGame(board);
       state.phase = "playing";
       return null;
@@ -559,7 +569,9 @@ function applyGameplayCommand(
     let seats = state.seats;
     if (transition.event?.eliminatedTeam !== undefined) {
       const eliminatedTeam = transition.event.eliminatedTeam;
-      eliminationConversions = { ...eliminationConversions };
+      eliminationConversions = copyToNullPrototypeRecord(
+        eliminationConversions,
+      );
       for (const cardId of previousGame.board.order) {
         const before = previousGame.board.cards[cardId]!;
         const after = transition.state.board.cards[cardId]!;

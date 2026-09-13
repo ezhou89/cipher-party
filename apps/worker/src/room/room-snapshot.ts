@@ -36,6 +36,27 @@ const revision = z.number().int().nonnegative();
 const legacyTeam = z.enum(["red", "blue"]);
 const legacyOwner = z.enum(["red", "blue", "neutral", "hazard"]);
 const owner = z.enum([...TEAM_IDS, "neutral", "hazard"]);
+
+function ownRecordEntries(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return Object.keys(value).map((key) => [
+    key,
+    (value as Record<string, unknown>)[key],
+  ]);
+}
+
+function toNullPrototypeRecord<Value>(
+  entries: Array<[string, Value]>,
+): Record<string, Value> {
+  const record: Record<string, Value> = Object.create(null);
+  for (const [key, value] of entries) {
+    record[key] = value;
+  }
+  return record;
+}
+
 const timestamp = z.string().refine((value) => {
   const time = Date.parse(value);
   return Number.isFinite(time) && new Date(time).toISOString() === value;
@@ -86,10 +107,22 @@ const legacyCard = z
 const card = z
   .object({ id, label: z.string().min(1), owner, revealed: z.boolean() })
   .strict();
+const legacyCardMap = z
+  .preprocess(ownRecordEntries, z.array(z.tuple([id, legacyCard])))
+  .transform(toNullPrototypeRecord);
+const cardMap = z
+  .preprocess(ownRecordEntries, z.array(z.tuple([id, card])))
+  .transform(toNullPrototypeRecord);
+const initialOwnerMap = z
+  .preprocess(ownRecordEntries, z.array(z.tuple([id, owner])))
+  .transform(toNullPrototypeRecord);
+const eliminationConversionMap = z
+  .preprocess(ownRecordEntries, z.array(z.tuple([id, TeamIdSchema])))
+  .transform(toNullPrototypeRecord);
 const legacyBoard = z
   .object({
     order: z.array(id).length(25),
-    cards: z.record(id, legacyCard),
+    cards: legacyCardMap,
     startingTeam: legacyTeam,
   })
   .strict();
@@ -100,7 +133,7 @@ const board = z
     rows: z.union([z.literal(5), z.literal(6)]),
     columns: z.union([z.literal(5), z.literal(6)]),
     order: z.array(id).min(1).max(36),
-    cards: z.record(id, card),
+    cards: cardMap,
     startingTeam: TeamIdSchema,
   })
   .strict();
@@ -293,8 +326,8 @@ const snapshot = z
     protocolVersion: z.literal(2),
     teamCount: TeamCountSchema,
     configuredTeams: z.array(TeamIdSchema),
-    initialOwners: z.record(id, owner).nullable(),
-    eliminationConversions: z.record(id, TeamIdSchema),
+    initialOwners: initialOwnerMap.nullable(),
+    eliminationConversions: eliminationConversionMap,
     ...sharedRoomShape,
     startingTeam: TeamIdSchema,
     ...sharedAuthorityShape,
@@ -730,13 +763,16 @@ function normalizeLegacySnapshot(
     protocolVersion: 2,
     teamCount: 2,
     configuredTeams: ["red", "blue"],
-    eliminationConversions: {},
+    eliminationConversions: toNullPrototypeRecord<TeamId>([]),
     initialOwners:
       value.game === null
         ? null
-        : Object.fromEntries(
+        : toNullPrototypeRecord(
             Object.entries(value.game.board.cards).map(
-              ([cardId, cardValue]) => [cardId, cardValue.owner],
+              ([cardId, cardValue]): [string, Ownership] => [
+                cardId,
+                cardValue.owner,
+              ],
             ),
           ),
     game:

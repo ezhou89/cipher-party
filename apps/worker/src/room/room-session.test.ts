@@ -16,6 +16,7 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import { RoomSession } from "./room-session";
+import { parseRoomSnapshot } from "./room-snapshot";
 import {
   createLobbyState,
   type RoomActor,
@@ -171,12 +172,15 @@ async function dispatchHost(
   );
 }
 
-async function fourTeamHazardFixture(): Promise<{
+async function fourTeamHazardFixture(
+  cardPool: readonly TextCard[] = neutralWords,
+  state: RoomState = configuredMultiTeamState(4),
+): Promise<{
   session: RoomSession;
   hazardActor: RoomActor;
   hazardCardId: string;
 }> {
-  const session = await startedSession(configuredMultiTeamState(4));
+  const session = await startedSession(state, cardPool);
   const hazardActor = actor("red-operative");
   expect(
     await session.dispatch(
@@ -1734,6 +1738,109 @@ describe("RoomSession multi-team authorization and transitions", () => {
       await session.dispatch(actor("missing"), confirm, new Date("2030-01-01")),
     ).toEqual(hazardResult);
     expect(session.snapshot()).toEqual(acceptedSnapshot);
+  });
+
+  it("persists and reloads a later-revealed __proto__ hazard conversion", async () => {
+    const configured = configuredMultiTeamState(4, {
+      hostTokenHash: "a".repeat(64),
+    });
+    configured.seats = configured.seats.map((candidate, index) => ({
+      ...candidate,
+      seatTokenHash: (index + 1).toString(16).repeat(64),
+    }));
+    const baseline = await startedSession(configured);
+    const redCardId = baseline
+      .snapshot()
+      .game!.board.order.find(
+        (cardId) =>
+          baseline.snapshot().game!.board.cards[cardId]!.owner === "red",
+      )!;
+    const cardPool = neutralWords.map((card) =>
+      card.id === redCardId ? { ...card, id: "__proto__" } : card,
+    );
+    const { session, hazardActor, hazardCardId } = await fourTeamHazardFixture(
+      cardPool,
+      configured,
+    );
+
+    expect(
+      await session.dispatch(
+        hazardActor,
+        envelope(session.snapshot().revision, {
+          type: "confirm_reveal",
+          cardId: hazardCardId,
+        }),
+        COMMAND_AT,
+      ),
+    ).toMatchObject({ ok: true });
+    const afterHazard = session.snapshot();
+    expect(afterHazard.initialOwners!["__proto__"]).toBe("red");
+    expect(afterHazard.game!.board.cards["__proto__"]).toMatchObject({
+      owner: "neutral",
+      revealed: false,
+    });
+    expect(Object.hasOwn(afterHazard.eliminationConversions, "__proto__")).toBe(
+      true,
+    );
+    expect(afterHazard.eliminationConversions["__proto__"]).toBe("red");
+
+    expect(
+      await session.dispatch(
+        actor("blue-clue"),
+        envelope(afterHazard.revision, {
+          type: "submit_clue",
+          word: "Beacon",
+          count: 1,
+        }),
+        COMMAND_AT,
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await session.dispatch(
+        actor("blue-operative"),
+        envelope(session.snapshot().revision, {
+          type: "nominate_card",
+          cardId: "__proto__",
+        }),
+        COMMAND_AT,
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await session.dispatch(
+        actor("blue-operative"),
+        envelope(session.snapshot().revision, {
+          type: "confirm_reveal",
+          cardId: "__proto__",
+        }),
+        COMMAND_AT,
+      ),
+    ).toMatchObject({ ok: true });
+
+    const persisted = session.snapshot();
+    persisted.publicHistory = [];
+    const convertedIndex = persisted.game!.board.order.indexOf("__proto__");
+    const swapIndex = convertedIndex === 0 ? 1 : 0;
+    [
+      persisted.game!.board.order[convertedIndex],
+      persisted.game!.board.order[swapIndex],
+    ] = [
+      persisted.game!.board.order[swapIndex]!,
+      persisted.game!.board.order[convertedIndex]!,
+    ];
+
+    const restored = parseRoomSnapshot(persisted);
+
+    expect(restored.game!.board.cards["__proto__"]).toMatchObject({
+      owner: "neutral",
+      revealed: true,
+    });
+    expect(Object.hasOwn(restored.eliminationConversions, "__proto__")).toBe(
+      true,
+    );
+    expect(restored.eliminationConversions["__proto__"]).toBe("red");
+    expect(Object.getPrototypeOf(restored.game!.board.cards)).toBeNull();
+    expect(Object.getPrototypeOf(restored.initialOwners!)).toBeNull();
+    expect(Object.getPrototypeOf(restored.eliminationConversions)).toBeNull();
   });
 
   it("rejects every team gameplay command from eliminated seats", async () => {
