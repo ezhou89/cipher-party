@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 42
+**Snapshot revision:** 43
 
 **Last updated:** 2026-09-13
 
-**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean runtime source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the public repository handoff is now open in PR #1 from `feature/creative-integration` into the reviewed `main` baseline. Staging remains the previously deployed two-team regression reference; no multi-team deployment was made. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean runtime source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the public repository handoff merged as PR #1 into the reviewed `main` baseline, and the multi-team source was subsequently deployed and attested at staging. The four-human and eight-human playtests remain NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
 **Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Review and merge PR #1, then obtain explicit multi-team staging deployment authorization and run the tracked deployment, exact `check:staging` attestation, public smoke, and the existing four-human plus new eight-player human gates. The current two-team staging build remains the regression reference until that sequence is authorized and completed.
+**Next execution:** Run the distributed four-human two-team regression and eight-player four-team staging gate from the separate runbooks, record measured device/session evidence, and address any critical findings before closing Milestone 1. The prior two-team deployment remains a regression reference; the current multi-team deployment is now attested.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -44,7 +44,7 @@ The prior deployed staging build, which remains the current external runtime ref
 - A 24-hour inactivity alarm that closes sockets and clears room storage.
 - A responsive phone/laptop lobby and game board.
 
-That prior deployed two-team staging build does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The reviewed branch/source now implements Tasks 1–8 of the approved single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms, but it has not been deployed. Pack Studio, image uploads, AI suggestions, Blitz, campaigns, TV mode, accounts, public packs, picture/mixed cards, and licensed content remain out of scope for the reviewed source.
+That prior deployed two-team staging build does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The reviewed branch/source now implements Tasks 1–8 of the approved single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms and is deployed at the current multi-team staging source recorded below. Pack Studio, image uploads, AI suggestions, Blitz, campaigns, TV mode, accounts, public packs, picture/mixed cards, and licensed content remain out of scope for the reviewed source.
 
 ## Architecture snapshot
 
@@ -68,16 +68,16 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 ## Work ledger
 
 - **Last accepted task:** Task 8 — full verification and source-bound release handoff for exact source `4e138b64a191d6236445b1763d1128004b0fc5ac`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
-- **Current task:** Tasks 1–8 accepted; public PR #1 is open and mergeable against the reviewed `main` baseline; staging deployment authorization and human gates remain pending.
-- **Next task:** Review/merge PR #1, then after authorization deploy and attest the multi-team build, run artifact-free public smoke, and conduct the four-human two-team and eight-player four-team sessions from the separate runbooks.
-- **Current blockers:** Hosted CI has no configured repository/provider; no multi-team deployment is authorized by this plan; the real four-human two-team and eight-player four-team staging sessions have not been run. Milestone exit requires fresh attestation, the human gates, and resolution of any critical findings. **Human playtests: NOT YET RUN.**
+- **Current task:** Tasks 1–8 accepted; PR #1 is merged into the reviewed `main` baseline, and multi-team staging attestation/public smoke passed; human gates remain pending.
+- **Next task:** Conduct the four-human two-team and eight-player four-team sessions from the separate runbooks and record their measured evidence.
+- **Current blockers:** Hosted CI has no configured repository/provider; the real four-human two-team and eight-player four-team staging sessions have not been run. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
 - **Audit baseline:** 518 tracked runtime functions; classic mean 3.36, maximum 34, and exactly the approved baseline exceptions above 20 after the final whole-branch fixes. The >20-function gate is green and inline waivers cannot suppress inventory. This current measurement comes from the final Task 8 release rerun; earlier task measurements below remain historical.
 
 ## Current hardening evidence
 
 - Task 1 restored the Git/ESLint scratch boundary and validates the snapshot's actual active-plan target. `pnpm run check` passed **542 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 94). The coordinator separately reran the 46 focused docs/hygiene/preflight tests successfully.
 - Tracked `smoke:staging:public` discovers four public route/browser cases and stays outside local e2e discovery. It blocks socket creation and unsafe methods/origins/queries; a shared zero-redirect transport helper prevents redirects from contacting forbidden destinations. Eight local Chromium/WebKit policy regressions passed after meaningful RED; lint, types and diff checks passed. The tracked live smoke itself has not been run.
-- No multi-team staging deployment or merge has occurred. The user authorized the public repository push and PR; hosted CI still awaits provider configuration, and four-human acceptance remains pending.
+- Multi-team staging deployment, source attestation, and artifact-free public smoke have passed. The user authorized the public repository push and PR; hosted CI still awaits provider configuration, and both human acceptance gates remain pending.
 - Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
 - Task 3 bounds valid upgrades before Durable Object lookup, caps live socket inventory at four per seat/64 per room, caps outstanding unexpired tickets at eight per seat/256 per room, and applies stable purpose-scoped native command budgets (30/10s per seat, 120/10s per room) before frame parsing. Failed/replayed commands resync only their sender; accepted revision changes broadcast. Focused Worker tests passed 129/129; staging fixtures 47/47; `pnpm run check` passed 588 tests; local e2e 48/48; build, preflight 8/8, and diff checks passed. Counters are location-local/eventually consistent, and capacity denial may consume a one-use ticket; no deployment/live smoke occurred.
 - Task 4 validates complete v1 room snapshots before controller use, rejects unsupported/corrupt storage without writing, clearing, migrating, exposing details, or allowing initialization over it, and restores null-prototype card maps. Presence is reconciled from OPEN serialized attachments on load and later room events; repairs preserve `lastActivity`, retry after failed writes, and never run for over-budget or protocol-invalid frames. Focused resilience tests passed 133/133; `pnpm run check` passed 643 tests; local e2e 48/48; diff checks passed. Lost successful join responses still allocate a second seat on retry; retry-safe identity and replacement remain deferred. No deployment/live smoke occurred.
@@ -107,8 +107,17 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 - `pnpm run deploy:staging` deployed the reviewed source below. Explicit `pnpm run check:staging` passed authenticated source/version/100% traffic, the original room namespace, eight bindings, transport/health/security headers, and all three built HTML/JS/CSS SHA-256 comparisons.
 - Final read-only public smoke passed **2/2** in 8.1 seconds with `pnpm exec playwright test --config .superpowers/sdd/2026-09-07-creative-integration/staging-smoke.config.ts`: desktop Chromium and 320px mobile WebKit checked landing/invite HTML against the local build, UI, focus, viewport, and zero CSP/console/page/request/response errors. No rooms or sockets were created; this is not a live multiplayer or human-session claim.
 - Four final public landing/invite screenshots in `.superpowers/sdd/2026-09-07-creative-integration/staging-screenshots/` were separately captured and visually inspected. Playwright 1.62.1 WebKit screenshot capture itself injects an inline animation-synchronization stylesheet, which the intended CSP blocks. Visual capture is separate from the zero-error smoke; no errors are filtered or assertions weakened.
-- Original Gemini history is preserved remotely as `legacy/gemini-main@128c0f7`; reviewed `feature/connected-classic@fe264e3` is the canonical public `main` baseline, and `feature/creative-integration` is published at the reviewed runtime plus docs-only continuation. PR #1 is open and mergeable; no apex, zone/account, paid-plan, R2, AI, or staging deployment change was made.
+- Original Gemini history is preserved remotely as `legacy/gemini-main@128c0f7`; reviewed `feature/connected-classic@fe264e3` is the canonical public `main` baseline, and `feature/creative-integration` is published at the reviewed runtime plus docs-only continuation. PR #1 is merged; no apex, zone/account, paid-plan, R2, or AI change was made.
 - Four-human runbook results remain **PENDING / NOT YET RUN**.
+
+## Current multi-team staging deployment
+
+- URL: `https://staging.oddlyuseful.studio`; Worker: `cipher-party-staging`.
+- Deployed source: `193423c742cc461ff85ac3962ef0dd4a5fd6f83b` (runtime code is unchanged from verified source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the deployed continuation is documentation-only).
+- Active version at 100%: `e7a46628-493d-4c3c-8c90-8ed5d9bde7ec`.
+- Read-only `check:staging` passed with source/version/ROOMS namespace, transport/health/security headers, bindings, and 3 built asset SHA-256 comparisons.
+- Artifact-free public smoke passed **4/4** across desktop Chromium and 320 × 780 mobile WebKit for `/` and `/room/ABC123`; it created no rooms or sockets.
+- The four-human two-team and eight-human four-team staging sessions remain **PENDING / NOT YET RUN**.
 
 ## Public repository handoff
 
