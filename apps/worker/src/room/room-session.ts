@@ -1,11 +1,16 @@
 import {
-  applyGameAction,
+  applyGameActionWithEvent,
+  chooseStartingTeam,
+  classicBoardSpec,
+  configuredTeams,
   createClassicBoard,
   createClassicGame,
   createSeededRandom,
   GameTransitionError,
   shuffled,
   type GameAction,
+  type GameTransitionEvent,
+  type TeamCount,
   type TeamId,
   type TextCard,
 } from "@cipher-party/game-core";
@@ -69,6 +74,7 @@ async function payloadDigest(command: ClientCommand): Promise<string> {
 function isHostCommand(command: ClientCommand): boolean {
   switch (command.type) {
     case "randomize_teams":
+    case "set_team_count":
     case "assign_seat":
     case "set_role":
     case "lock_room":
@@ -83,6 +89,35 @@ function isHostCommand(command: ClientCommand): boolean {
     case "clear_nomination":
     case "confirm_reveal":
     case "end_turn":
+      return false;
+  }
+}
+
+function canIssueGameplayCommand(
+  seat: RoomSeat,
+  activeTeam: TeamId | undefined,
+  command: ClientCommand,
+): boolean {
+  switch (command.type) {
+    case "submit_clue":
+      return (
+        seat.role === "clue-giver" &&
+        (activeTeam === undefined || seat.teamId === activeTeam)
+      );
+    case "challenge_clue":
+      return (
+        seat.role === "clue-giver" &&
+        (activeTeam === undefined || seat.teamId !== activeTeam)
+      );
+    case "nominate_card":
+    case "clear_nomination":
+    case "confirm_reveal":
+    case "end_turn":
+      return (
+        seat.role === "operative" &&
+        (activeTeam === undefined || seat.teamId === activeTeam)
+      );
+    default:
       return false;
   }
 }
@@ -106,30 +141,12 @@ function authorize(
   if (seat.seatClass !== "active" || seat.teamId === null) {
     return null;
   }
+  if (state.game?.eliminatedTeams.includes(seat.teamId) === true) {
+    return null;
+  }
 
   const activeTeam = state.game?.activeTeam;
-  switch (command.type) {
-    case "submit_clue":
-      return seat.role === "clue-giver" &&
-        (activeTeam === undefined || seat.teamId === activeTeam)
-        ? seat
-        : null;
-    case "challenge_clue":
-      return seat.role === "clue-giver" &&
-        (activeTeam === undefined || seat.teamId !== activeTeam)
-        ? seat
-        : null;
-    case "nominate_card":
-    case "clear_nomination":
-    case "confirm_reveal":
-    case "end_turn":
-      return seat.role === "operative" &&
-        (activeTeam === undefined || seat.teamId === activeTeam)
-        ? seat
-        : null;
-    default:
-      return null;
-  }
+  return canIssueGameplayCommand(seat, activeTeam, command) ? seat : null;
 }
 
 function requireLobby(state: RoomState): CommandResult | null {
@@ -138,44 +155,156 @@ function requireLobby(state: RoomState): CommandResult | null {
     : failed(state, "wrong_phase", "Command requires the lobby phase");
 }
 
-function validateStart(state: RoomState): string | null {
+interface StartValidationFailure {
+  code: "invalid_command" | "room_full";
+  message: string;
+}
+
+function validateStart(state: RoomState): StartValidationFailure | null {
   const active = state.seats.filter((seat) => seat.seatClass === "active");
+  const minimumActiveSeats = state.teamCount * 2;
+  if (active.filter((seat) => seat.connected).length < minimumActiveSeats) {
+    return {
+      code: "invalid_command",
+      message: `At least ${minimumActiveSeats} active connected seats are required for ${state.teamCount} configured teams`,
+    };
+  }
   if (
     active.some(
       (seat) =>
         !seat.connected ||
         seat.teamId === null ||
+        !state.configuredTeams.includes(seat.teamId) ||
         seat.role === "unassigned" ||
         seat.role === "spectator",
     )
   ) {
-    return "Every active seat must be connected and fully assigned";
+    return {
+      code: "invalid_command",
+      message:
+        "Every active seat must be connected and assigned to a configured team and role",
+    };
   }
 
-  const red = active.filter((seat) => seat.teamId === "red");
-  const blue = active.filter((seat) => seat.teamId === "blue");
-  if (Math.abs(red.length - blue.length) > 1) {
-    return "Team sizes must differ by at most one";
+  const seatsByTeam = state.configuredTeams.map((teamId) =>
+    active.filter((seat) => seat.teamId === teamId),
+  );
+  const teamSizes = seatsByTeam.map((teamSeats) => teamSeats.length);
+  const largestTeamSize = Math.max(...teamSizes);
+  const smallestTeamSize = Math.min(...teamSizes);
+  if (largestTeamSize - smallestTeamSize > 1) {
+    return {
+      code: "invalid_command",
+      message: "Team sizes must differ by at most one",
+    };
   }
-  for (const teamSeats of [red, blue]) {
+  for (const teamSeats of seatsByTeam) {
     if (
       teamSeats.filter((seat) => seat.role === "clue-giver").length !== 1 ||
       teamSeats.filter((seat) => seat.role === "operative").length < 1
     ) {
-      return "Each team requires one clue-giver and at least one operative";
+      return {
+        code: "invalid_command",
+        message:
+          "Each configured team requires one clue-giver and at least one operative",
+      };
     }
+  }
+  const spectatorCount = state.seats.filter(
+    (seat) => seat.seatClass === "spectator",
+  ).length;
+  if (spectatorCount + largestTeamSize > MAX_SPECTATORS) {
+    return {
+      code: "room_full",
+      message: "Spectator capacity must reserve room for a team elimination",
+    };
   }
   return null;
 }
 
-function validateCardPool(cardPool: readonly TextCard[]): string | null {
+function validateCardPool(
+  cardPool: readonly TextCard[],
+  state: RoomState,
+): string | null {
+  const cardCount = classicBoardSpec(state.teamCount).cardCount;
   const uniqueCardIds = new Set(cardPool.map((card) => card.id));
-  if (uniqueCardIds.size < 25) {
-    return "Classic board requires at least 25 unique cards";
+  if (uniqueCardIds.size < cardCount) {
+    return `Classic board requires at least ${cardCount} unique cards`;
   }
   if (uniqueCardIds.size !== cardPool.length) {
     return "Classic board requires unique card IDs";
   }
+  return null;
+}
+
+function applyTeamCount(
+  state: RoomState,
+  teamCount: TeamCount,
+): CommandResult | null {
+  if (state.locked) {
+    return failed(
+      state,
+      "invalid_command",
+      "Team count can change only in an unlocked lobby",
+    );
+  }
+  const nextTeams = configuredTeams(teamCount);
+  if (
+    state.seats.some(
+      (seat) =>
+        seat.seatClass === "active" &&
+        seat.teamId !== null &&
+        !nextTeams.includes(seat.teamId),
+    )
+  ) {
+    return failed(
+      state,
+      "invalid_command",
+      "Move active seats off removed configured teams first",
+    );
+  }
+  state.teamCount = teamCount;
+  state.configuredTeams = [...nextTeams];
+  state.startingTeam = chooseStartingTeam(teamCount, state.boardSeed);
+  return null;
+}
+
+function applySeatRole(
+  state: RoomState,
+  command: Extract<ClientCommand, { type: "set_role" }>,
+): CommandResult | null {
+  const target = state.seats.find((seat) => seat.playerId === command.playerId);
+  if (target === undefined) {
+    return failed(state, "invalid_command", "Unknown seat");
+  }
+  if (command.role === "spectator") {
+    if (
+      target.seatClass !== "spectator" &&
+      state.seats.filter((seat) => seat.seatClass === "spectator").length >=
+        MAX_SPECTATORS
+    ) {
+      return failed(state, "room_full", "Spectator capacity reached");
+    }
+    target.seatClass = "spectator";
+    target.teamId = null;
+    target.role = "spectator";
+    return null;
+  }
+  if (
+    target.seatClass === "spectator" &&
+    state.seats.filter((seat) => seat.seatClass === "active").length >=
+      MAX_ACTIVE_SEATS
+  ) {
+    return failed(state, "room_full", "Active-seat capacity reached");
+  }
+  if (
+    (command.role === "clue-giver" || command.role === "operative") &&
+    target.teamId === null
+  ) {
+    return failed(state, "invalid_command", "Active role requires a team");
+  }
+  target.seatClass = "active";
+  target.role = command.role;
   return null;
 }
 
@@ -190,6 +319,8 @@ function applyLobbyCommand(
   }
 
   switch (command.type) {
+    case "set_team_count":
+      return applyTeamCount(state, command.teamCount);
     case "randomize_teams": {
       const active = state.seats.filter((seat) => seat.seatClass === "active");
       const shuffledIds = shuffled(
@@ -199,7 +330,7 @@ function applyLobbyCommand(
       const teamByPlayer = new Map(
         shuffledIds.map((playerId, index) => [
           playerId,
-          index % 2 === 0 ? ("red" as const) : ("blue" as const),
+          state.configuredTeams[index % state.configuredTeams.length]!,
         ]),
       );
       state.seats = state.seats.map((seat) =>
@@ -220,58 +351,29 @@ function applyLobbyCommand(
       if (target === undefined || target.seatClass !== "active") {
         return failed(state, "invalid_command", "Unknown active seat");
       }
+      if (
+        command.teamId !== null &&
+        !state.configuredTeams.includes(command.teamId)
+      ) {
+        return failed(state, "invalid_command", "Team is not configured");
+      }
       target.teamId = command.teamId;
       if (command.teamId === null) {
         target.role = "unassigned";
       }
       return null;
     }
-    case "set_role": {
-      const target = state.seats.find(
-        (seat) => seat.playerId === command.playerId,
-      );
-      if (target === undefined) {
-        return failed(state, "invalid_command", "Unknown seat");
-      }
-      if (command.role === "spectator") {
-        if (
-          target.seatClass !== "spectator" &&
-          state.seats.filter((seat) => seat.seatClass === "spectator").length >=
-            MAX_SPECTATORS
-        ) {
-          return failed(state, "room_full", "Spectator capacity reached");
-        }
-        target.seatClass = "spectator";
-        target.teamId = null;
-        target.role = "spectator";
-        return null;
-      }
-      if (
-        target.seatClass === "spectator" &&
-        state.seats.filter((seat) => seat.seatClass === "active").length >=
-          MAX_ACTIVE_SEATS
-      ) {
-        return failed(state, "room_full", "Active-seat capacity reached");
-      }
-      if (
-        (command.role === "clue-giver" || command.role === "operative") &&
-        target.teamId === null
-      ) {
-        return failed(state, "invalid_command", "Active role requires a team");
-      }
-      target.seatClass = "active";
-      target.role = command.role;
-      return null;
-    }
+    case "set_role":
+      return applySeatRole(state, command);
     case "lock_room":
       state.locked = command.locked;
       return null;
     case "start_board": {
       const startFailure = validateStart(state);
       if (startFailure !== null) {
-        return failed(state, "invalid_command", startFailure);
+        return failed(state, startFailure.code, startFailure.message);
       }
-      const cardPoolFailure = validateCardPool(cardPool);
+      const cardPoolFailure = validateCardPool(cardPool, state);
       if (cardPoolFailure !== null) {
         return failed(state, "invalid_command", cardPoolFailure);
       }
@@ -279,6 +381,7 @@ function applyLobbyCommand(
         cards: cardPool,
         seed: `${state.boardSeed}/board-0`,
         startingTeam: state.startingTeam,
+        teamCount: state.teamCount,
       });
       state.initialOwners = Object.fromEntries(
         board.order.map((cardId) => [cardId, board.cards[cardId]!.owner]),
@@ -338,7 +441,8 @@ function toGameAction(
 
 function historyEntry(
   command: ClientCommand,
-  seat: RoomSeat,
+  actorTeam: TeamId | null,
+  transitionEvent: GameTransitionEvent | null,
   state: RoomState,
   at: string,
 ): PublicHistoryEntry | null {
@@ -348,12 +452,12 @@ function historyEntry(
       return {
         ...base,
         type: "clue_submitted",
-        teamId: seat.teamId!,
+        teamId: actorTeam!,
         word: command.word,
         count: command.count,
       };
     case "challenge_clue":
-      return { ...base, type: "clue_challenged", teamId: seat.teamId! };
+      return { ...base, type: "clue_challenged", teamId: actorTeam! };
     case "resolve_challenge":
       return {
         ...base,
@@ -361,27 +465,33 @@ function historyEntry(
         decision: command.decision,
       };
     case "confirm_reveal": {
-      const revealed = state.game?.board.cards[command.cardId];
-      if (revealed === undefined || !revealed.revealed) {
+      if (
+        transitionEvent === null ||
+        transitionEvent.type !== "card_revealed"
+      ) {
         throw new Error(
-          "Accepted reveal did not reveal its authoritative card",
+          "Accepted reveal did not return an authoritative transition event",
         );
       }
       return {
         ...base,
         type: "card_revealed",
-        teamId: seat.teamId!,
-        cardId: command.cardId,
-        owner: revealed.owner,
+        teamId: actorTeam!,
+        cardId: transitionEvent.cardId,
+        owner: transitionEvent.owner,
+        ...(transitionEvent.eliminatedTeam === undefined
+          ? {}
+          : { eliminatedTeam: transitionEvent.eliminatedTeam }),
       };
     }
     case "end_turn":
-      return { ...base, type: "turn_ended", teamId: seat.teamId! };
+      return { ...base, type: "turn_ended", teamId: actorTeam! };
     case "pause_room":
       return { ...base, type: "room_paused" };
     case "resume_room":
       return { ...base, type: "room_resumed" };
     case "randomize_teams":
+    case "set_team_count":
     case "assign_seat":
     case "set_role":
     case "lock_room":
@@ -392,35 +502,63 @@ function historyEntry(
   }
 }
 
+interface GameplayMutation {
+  failure: CommandResult | null;
+  event: GameTransitionEvent | null;
+}
+
 function applyGameplayCommand(
   state: RoomState,
   command: ClientCommand,
   seat: RoomSeat,
-): CommandResult | null {
+): GameplayMutation {
   if (state.phase !== "playing" || state.game === null) {
-    return failed(state, "wrong_phase", "Command requires active play");
+    return {
+      failure: failed(state, "wrong_phase", "Command requires active play"),
+      event: null,
+    };
   }
   const action = toGameAction(command, seat);
   if (action === null) {
-    return failed(state, "wrong_phase", "Command requires the lobby phase");
+    return {
+      failure: failed(state, "wrong_phase", "Command requires the lobby phase"),
+      event: null,
+    };
   }
   try {
-    state.game = applyGameAction(state.game, action);
+    const transition = applyGameActionWithEvent(state.game, action);
+    state.game = transition.state;
+    if (transition.event?.eliminatedTeam !== undefined) {
+      const eliminatedTeam = transition.event.eliminatedTeam;
+      state.seats = state.seats.map((candidate) =>
+        candidate.seatClass === "active" && candidate.teamId === eliminatedTeam
+          ? {
+              ...candidate,
+              seatClass: "spectator",
+              teamId: null,
+              role: "spectator",
+            }
+          : candidate,
+      );
+    }
     if (state.game.phase === "board_complete") {
       state.phase = "complete";
     }
-    return null;
+    return { failure: null, event: transition.event };
   } catch (error) {
     if (error instanceof GameTransitionError) {
-      return failed(
-        state,
-        error.reason === "wrong_phase" || error.reason === "board_complete"
-          ? "wrong_phase"
-          : error.reason === "wrong_team"
-            ? "unauthorized"
-            : "invalid_command",
-        error.message,
-      );
+      return {
+        failure: failed(
+          state,
+          error.reason === "wrong_phase" || error.reason === "board_complete"
+            ? "wrong_phase"
+            : error.reason === "wrong_team"
+              ? "unauthorized"
+              : "invalid_command",
+          error.message,
+        ),
+        event: null,
+      };
     }
     throw error;
   }
@@ -484,13 +622,29 @@ export class RoomSession {
     const nextSeat = next.seats.find(
       (candidate) => candidate.playerId === seat.playerId,
     )!;
-    const mutationFailure =
+    const actorTeam = nextSeat.teamId;
+    let transitionEvent: GameTransitionEvent | null = null;
+    let mutationFailure: CommandResult | null;
+    if (
       isHostCommand(parsed.data.command) &&
       parsed.data.command.type !== "resolve_challenge" &&
       parsed.data.command.type !== "pause_room" &&
       parsed.data.command.type !== "resume_room"
-        ? applyLobbyCommand(next, parsed.data.command, this.#cardPool)
-        : applyGameplayCommand(next, parsed.data.command, nextSeat);
+    ) {
+      mutationFailure = applyLobbyCommand(
+        next,
+        parsed.data.command,
+        this.#cardPool,
+      );
+    } else {
+      const mutation = applyGameplayCommand(
+        next,
+        parsed.data.command,
+        nextSeat,
+      );
+      mutationFailure = mutation.failure;
+      transitionEvent = mutation.event;
+    }
     if (mutationFailure !== null) {
       return { ...mutationFailure, revision: this.#state.revision };
     }
@@ -499,7 +653,8 @@ export class RoomSession {
     next.lastActivity = new Date(commandTimestamp).toISOString();
     const entry = historyEntry(
       parsed.data.command,
-      nextSeat,
+      actorTeam,
+      transitionEvent,
       next,
       next.lastActivity,
     );
@@ -529,6 +684,8 @@ export class RoomSession {
       revision: this.#state.revision,
       roomPhase: this.#state.phase,
       locked: this.#state.locked,
+      teamCount: this.#state.teamCount,
+      configuredTeams: this.#state.configuredTeams,
       seats: this.#state.seats.map((seat) => ({
         playerId: seat.playerId,
         displayName: seat.displayName,

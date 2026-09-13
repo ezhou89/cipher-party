@@ -1,6 +1,7 @@
 import type {
   PlayerId,
   SeatRole,
+  TeamCount,
   TeamId,
   TextCard,
 } from "@cipher-party/game-core";
@@ -38,7 +39,7 @@ function envelope(
   id = commandId(),
 ): CommandEnvelope {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     commandId: id,
     expectedRevision,
     command,
@@ -99,6 +100,34 @@ function configuredState(overrides: Partial<RoomState> = {}): RoomState {
   });
 }
 
+const TEAM_SLOTS = ["red", "blue", "green", "yellow"] as const;
+
+function configuredMultiTeamState(
+  teamCount: TeamCount,
+  overrides: Partial<RoomState> = {},
+): RoomState {
+  const teams = TEAM_SLOTS.slice(0, teamCount);
+  const seats = teams.flatMap((teamId): RoomSeat[] => [
+    seat({
+      playerId: teamId === "red" ? "host" : `${teamId}-clue`,
+      teamId,
+      role: "clue-giver",
+    }),
+    seat({
+      playerId: `${teamId}-operative`,
+      teamId,
+      role: "operative",
+    }),
+  ]);
+  return lobbyState({
+    teamCount,
+    configuredTeams: [...teams],
+    startingTeam: "red",
+    seats,
+    ...overrides,
+  });
+}
+
 function hostActor(): RoomActor {
   return { playerId: "host", hostAuthority: true };
 }
@@ -127,6 +156,69 @@ async function startedSession(
       COMMAND_AT,
     ),
   ).toEqual({ ok: true, revision: state.revision + 1 });
+  return session;
+}
+
+async function dispatchHost(
+  session: RoomSession,
+  command: ClientCommand,
+): Promise<CommandResult> {
+  const current = session.snapshot();
+  return session.dispatch(
+    hostActor(),
+    envelope(current.revision, command),
+    COMMAND_AT,
+  );
+}
+
+async function fourTeamHazardFixture(): Promise<{
+  session: RoomSession;
+  hazardActor: RoomActor;
+  hazardCardId: string;
+}> {
+  const session = await startedSession(configuredMultiTeamState(4));
+  const hazardActor = actor("red-operative");
+  expect(
+    await session.dispatch(
+      actor("host"),
+      envelope(session.snapshot().revision, {
+        type: "submit_clue",
+        word: "Orbit",
+        count: 1,
+      }),
+      COMMAND_AT,
+    ),
+  ).toMatchObject({ ok: true });
+  const hazardCardId = session
+    .snapshot()
+    .game!.board.order.find(
+      (cardId) =>
+        session.snapshot().game!.board.cards[cardId]!.owner === "hazard",
+    )!;
+  expect(
+    await session.dispatch(
+      hazardActor,
+      envelope(session.snapshot().revision, {
+        type: "nominate_card",
+        cardId: hazardCardId,
+      }),
+      COMMAND_AT,
+    ),
+  ).toMatchObject({ ok: true });
+  return { session, hazardActor, hazardCardId };
+}
+
+async function eliminatedFourTeamSession(): Promise<RoomSession> {
+  const { session, hazardActor, hazardCardId } = await fourTeamHazardFixture();
+  const result = await session.dispatch(
+    hazardActor,
+    envelope(session.snapshot().revision, {
+      type: "confirm_reveal",
+      cardId: hazardCardId,
+    }),
+    COMMAND_AT,
+  );
+  expect(result).toMatchObject({ ok: true });
   return session;
 }
 
@@ -186,8 +278,11 @@ describe("createLobbyState and neutral fixture", () => {
     const state = lobbyState();
 
     expect(state).toEqual({
-      schemaVersion: 1,
-      protocolVersion: 1,
+      schemaVersion: 2,
+      protocolVersion: 2,
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+      initialOwners: null,
       code: "ABC123",
       inviteUrl: "https://play.example/room/ABC123",
       revision: 0,
@@ -308,6 +403,160 @@ describe("RoomSession lobby start rules", () => {
     );
   });
 
+  it.each([
+    [3, 30, 5, 6, ["red", "blue", "green"]],
+    [4, 36, 6, 6, ["red", "blue", "green", "yellow"]],
+  ] as const)(
+    "starts a valid %d-team board with its configured geometry and private provenance",
+    async (teamCount, cardCount, rows, columns, teams) => {
+      const session = RoomSession.from(configuredMultiTeamState(teamCount));
+
+      expect(await dispatchHost(session, { type: "start_board" })).toEqual({
+        ok: true,
+        revision: 1,
+      });
+
+      const snapshot = session.snapshot();
+      expect(snapshot.game?.board).toMatchObject({
+        teamCount,
+        configuredTeams: [...teams],
+        rows,
+        columns,
+      });
+      expect(snapshot.game?.board.order).toHaveLength(cardCount);
+      expect(snapshot.initialOwners).toEqual(
+        Object.fromEntries(
+          snapshot.game!.board.order.map((cardId) => [
+            cardId,
+            snapshot.game!.board.cards[cardId]!.owner,
+          ]),
+        ),
+      );
+    },
+  );
+
+  it.each([3, 4] as const)(
+    "requires at least two active connected seats for each of %d configured teams",
+    async (teamCount) => {
+      const configured = configuredMultiTeamState(teamCount);
+      const session = RoomSession.from({
+        ...configured,
+        seats: configured.seats.slice(0, teamCount * 2 - 1),
+      });
+
+      const result = await dispatchHost(session, { type: "start_board" });
+
+      expect(result).toMatchObject({ ok: false, code: "invalid_command" });
+      if (!result.ok) {
+        expect(result.message).toMatch(/at least|configured team/u);
+      }
+    },
+  );
+
+  it.each([
+    [3, "green-operative"],
+    [4, "yellow-operative"],
+  ] as const)(
+    "requires one clue-giver and an operative on every %d-team roster",
+    async (teamCount, operativeId) => {
+      const configured = configuredMultiTeamState(teamCount);
+      const session = RoomSession.from({
+        ...configured,
+        seats: configured.seats.map((candidate) =>
+          candidate.playerId === operativeId
+            ? { ...candidate, role: "clue-giver" }
+            : candidate,
+        ),
+      });
+
+      expectError(
+        await dispatchHost(session, { type: "start_board" }),
+        "invalid_command",
+        0,
+      );
+    },
+  );
+
+  it.each([
+    [3, "green"],
+    [4, "yellow"],
+  ] as const)(
+    "rejects a %d-team roster whose largest configured team is two seats larger",
+    async (teamCount, oversizedTeam) => {
+      const configured = configuredMultiTeamState(teamCount);
+      const session = RoomSession.from({
+        ...configured,
+        seats: [
+          ...configured.seats,
+          seat({
+            playerId: `${oversizedTeam}-extra-1`,
+            teamId: oversizedTeam,
+            role: "operative",
+          }),
+          seat({
+            playerId: `${oversizedTeam}-extra-2`,
+            teamId: oversizedTeam,
+            role: "operative",
+          }),
+        ],
+      });
+
+      expectError(
+        await dispatchHost(session, { type: "start_board" }),
+        "invalid_command",
+        0,
+      );
+    },
+  );
+
+  it.each([2, 3, 4] as const)(
+    "reserves spectator capacity for the largest possible %d-team elimination",
+    async (teamCount) => {
+      const configured = configuredMultiTeamState(teamCount);
+      const session = RoomSession.from({
+        ...configured,
+        seats: [
+          ...configured.seats,
+          ...Array.from({ length: 15 }, (_, index) =>
+            seat({ playerId: `watcher-${index}`, seatClass: "spectator" }),
+          ),
+        ],
+      });
+
+      const result = await dispatchHost(session, { type: "start_board" });
+
+      expect(result).toMatchObject({
+        ok: false,
+        code: "room_full",
+        revision: 0,
+      });
+      if (!result.ok) {
+        expect(result.message).toMatch(/spectator capacity/iu);
+      }
+    },
+  );
+
+  it.each([2, 3, 4] as const)(
+    "starts a %d-team board when the largest team exactly fills spectator capacity",
+    async (teamCount) => {
+      const configured = configuredMultiTeamState(teamCount);
+      const session = RoomSession.from({
+        ...configured,
+        seats: [
+          ...configured.seats,
+          ...Array.from({ length: 14 }, (_, index) =>
+            seat({ playerId: `watcher-${index}`, seatClass: "spectator" }),
+          ),
+        ],
+      });
+
+      expect(await dispatchHost(session, { type: "start_board" })).toEqual({
+        ok: true,
+        revision: 1,
+      });
+    },
+  );
+
   const invalidConfigurations: Array<{
     name: string;
     seats: RoomSeat[];
@@ -390,6 +639,25 @@ describe("RoomSession lobby start rules", () => {
       0,
     );
   });
+
+  it.each([
+    [3, 29],
+    [4, 35],
+  ] as const)(
+    "requires the configured %d-team board's full card pool",
+    async (teamCount, availableCards) => {
+      const session = RoomSession.from(configuredMultiTeamState(teamCount), {
+        cardPool: neutralWords.slice(0, availableCards),
+      });
+
+      const result = await dispatchHost(session, { type: "start_board" });
+
+      expect(result).toMatchObject({ ok: false, code: "invalid_command" });
+      if (!result.ok) {
+        expect(result.message).toContain(String(availableCards + 1));
+      }
+    },
+  );
 
   it("rejects duplicate IDs anywhere in an injected pool", async () => {
     const duplicatePool = neutralWords.map((card) => ({ ...card }));
@@ -510,6 +778,140 @@ describe("RoomSession lobby start rules", () => {
 });
 
 describe("RoomSession lobby mutations and capacity", () => {
+  it("sets canonical team slots and rejects a reduction while removed teams have active seats", async () => {
+    const session = RoomSession.from(configuredState());
+
+    expect(
+      await dispatchHost(session, { type: "set_team_count", teamCount: 4 }),
+    ).toEqual({ ok: true, revision: 1 });
+    expect(session.snapshot()).toMatchObject({
+      teamCount: 4,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+    });
+    expect(
+      await dispatchHost(session, {
+        type: "assign_seat",
+        playerId: "red-operative",
+        teamId: "green",
+      }),
+    ).toEqual({ ok: true, revision: 2 });
+    expect(
+      await dispatchHost(session, {
+        type: "assign_seat",
+        playerId: "blue-operative",
+        teamId: "yellow",
+      }),
+    ).toEqual({ ok: true, revision: 3 });
+    const beforeReduction = session.snapshot();
+
+    const reduction = await dispatchHost(session, {
+      type: "set_team_count",
+      teamCount: 2,
+    });
+
+    expect(reduction).toMatchObject({
+      ok: false,
+      code: "invalid_command",
+      revision: 3,
+    });
+    expect(session.snapshot()).toEqual(beforeReduction);
+  });
+
+  it("allows a reduction after active seats leave removed configured teams", async () => {
+    const session = RoomSession.from(
+      configuredMultiTeamState(4, {
+        seats: configuredState().seats,
+      }),
+    );
+
+    expect(
+      await dispatchHost(session, { type: "set_team_count", teamCount: 2 }),
+    ).toEqual({ ok: true, revision: 1 });
+    expect(session.snapshot()).toMatchObject({
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+    });
+  });
+
+  it("rejects team-count changes after the lobby is locked", async () => {
+    const session = RoomSession.from(configuredState({ locked: true }));
+
+    const result = await dispatchHost(session, {
+      type: "set_team_count",
+      teamCount: 3,
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "invalid_command" });
+    if (!result.ok) {
+      expect(result.message).toMatch(/unlocked lobby/u);
+    }
+  });
+
+  it("rejects manual assignment to an inactive canonical team", async () => {
+    const session = RoomSession.from(configuredState());
+    const before = session.snapshot();
+
+    expectError(
+      await dispatchHost(session, {
+        type: "assign_seat",
+        playerId: "red-operative",
+        teamId: "green",
+      }),
+      "invalid_command",
+      0,
+    );
+    expect(session.snapshot()).toEqual(before);
+  });
+
+  it.each([
+    [2, [6, 5]],
+    [3, [4, 4, 3]],
+    [4, [3, 3, 3, 2]],
+  ] as const)(
+    "randomizes eleven active seats evenly across %d configured teams",
+    async (teamCount, expectedSizes) => {
+      const teams = TEAM_SLOTS.slice(0, teamCount);
+      const session = RoomSession.from(
+        lobbyState({
+          teamCount,
+          configuredTeams: [...teams],
+          startingTeam: "red",
+          seats: Array.from({ length: 11 }, (_, index) =>
+            seat({
+              playerId: index === 0 ? "host" : `active-${index}`,
+              teamId: teams[index % teams.length]!,
+              role: index % 2 === 0 ? "operative" : "clue-giver",
+            }),
+          ),
+        }),
+      );
+
+      expect(await dispatchHost(session, { type: "randomize_teams" })).toEqual({
+        ok: true,
+        revision: 1,
+      });
+
+      const active = session
+        .snapshot()
+        .seats.filter((candidate) => candidate.seatClass === "active");
+      expect(
+        teams.map(
+          (teamId) =>
+            active.filter((candidate) => candidate.teamId === teamId).length,
+        ),
+      ).toEqual([...expectedSizes]);
+      expect(active.every((candidate) => candidate.role === "unassigned")).toBe(
+        true,
+      );
+      expect(
+        active.every(
+          (candidate) =>
+            candidate.teamId !== null && teams.includes(candidate.teamId),
+        ),
+      ).toBe(true);
+    },
+  );
+
   it("randomizes deterministically, balances active seats, skips spectators, and resets roles", async () => {
     const state = configuredState({
       revision: 7,
@@ -691,6 +1093,7 @@ describe("RoomSession lobby mutations and capacity", () => {
 describe("RoomSession authorization", () => {
   const lobbyHostCommands: ClientCommand[] = [
     { type: "randomize_teams" },
+    { type: "set_team_count", teamCount: 3 },
     { type: "assign_seat", playerId: "red-operative", teamId: "blue" },
     { type: "set_role", playerId: "red-operative", role: "spectator" },
     { type: "lock_room", locked: true },
@@ -954,7 +1357,7 @@ describe("RoomSession validation, revisions, idempotency, and isolation", () => 
     const before = session.snapshot();
     const invalid = {
       ...envelope(0, { type: "lock_room", locked: true }),
-      protocolVersion: 2,
+      protocolVersion: 1,
     } as unknown as CommandEnvelope;
     expectError(
       await session.dispatch(hostActor(), invalid, COMMAND_AT),
@@ -1111,6 +1514,187 @@ describe("RoomSession validation, revisions, idempotency, and isolation", () => 
     );
     expect(command).toEqual(commandBefore);
     expect(session.snapshot()).toEqual(before);
+  });
+});
+
+describe("RoomSession multi-team authorization and transitions", () => {
+  it("allows every active opposing clue-giver to challenge a four-team clue", async () => {
+    const session = await startedSession(configuredMultiTeamState(4));
+    expect(
+      await session.dispatch(
+        actor("host"),
+        envelope(session.snapshot().revision, {
+          type: "submit_clue",
+          word: "Orbit",
+          count: 1,
+        }),
+        COMMAND_AT,
+      ),
+    ).toMatchObject({ ok: true });
+    expectError(
+      await session.dispatch(
+        actor("host"),
+        envelope(session.snapshot().revision, { type: "challenge_clue" }),
+        COMMAND_AT,
+      ),
+      "unauthorized",
+      session.snapshot().revision,
+    );
+
+    for (const teamId of ["blue", "green", "yellow"] as const) {
+      expect(
+        await session.dispatch(
+          actor(`${teamId}-clue`),
+          envelope(session.snapshot().revision, { type: "challenge_clue" }),
+          COMMAND_AT,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(
+        await dispatchHost(session, {
+          type: "resolve_challenge",
+          decision: "accept",
+        }),
+      ).toMatchObject({ ok: true });
+    }
+  });
+
+  it("persists a four-team hazard as one replay-safe composite revision", async () => {
+    const { session, hazardActor, hazardCardId } =
+      await fourTeamHazardFixture();
+    const before = session.snapshot();
+    const beforeRevision = before.revision;
+    const beforeHistoryLength = before.publicHistory.length;
+    const beforeInitialOwners = structuredClone(before.initialOwners);
+    const confirm = envelope(beforeRevision, {
+      type: "confirm_reveal",
+      cardId: hazardCardId,
+    });
+
+    const hazardResult = await session.dispatch(
+      hazardActor,
+      confirm,
+      COMMAND_AT,
+    );
+
+    expect(hazardResult).toEqual({ ok: true, revision: beforeRevision + 1 });
+    const snapshot = session.snapshot();
+    expect(snapshot.revision).toBe(beforeRevision + 1);
+    expect(snapshot.publicHistory).toHaveLength(beforeHistoryLength + 1);
+    expect(snapshot.publicHistory.at(-1)).toEqual({
+      revision: snapshot.revision,
+      at: COMMAND_AT.toISOString(),
+      type: "card_revealed",
+      teamId: "red",
+      cardId: hazardCardId,
+      owner: "hazard",
+      eliminatedTeam: "red",
+    });
+    expect(snapshot.game).toMatchObject({
+      phase: "clue",
+      activeTeam: "blue",
+      eliminatedTeams: ["red"],
+      winner: null,
+      completionReason: null,
+    });
+    expect(
+      snapshot.seats.filter((candidate) =>
+        ["host", "red-operative"].includes(candidate.playerId),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        playerId: "host",
+        seatClass: "spectator",
+        teamId: null,
+        role: "spectator",
+      }),
+      expect.objectContaining({
+        playerId: "red-operative",
+        seatClass: "spectator",
+        teamId: null,
+        role: "spectator",
+      }),
+    ]);
+    expect(snapshot.initialOwners).toEqual(beforeInitialOwners);
+    const convertedRedCard = Object.entries(beforeInitialOwners!).find(
+      ([, owner]) => owner === "red",
+    )![0];
+    expect(snapshot.initialOwners![convertedRedCard]).toBe("red");
+    expect(snapshot.game!.board.cards[convertedRedCard]).toMatchObject({
+      owner: "neutral",
+      revealed: false,
+    });
+
+    const acceptedSnapshot = session.snapshot();
+    expect(
+      await session.dispatch(actor("missing"), confirm, new Date("2030-01-01")),
+    ).toEqual(hazardResult);
+    expect(session.snapshot()).toEqual(acceptedSnapshot);
+  });
+
+  it("rejects every team gameplay command from eliminated seats", async () => {
+    const session = await eliminatedFourTeamSession();
+    const hazardCardId = session
+      .snapshot()
+      .game!.board.order.find(
+        (cardId) =>
+          session.snapshot().game!.board.cards[cardId]!.owner === "hazard",
+      )!;
+    const cases: Array<[RoomActor, ClientCommand]> = [
+      [actor("host"), { type: "submit_clue", word: "Orbit", count: 1 }],
+      [actor("host"), { type: "challenge_clue" }],
+      [actor("red-operative"), { type: "nominate_card", cardId: hazardCardId }],
+      [actor("red-operative"), { type: "clear_nomination" }],
+      [
+        actor("red-operative"),
+        { type: "confirm_reveal", cardId: hazardCardId },
+      ],
+      [actor("red-operative"), { type: "end_turn" }],
+    ];
+    const before = session.snapshot();
+
+    for (const [eliminatedActor, command] of cases) {
+      expectError(
+        await session.dispatch(
+          eliminatedActor,
+          envelope(before.revision, command),
+          COMMAND_AT,
+        ),
+        "unauthorized",
+        before.revision,
+      );
+    }
+    expect(session.snapshot()).toEqual(before);
+  });
+
+  it("rotates through every remaining team and skips the eliminated slot", async () => {
+    const session = await eliminatedFourTeamSession();
+
+    for (const [currentTeam, nextTeam] of [
+      ["blue", "green"],
+      ["green", "yellow"],
+      ["yellow", "blue"],
+    ] as const) {
+      expect(session.snapshot().game?.activeTeam).toBe(currentTeam);
+      expect(
+        await session.dispatch(
+          actor(`${currentTeam}-clue`),
+          envelope(session.snapshot().revision, {
+            type: "submit_clue",
+            word: "Orbit",
+            count: 1,
+          }),
+          COMMAND_AT,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(
+        await session.dispatch(
+          actor(`${currentTeam}-operative`),
+          envelope(session.snapshot().revision, { type: "end_turn" }),
+          COMMAND_AT,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(session.snapshot().game?.activeTeam).toBe(nextTeam);
+    }
   });
 });
 
@@ -1319,6 +1903,49 @@ describe("RoomSession game-core integration and public history", () => {
 });
 
 describe("RoomSession projections", () => {
+  it("projects four-team grid, elimination, and revealed-only summaries without provenance", async () => {
+    const session = await eliminatedFourTeamSession();
+    const eliminatedSeat = session
+      .snapshot()
+      .seats.find((candidate) => candidate.playerId === "host")!;
+
+    const projection = session.project({
+      playerId: eliminatedSeat.playerId,
+      teamId: eliminatedSeat.teamId,
+      role: eliminatedSeat.role,
+      isHost: true,
+    });
+
+    expect(projection).toMatchObject({
+      protocolVersion: 2,
+      teamCount: 4,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+      viewRole: "spectator",
+      viewer: { teamId: null, role: "spectator" },
+      board: {
+        teamCount: 4,
+        rows: 6,
+        columns: 6,
+        configuredTeams: ["red", "blue", "green", "yellow"],
+        eliminatedTeams: ["red"],
+        activeTeam: "blue",
+        teamSummaries: [
+          { teamId: "red", revealedTargets: 0, eliminated: true },
+          { teamId: "blue", revealedTargets: 0, eliminated: false },
+          { teamId: "green", revealedTargets: 0, eliminated: false },
+          { teamId: "yellow", revealedTargets: 0, eliminated: false },
+        ],
+      },
+    });
+    expect(projection.board?.order).toHaveLength(36);
+    expect("key" in projection).toBe(false);
+    const serialized = JSON.stringify(projection);
+    expect(serialized).not.toContain("initialOwners");
+    expect(serialized).not.toContain("targetTotal");
+    expect(serialized).not.toContain("seatTokenHash");
+    expect(serialized).not.toContain("hostTokenHash");
+  });
+
   it("passes only allowlisted projection data and leaks no hashes, tickets, cache, or hidden owner", async () => {
     const state = configuredState({
       connectionTickets: [
@@ -1353,6 +1980,7 @@ describe("RoomSession projections", () => {
     expect(serialized).not.toContain("processedCommands");
     expect(serialized).not.toContain("connectionTickets");
     expect(serialized).not.toContain("boardSeed");
+    expect(serialized).not.toContain("initialOwners");
     expect(projection.viewRole).toBe("spectator");
     expect(projection.board?.cards.every((card) => !("owner" in card))).toBe(
       true,

@@ -406,39 +406,57 @@ function validReferences(state: RoomState): boolean {
   return validHistory(state);
 }
 
-function validBoard(state: RoomState): boolean {
-  const value = state.game;
-  if (value === null) return true;
+type PersistedGame = NonNullable<RoomState["game"]>;
+type InitialOwners = NonNullable<RoomState["initialOwners"]>;
+type BoardSpec = ReturnType<typeof classicBoardSpec>;
+
+function validBoardMetadata(
+  state: RoomState,
+  value: PersistedGame,
+  spec: BoardSpec,
+  initialOwners: RoomState["initialOwners"],
+): initialOwners is InitialOwners {
   const { board: gameBoard } = value;
-  const spec = classicBoardSpec(state.teamCount);
-  if (
+  return !(
     gameBoard.teamCount !== state.teamCount ||
     !arraysEqual(gameBoard.configuredTeams, state.configuredTeams) ||
     gameBoard.rows !== spec.rows ||
     gameBoard.columns !== spec.columns ||
     gameBoard.order.length !== spec.cardCount ||
-    state.initialOwners === null ||
+    initialOwners === null ||
     !state.configuredTeams.includes(gameBoard.startingTeam) ||
     !unique(gameBoard.order) ||
     Object.keys(gameBoard.cards).length !== spec.cardCount
-  ) {
-    return false;
-  }
-  if (
+  );
+}
+
+function validBoardReferences(
+  value: PersistedGame,
+  spec: BoardSpec,
+  initialOwners: InitialOwners,
+): boolean {
+  const { board: gameBoard } = value;
+  return !(
     !gameBoard.order.every(
       (key) =>
         Object.hasOwn(gameBoard.cards, key) && gameBoard.cards[key]!.id === key,
     ) ||
-    Object.keys(state.initialOwners).length !== spec.cardCount ||
-    !gameBoard.order.every((key) => Object.hasOwn(state.initialOwners!, key))
-  ) {
-    return false;
-  }
-  const initialCounts = ownershipCounts(Object.values(state.initialOwners));
+    Object.keys(initialOwners).length !== spec.cardCount ||
+    !gameBoard.order.every((key) => Object.hasOwn(initialOwners, key))
+  );
+}
+
+function validInitialOwnership(
+  state: RoomState,
+  value: PersistedGame,
+  spec: BoardSpec,
+  initialOwners: InitialOwners,
+): boolean {
+  const initialCounts = ownershipCounts(Object.values(initialOwners));
   for (const teamId of TEAM_IDS) {
     const expected = !state.configuredTeams.includes(teamId)
       ? 0
-      : teamId === gameBoard.startingTeam
+      : teamId === value.board.startingTeam
         ? spec.startingTargets
         : spec.otherTargets;
     if (initialCounts[teamId] !== expected) return false;
@@ -449,20 +467,28 @@ function validBoard(state: RoomState): boolean {
   ) {
     return false;
   }
-  if (
+  return true;
+}
+
+function validEliminatedTeams(state: RoomState, value: PersistedGame): boolean {
+  return !(
     !unique(value.eliminatedTeams) ||
     value.eliminatedTeams.some(
       (teamId) => !state.configuredTeams.includes(teamId),
     ) ||
     (state.teamCount === 2 && value.eliminatedTeams.length !== 0)
-  ) {
-    return false;
-  }
+  );
+}
 
+function validBoardOwnershipChanges(
+  value: PersistedGame,
+  initialOwners: InitialOwners,
+): boolean {
+  const { board: gameBoard } = value;
   const eliminated = new Set(value.eliminatedTeams);
   for (const cardId of gameBoard.order) {
     const cardValue = gameBoard.cards[cardId]!;
-    const originalOwner = state.initialOwners[cardId];
+    const originalOwner = initialOwners[cardId];
     if (cardValue.owner === originalOwner) continue;
     if (
       originalOwner === undefined ||
@@ -478,6 +504,18 @@ function validBoard(state: RoomState): boolean {
   return true;
 }
 
+function validBoard(state: RoomState): boolean {
+  const value = state.game;
+  if (value === null) return true;
+  const spec = classicBoardSpec(state.teamCount);
+  const initialOwners = state.initialOwners;
+  if (!validBoardMetadata(state, value, spec, initialOwners)) return false;
+  if (!validBoardReferences(value, spec, initialOwners)) return false;
+  if (!validInitialOwnership(state, value, spec, initialOwners)) return false;
+  if (!validEliminatedTeams(state, value)) return false;
+  return validBoardOwnershipChanges(value, initialOwners);
+}
+
 function allTargetsRevealed(
   value: NonNullable<RoomState["game"]>,
   teamId: TeamId,
@@ -487,7 +525,53 @@ function allTargetsRevealed(
     .every((cardValue) => cardValue.revealed);
 }
 
-function validGameOutcome(value: NonNullable<RoomState["game"]>): boolean {
+function validTwoTeamHazardOutcome(
+  value: PersistedGame,
+  remainingTeams: readonly TeamId[],
+): boolean {
+  return (
+    value.completionReason === "hazard" &&
+    value.winner !== null &&
+    remainingTeams.includes(value.winner) &&
+    value.winner !== value.activeTeam
+  );
+}
+
+function validInProgressOutcome(
+  value: PersistedGame,
+  eliminated: ReadonlySet<TeamId>,
+  remainingTeams: readonly TeamId[],
+): boolean {
+  return (
+    !eliminated.has(value.activeTeam) &&
+    remainingTeams.length >= 2 &&
+    remainingTeams.every((teamId) => !allTargetsRevealed(value, teamId))
+  );
+}
+
+function validCompletedOutcome(
+  value: PersistedGame,
+  eliminated: ReadonlySet<TeamId>,
+  remainingTeams: readonly TeamId[],
+  revealedHazard: boolean,
+): boolean {
+  if (value.winner === null || !remainingTeams.includes(value.winner)) {
+    return false;
+  }
+  if (value.completionReason === "hazard") {
+    return (
+      revealedHazard &&
+      eliminated.has(value.activeTeam) &&
+      remainingTeams.length === 1 &&
+      remainingTeams[0] === value.winner
+    );
+  }
+  return (
+    !eliminated.has(value.activeTeam) && allTargetsRevealed(value, value.winner)
+  );
+}
+
+function validGameOutcome(value: PersistedGame): boolean {
   const complete = value.phase === "board_complete";
   if (complete !== (value.winner !== null && value.completionReason !== null)) {
     return false;
@@ -505,35 +589,18 @@ function validGameOutcome(value: NonNullable<RoomState["game"]>): boolean {
   );
   if (eliminated.size > 0 && !revealedHazard) return false;
   if (revealedHazard && value.board.teamCount === 2) {
-    return (
-      value.completionReason === "hazard" &&
-      value.winner !== null &&
-      remainingTeams.includes(value.winner) &&
-      value.winner !== value.activeTeam
-    );
+    return validTwoTeamHazardOutcome(value, remainingTeams);
   }
   if (revealedHazard && eliminated.size === 0) return false;
 
   if (!complete) {
-    return (
-      !eliminated.has(value.activeTeam) &&
-      remainingTeams.length >= 2 &&
-      remainingTeams.every((teamId) => !allTargetsRevealed(value, teamId))
-    );
+    return validInProgressOutcome(value, eliminated, remainingTeams);
   }
-  if (value.winner === null || !remainingTeams.includes(value.winner)) {
-    return false;
-  }
-  if (value.completionReason === "hazard") {
-    return (
-      revealedHazard &&
-      eliminated.has(value.activeTeam) &&
-      remainingTeams.length === 1 &&
-      remainingTeams[0] === value.winner
-    );
-  }
-  return (
-    !eliminated.has(value.activeTeam) && allTargetsRevealed(value, value.winner)
+  return validCompletedOutcome(
+    value,
+    eliminated,
+    remainingTeams,
+    revealedHazard,
   );
 }
 

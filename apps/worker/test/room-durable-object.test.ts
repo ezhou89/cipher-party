@@ -154,6 +154,52 @@ function configuredRoom(code: string): RoomState {
   return state;
 }
 
+function configuredFourTeamRoom(code: string): RoomState {
+  const state = configuredRoom(code);
+  state.teamCount = 4;
+  state.configuredTeams = ["red", "blue", "green", "yellow"];
+  state.startingTeam = "red";
+  state.seats.push(
+    {
+      playerId: "green-clue",
+      displayName: "Green Clue",
+      seatClass: "active",
+      teamId: "green",
+      role: "clue-giver",
+      connected: true,
+      seatTokenHash: "4".repeat(64),
+    },
+    {
+      playerId: "green-operative",
+      displayName: "Green Operative",
+      seatClass: "active",
+      teamId: "green",
+      role: "operative",
+      connected: true,
+      seatTokenHash: "5".repeat(64),
+    },
+    {
+      playerId: "yellow-clue",
+      displayName: "Yellow Clue",
+      seatClass: "active",
+      teamId: "yellow",
+      role: "clue-giver",
+      connected: true,
+      seatTokenHash: "6".repeat(64),
+    },
+    {
+      playerId: "yellow-operative",
+      displayName: "Yellow Operative",
+      seatClass: "active",
+      teamId: "yellow",
+      role: "operative",
+      connected: true,
+      seatTokenHash: "7".repeat(64),
+    },
+  );
+  return state;
+}
+
 function stub(name: string): DurableObjectStub<RoomDurableObject> {
   const id = rooms().idFromName(name);
   return rooms().get(id);
@@ -509,6 +555,102 @@ describe("RoomDurableObject persistence", () => {
     );
     await reloaded.load();
 
+    expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
+  it("persists one complete hazard-elimination revision before publishing it", async () => {
+    const storage = new FakeRoomStorage();
+    const published: RoomState[] = [];
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+      (state) => {
+        expect(storage.snapshot).toEqual(state);
+        published.push(structuredClone(state));
+      },
+    );
+    await controller.initialize(configuredFourTeamRoom("HAZ4RD"));
+    await controller.dispatch(
+      hostActor(),
+      envelope(0, { type: "start_board" }),
+    );
+    await controller.dispatch(
+      hostActor(),
+      envelope(1, { type: "submit_clue", word: "Orbit", count: 1 }),
+    );
+    const hazardCardId = controller
+      .getSnapshot()!
+      .game!.board.order.find(
+        (cardId) =>
+          controller.getSnapshot()!.game!.board.cards[cardId]!.owner ===
+          "hazard",
+      )!;
+    const operative = {
+      playerId: "red-operative",
+      hostAuthority: false,
+    };
+    await controller.dispatch(
+      operative,
+      envelope(2, { type: "nominate_card", cardId: hazardCardId }),
+    );
+    const before = controller.getSnapshot()!;
+    const writesBefore = storage.writes.length;
+    const publishedBefore = published.length;
+
+    await expect(
+      controller.dispatch(
+        operative,
+        envelope(before.revision, {
+          type: "confirm_reveal",
+          cardId: hazardCardId,
+        }),
+      ),
+    ).resolves.toEqual({ ok: true, revision: before.revision + 1 });
+
+    expect(storage.writes).toHaveLength(writesBefore + 1);
+    expect(published).toHaveLength(publishedBefore + 1);
+    const persisted = storage.snapshot!;
+    expect(persisted).toMatchObject({
+      revision: before.revision + 1,
+      phase: "playing",
+      game: {
+        phase: "clue",
+        activeTeam: "blue",
+        eliminatedTeams: ["red"],
+      },
+    });
+    expect(persisted.publicHistory.at(-1)).toEqual({
+      revision: persisted.revision,
+      at: INITIALIZED_AT.toISOString(),
+      type: "card_revealed",
+      teamId: "red",
+      cardId: hazardCardId,
+      owner: "hazard",
+      eliminatedTeam: "red",
+    });
+    expect(
+      persisted.seats.filter((seat) =>
+        ["host", "red-operative"].includes(seat.playerId),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        seatClass: "spectator",
+        teamId: null,
+        role: "spectator",
+      }),
+      expect.objectContaining({
+        seatClass: "spectator",
+        teamId: null,
+        role: "spectator",
+      }),
+    ]);
+    expect(persisted.initialOwners).toEqual(before.initialOwners);
+
+    const reloaded = new PersistentRoomController(
+      new RawRoomStorage(persisted),
+      () => INITIALIZED_AT,
+    );
+    await reloaded.load();
     expect(reloaded.getSnapshot()).toEqual(persisted);
   });
 

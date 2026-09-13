@@ -173,7 +173,7 @@ function envelope(
 ): CommandEnvelope {
   commandSequence += 1;
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     commandId: `00000000-0000-4000-8000-${String(commandSequence).padStart(12, "0")}`,
     expectedRevision,
     command,
@@ -362,7 +362,7 @@ describe("room WebSocket admission", () => {
     const created = await createRoom();
     const ticket = (await issueHttpTicket(created)).ticket;
     const before = await roomStub(created.code).getSnapshot();
-    const corrupt = { ...before!, schemaVersion: 2 };
+    const corrupt = { ...before!, schemaVersion: 1 };
     await runInDurableObject(
       roomStub(created.code),
       async (_instance, state) => {

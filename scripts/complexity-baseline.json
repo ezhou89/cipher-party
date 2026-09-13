@@ -5,18 +5,8 @@
     "max": 34
   },
   {
-    "file": "apps/worker/src/room/room-session.ts",
-    "name": "authorize",
-    "max": 24
-  },
-  {
     "file": "apps/web/src/features/game/GameView.tsx",
     "name": "ModerationPanel",
-    "max": 21
-  },
-  {
-    "file": "apps/worker/src/room/room-session.ts",
-    "name": "applyLobbyCommand",
     "max": 21
   }
 ]
