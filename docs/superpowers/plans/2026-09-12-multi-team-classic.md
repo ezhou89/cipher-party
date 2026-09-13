@@ -498,7 +498,7 @@ expect(session.snapshot().publicHistory.at(-1)?.revision).toBe(
 );
 ```
 
-Also test inactive-team assignment rejection, balanced 2/3/4 randomization, any active opposing clue-giver challenge, rejected actions from eliminated seats, and all remaining-team turn rotations.
+Also test inactive-team assignment rejection, balanced 2/3/4 randomization, spectator-capacity reservation when a hazard can eliminate the largest team, any active opposing clue-giver challenge, rejected actions from eliminated seats, and all remaining-team turn rotations.
 
 - [ ] **Step 2: Run the focused room tests and verify the RED failure.**
 
@@ -508,7 +508,7 @@ pnpm --filter @cipher-party/worker test -- src/room/room-session.test.ts test/ro
 
 - [ ] **Step 3: Implement dynamic lobby configuration and validation.**
 
-Add the host-only `set_team_count` branch in the unlocked lobby. Reject a reduction that would leave an active seat assigned to a removed configured team. Make randomization distribute across `state.configuredTeams`; make `validateStart` require `2 × teamCount` active seats, one clue-giver and one operative per team, and a maximum size difference of one. Use `classicBoardSpec(state.teamCount).cardCount` for card-pool validation. When starting a board, copy each generated card owner into the server-only `initialOwners` map before any gameplay mutation.
+Add the host-only `set_team_count` branch in the unlocked lobby. Reject a reduction that would leave an active seat assigned to a removed configured team. Make randomization distribute across `state.configuredTeams`; make `validateStart` require `2 × teamCount` active seats, one clue-giver and one operative per team, a maximum size difference of one, and enough spectator capacity for any hazard elimination (`existing spectators + largest active team size ≤ 16`). Use `classicBoardSpec(state.teamCount).cardCount` for card-pool validation. When starting a board, copy each generated card owner into the server-only `initialOwners` map before any gameplay mutation.
 
 - [ ] **Step 4: Implement dynamic authorization and projection source.**
 
