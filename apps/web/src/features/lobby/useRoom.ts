@@ -42,7 +42,8 @@ const COMMAND_ERROR_MESSAGES: Record<CommandErrorCode, string> = {
   stale_revision: "The room changed before that action completed. Try again.",
   storage_failed: "The room could not save that action. Try again.",
   room_locked: "The room is locked to new seats.",
-  room_full: "The room has no open seats.",
+  room_full:
+    "The room is full, or its remaining capacity is reserved for a possible team elimination.",
 };
 
 export interface RoomSocketClient {

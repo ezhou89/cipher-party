@@ -166,6 +166,34 @@ function readyProjection(): ClientProjection {
   });
 }
 
+function readyProjectionWithThreePlayerTeamAndSpectators(
+  total: number,
+): ClientProjection {
+  const ready = readyProjection();
+  const current = ready.seats.filter(
+    (seat) => seat.role === "spectator",
+  ).length;
+  return hostProjection({
+    seats: [
+      ...ready.seats,
+      {
+        playerId: "red-extra-operative",
+        displayName: "Sora",
+        teamId: "red",
+        role: "operative",
+        connected: true,
+      },
+      ...Array.from({ length: total - current }, (_, index) => ({
+        playerId: `extra-spectator-${index}`,
+        displayName: `Watcher ${index + 1}`,
+        teamId: null,
+        role: "spectator" as const,
+        connected: true,
+      })),
+    ],
+  });
+}
+
 function renderLobby(
   projection = hostProjection(),
   options: {
@@ -357,6 +385,35 @@ describe("LobbyView authoritative projection", () => {
       "At least 8 active players are required for 4 teams.",
     );
   });
+
+  it.each([
+    {
+      spectators: 13,
+      ready: true,
+      reason: "Ready: each team has one clue-giver and at least one operative.",
+    },
+    {
+      spectators: 14,
+      ready: false,
+      reason:
+        "Ask 1 spectator to leave before starting. The room must reserve 3 spectator seats for a possible team elimination.",
+    },
+  ])(
+    "reserves a three-player team's elimination capacity with $spectators spectators",
+    ({ spectators, ready, reason }) => {
+      renderLobby(readyProjectionWithThreePlayerTeamAndSpectators(spectators));
+
+      const start = screen.getByRole("button", { name: "Start board" });
+      if (ready) {
+        expect(start).toBeEnabled();
+      } else {
+        expect(start).toBeDisabled();
+      }
+      expect(
+        document.getElementById(start.getAttribute("aria-describedby")!),
+      ).toHaveTextContent(reason);
+    },
+  );
 
   it("politely announces other seats going offline and reconnecting without initial noise", async () => {
     const initial = readyProjection();
@@ -1380,58 +1437,71 @@ describe("RoomPage invite and socket lifecycle", () => {
     );
   });
 
-  it("shows local public copy for a rejected command without reflecting its server message", async () => {
-    const credentials: SeatCredentials = {
-      code: "ABC123",
-      playerId: "host",
-      seatToken: "durable-seat-token".padEnd(43, "x"),
-      hostToken: "durable-host-token".padEnd(43, "x"),
-    };
-    const store: SeatStore = {
-      get: async () => credentials,
-      put: async () => {},
-      delete: async () => {},
-    };
-    const socket = new FakeRoomSocket({
-      connection: "open",
-      projection: hostProjection(),
-      lastResult: null,
-    });
-    const router = createMemoryRouter(
-      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
-      { initialEntries: ["/room/ABC123"] },
-    );
-    render(<App router={router} />);
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Lock room" }));
+  it.each([
+    {
+      code: "unauthorized" as const,
+      publicCopy: "You no longer have permission to do that.",
+      serverCopy: "durable-seat-token-SENTINEL must never enter public copy",
+    },
+    {
+      code: "room_full" as const,
+      publicCopy:
+        "The room is full, or its remaining capacity is reserved for a possible team elimination.",
+      serverCopy: "Spectator capacity must reserve room for a team elimination",
+    },
+  ])(
+    "shows local public copy for a rejected $code command without reflecting its server message",
+    async ({ code, publicCopy, serverCopy }) => {
+      const credentials: SeatCredentials = {
+        code: "ABC123",
+        playerId: "host",
+        seatToken: "durable-seat-token".padEnd(43, "x"),
+        hostToken: "durable-host-token".padEnd(43, "x"),
+      };
+      const store: SeatStore = {
+        get: async () => credentials,
+        put: async () => {},
+        delete: async () => {},
+      };
+      const socket = new FakeRoomSocket({
+        connection: "open",
+        projection: hostProjection(),
+        lastResult: null,
+      });
+      const router = createMemoryRouter(
+        createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+        { initialEntries: ["/room/ABC123"] },
+      );
+      render(<App router={router} />);
+      const user = userEvent.setup();
+      await user.click(
+        await screen.findByRole("button", { name: "Lock room" }),
+      );
 
-    const rejected: CommandResult = {
-      ok: false,
-      revision: 8,
-      code: "unauthorized",
-      message: "durable-seat-token-SENTINEL must never enter public copy",
-    };
-    socket.emit({
-      connection: "open",
-      projection: hostProjection(),
-      lastResult: rejected,
-    });
-    expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
+      const rejected: CommandResult = {
+        ok: false,
+        revision: 8,
+        code,
+        message: serverCopy,
+      };
+      socket.emit({
+        connection: "open",
+        projection: hostProjection(),
+        lastResult: rejected,
+      });
+      expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
 
-    socket.emit({
-      connection: "open",
-      projection: hostProjection({ revision: 8 }),
-      lastResult: rejected,
-    });
+      socket.emit({
+        connection: "open",
+        projection: hostProjection({ revision: 8 }),
+        lastResult: rejected,
+      });
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "You no longer have permission to do that.",
-    );
-    expect(alert).toHaveFocus();
-    expect(document.body.textContent).not.toContain(
-      "durable-seat-token-SENTINEL",
-    );
-    expect(screen.getByRole("button", { name: "Lock room" })).toBeEnabled();
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(publicCopy);
+      expect(alert).toHaveFocus();
+      expect(document.body.textContent).not.toContain(serverCopy);
+      expect(screen.getByRole("button", { name: "Lock room" })).toBeEnabled();
+    },
+  );
 });

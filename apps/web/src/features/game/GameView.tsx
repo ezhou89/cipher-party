@@ -118,7 +118,7 @@ function eventAnnouncement(
     case "clue_submitted":
       return `${TEAM_PRESENTATION[entry.teamId].label} submitted a clue.`;
     case "clue_challenged":
-      return `${TEAM_PRESENTATION[entry.teamId].label}’s clue was challenged.`;
+      return `${TEAM_PRESENTATION[entry.teamId].label} challenged the clue.`;
     case "challenge_resolved":
       return `The clue challenge was ${entry.decision === "accept" ? "accepted" : "rejected"}.`;
   }

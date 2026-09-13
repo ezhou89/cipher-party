@@ -24,7 +24,7 @@ export function historyEntryText(
     }
     case "clue_challenged": {
       const team = TEAM_PRESENTATION[entry.teamId];
-      return `${team.symbol} ${team.label}’s clue was challenged.`;
+      return `${team.symbol} ${team.label} challenged the clue.`;
     }
     case "challenge_resolved":
       return `The clue challenge was ${entry.decision === "accept" ? "accepted" : "rejected"}.`;

@@ -14,6 +14,8 @@ interface LobbyViewProps {
   send(command: ClientCommand): void;
 }
 
+const MAX_SPECTATORS = 16;
+
 const WAITING_TEAM: TeamPanelIdentity = {
   id: "waiting",
   label: "Waiting & spectators",
@@ -153,7 +155,8 @@ function startReadiness(projection: ClientProjection): {
     active.filter((seat) => seat.teamId === teamId),
   );
   const sizes = teams.map((team) => team.length);
-  if (Math.max(...sizes) - Math.min(...sizes) > 1) {
+  const largestTeamSize = Math.max(...sizes);
+  if (largestTeamSize - Math.min(...sizes) > 1) {
     const labels = projection.configuredTeams.map(
       (teamId) => TEAM_PRESENTATION[teamId].label,
     );
@@ -176,6 +179,16 @@ function startReadiness(projection: ClientProjection): {
           "Each team needs exactly one clue-giver and at least one operative.",
       };
     }
+  }
+  const spectatorCount = projection.seats.filter(
+    (seat) => seat.role === "spectator",
+  ).length;
+  const excessSpectators = spectatorCount + largestTeamSize - MAX_SPECTATORS;
+  if (excessSpectators > 0) {
+    return {
+      ready: false,
+      message: `Ask ${excessSpectators} spectator${excessSpectators === 1 ? "" : "s"} to leave before starting. The room must reserve ${largestTeamSize} spectator seats for a possible team elimination.`,
+    };
   }
   return {
     ready: true,

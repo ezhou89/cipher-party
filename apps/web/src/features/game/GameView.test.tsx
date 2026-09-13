@@ -660,7 +660,7 @@ describe("GameView public board", () => {
         revision: 3,
         at: "2026-08-30T10:01:00.000Z",
         type: "clue_challenged",
-        teamId: "red",
+        teamId: "blue",
       },
       {
         revision: 4,
@@ -703,7 +703,7 @@ describe("GameView public board", () => {
     ).getAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual([
       "◆ Red submitted Harbor for 2.",
-      "◆ Red’s clue was challenged.",
+      "● Blue challenged the clue.",
       "The clue challenge was accepted.",
       "Archive 01 was revealed as ◆ Red by Red.",
       "◆ Red ended its turn.",
@@ -921,6 +921,50 @@ describe("GameView public board", () => {
         "Signal 01 was revealed as ✦ Hazard. Green was eliminated.",
       );
       expect(updates).toHaveTextContent("Yellow team. Clue phase.");
+    });
+  });
+
+  it("announces the challenger rather than attributing the active team's clue to them", async () => {
+    const { rerender } = renderGame(
+      fourTeamProjection({
+        board: { activeTeam: "yellow", phase: "clue", clue: null },
+      }),
+    );
+    const updates = screen.getByRole("status", { name: "Game updates" });
+
+    rerender(
+      <GameView
+        projection={fourTeamProjection({
+          revision: 13,
+          publicHistory: [
+            {
+              revision: 13,
+              at: "2026-09-12T10:03:00.000Z",
+              type: "clue_challenged",
+              teamId: "green",
+            },
+          ],
+          board: {
+            activeTeam: "yellow",
+            phase: "challenged",
+            clue: { word: "Lantern", count: 2 },
+          },
+        })}
+        connection="open"
+        pending={false}
+        send={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Yellow team’s turn")).toBeVisible();
+      expect(updates).toHaveTextContent("Green challenged the clue.");
+      expect(updates).toHaveTextContent("Yellow team. Clue challenged.");
+      expect(
+        within(
+          screen.getByRole("region", { name: "Public game history" }),
+        ).getByRole("listitem"),
+      ).toHaveTextContent("▲ Green challenged the clue.");
     });
   });
 
