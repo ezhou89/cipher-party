@@ -2,6 +2,8 @@ import {
   TEAM_IDS,
   classicBoardSpec,
   configuredTeams,
+  createSeededRandom,
+  shuffled,
   type Ownership,
   type TeamId,
 } from "@cipher-party/game-core";
@@ -390,19 +392,20 @@ function validReferences(state: RoomState): boolean {
   return validHistory(state);
 }
 
-function ownershipCounts(
-  cards: NonNullable<RoomState["game"]>["board"]["cards"],
-): Record<Ownership, number> {
-  const counts: Record<Ownership, number> = {
-    red: 0,
-    blue: 0,
-    green: 0,
-    yellow: 0,
-    neutral: 0,
-    hazard: 0,
-  };
-  for (const value of Object.values(cards)) counts[value.owner] += 1;
-  return counts;
+function originalOwnership(state: RoomState): Ownership[] {
+  const value = state.game!;
+  const spec = classicBoardSpec(state.teamCount);
+  return shuffled<Ownership>(
+    [
+      ...Array<Ownership>(spec.startingTargets).fill(value.board.startingTeam),
+      ...state.configuredTeams
+        .filter((teamId) => teamId !== value.board.startingTeam)
+        .flatMap((teamId) => Array<Ownership>(spec.otherTargets).fill(teamId)),
+      ...Array<Ownership>(spec.neutralCards).fill("neutral"),
+      "hazard",
+    ],
+    createSeededRandom(`${state.boardSeed}/board-0/ownership`),
+  );
 }
 
 function validBoard(state: RoomState): boolean {
@@ -440,36 +443,23 @@ function validBoard(state: RoomState): boolean {
     return false;
   }
 
-  const counts = ownershipCounts(gameBoard.cards);
   const eliminated = new Set(value.eliminatedTeams);
-  let convertedTargets = 0;
-  for (const teamId of TEAM_IDS) {
-    if (!state.configuredTeams.includes(teamId)) {
-      if (counts[teamId] !== 0) return false;
-      continue;
-    }
-    const expected =
-      teamId === gameBoard.startingTeam
-        ? spec.startingTargets
-        : spec.otherTargets;
-    if (!eliminated.has(teamId)) {
-      if (counts[teamId] !== expected) return false;
-      continue;
-    }
+  const originalOwners = originalOwnership(state);
+  for (const [index, cardId] of gameBoard.order.entries()) {
+    const cardValue = gameBoard.cards[cardId]!;
+    const originalOwner = originalOwners[index]!;
+    if (cardValue.owner === originalOwner) continue;
     if (
-      counts[teamId] > expected ||
-      Object.values(gameBoard.cards).some(
-        (cardValue) => cardValue.owner === teamId && !cardValue.revealed,
-      )
+      cardValue.owner !== "neutral" ||
+      cardValue.revealed ||
+      originalOwner === "neutral" ||
+      originalOwner === "hazard" ||
+      !eliminated.has(originalOwner)
     ) {
       return false;
     }
-    convertedTargets += expected - counts[teamId];
   }
-  return (
-    counts.neutral === spec.neutralCards + convertedTargets &&
-    counts.hazard === spec.hazardCards
-  );
+  return true;
 }
 
 function allTargetsRevealed(
@@ -569,12 +559,15 @@ function validRoomGame(state: RoomState): boolean {
   if (
     active.some(
       (seatValue) =>
-        seatValue.teamId === null || seatValue.role === "unassigned",
+        seatValue.teamId === null ||
+        seatValue.role === "unassigned" ||
+        value.eliminatedTeams.includes(seatValue.teamId),
     )
   ) {
     return false;
   }
   for (const teamId of state.configuredTeams) {
+    if (value.eliminatedTeams.includes(teamId)) continue;
     if (
       active.filter(
         (seatValue) =>

@@ -55,7 +55,7 @@ function fourTeamState(): RoomState {
         id: `card-${String(index).padStart(2, "0")}`,
         label: `Card ${index}`,
       })),
-      seed: "four-team-snapshot",
+      seed: `${state.boardSeed}/board-0`,
       startingTeam: "red",
       teamCount: 4,
     }),
@@ -74,7 +74,7 @@ function threeTeamState(): RoomState {
         id: `card-${String(index).padStart(2, "0")}`,
         label: `Card ${index}`,
       })),
-      seed: "three-team-snapshot",
+      seed: `${state.boardSeed}/board-0`,
       startingTeam: "red",
       teamCount: 3,
     }),
@@ -102,10 +102,17 @@ function legacyV1State(state: RoomState): unknown {
   return legacy;
 }
 
-function eliminatedFourTeamState(): RoomState {
+function eliminatedFourTeamState(
+  withRevealedEliminatedTarget = false,
+): RoomState {
   const state = fourTeamState();
   const game = state.game!;
   const eliminatedTeam = game.activeTeam;
+  if (withRevealedEliminatedTarget) {
+    Object.values(game.board.cards).find(
+      (card) => card.owner === eliminatedTeam,
+    )!.revealed = true;
+  }
   const hazard = Object.values(game.board.cards).find(
     (card) => card.owner === "hazard",
   )!;
@@ -119,6 +126,13 @@ function eliminatedFourTeamState(): RoomState {
   game.activeTeam = game.board.configuredTeams.find(
     (teamId) => teamId !== eliminatedTeam,
   )!;
+  for (const seat of state.seats) {
+    if (seat.teamId === eliminatedTeam) {
+      seat.seatClass = "spectator";
+      seat.teamId = null;
+      seat.role = "spectator";
+    }
+  }
   state.revision = 1;
   state.publicHistory = [
     {
@@ -325,6 +339,21 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(parseRoomSnapshot(state)).toEqual(state);
   });
 
+  it("preserves revealed eliminated-team ownership without retained history", () => {
+    const state = eliminatedFourTeamState(true);
+    state.revision = 101;
+    state.publicHistory = [];
+    const eliminatedTeam = state.game!.eliminatedTeams[0]!;
+    const revealedTarget = Object.values(state.game!.board.cards).find(
+      (card) => card.owner === eliminatedTeam && card.revealed,
+    )!;
+
+    expect(parseRoomSnapshot(state)).toEqual(state);
+
+    revealedTarget.owner = "neutral";
+    expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
+  });
+
   it.each([
     [
       "root configured-team order",
@@ -413,6 +442,21 @@ describe("strict v1/v2 snapshot storage boundary", () => {
       "duplicate elimination",
       (state: RoomState, eliminatedTeam: TeamId) => {
         state.game!.eliminatedTeams.push(eliminatedTeam);
+      },
+    ],
+    [
+      "active eliminated-team seats",
+      (state: RoomState, eliminatedTeam: TeamId) => {
+        const clueGiver = state.seats.find((seat) => seat.playerId === "host")!;
+        clueGiver.seatClass = "active";
+        clueGiver.teamId = eliminatedTeam;
+        clueGiver.role = "clue-giver";
+        const operative = state.seats.find(
+          (seat) => seat.playerId === `${eliminatedTeam}-operative`,
+        )!;
+        operative.seatClass = "active";
+        operative.teamId = eliminatedTeam;
+        operative.role = "operative";
       },
     ],
     [
