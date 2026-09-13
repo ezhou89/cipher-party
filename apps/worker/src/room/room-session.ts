@@ -41,6 +41,35 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function outstandingEliminationSpectatorReserve(state: RoomState): number {
+  if (
+    state.phase === "complete" ||
+    (state.game?.eliminatedTeams.length ?? 0) > 0
+  ) {
+    return 0;
+  }
+  return Math.max(
+    ...state.configuredTeams.map(
+      (teamId) =>
+        state.seats.filter(
+          (seat) => seat.seatClass === "active" && seat.teamId === teamId,
+        ).length,
+    ),
+  );
+}
+
+export function respectsSpectatorCapacityReservation(
+  state: RoomState,
+): boolean {
+  const spectatorCount = state.seats.filter(
+    (seat) => seat.seatClass === "spectator",
+  ).length;
+  return (
+    spectatorCount + outstandingEliminationSpectatorReserve(state) <=
+    MAX_SPECTATORS
+  );
+}
+
 function failed(
   state: RoomState,
   code: CommandErrorCode,
@@ -210,10 +239,7 @@ function validateStart(state: RoomState): StartValidationFailure | null {
       };
     }
   }
-  const spectatorCount = state.seats.filter(
-    (seat) => seat.seatClass === "spectator",
-  ).length;
-  if (spectatorCount + largestTeamSize > MAX_SPECTATORS) {
+  if (!respectsSpectatorCapacityReservation(state)) {
     return {
       code: "room_full",
       message: "Spectator capacity must reserve room for a team elimination",
@@ -278,16 +304,13 @@ function applySeatRole(
     return failed(state, "invalid_command", "Unknown seat");
   }
   if (command.role === "spectator") {
-    if (
-      target.seatClass !== "spectator" &&
-      state.seats.filter((seat) => seat.seatClass === "spectator").length >=
-        MAX_SPECTATORS
-    ) {
-      return failed(state, "room_full", "Spectator capacity reached");
-    }
+    if (target.seatClass === "spectator") return null;
     target.seatClass = "spectator";
     target.teamId = null;
     target.role = "spectator";
+    if (!respectsSpectatorCapacityReservation(state)) {
+      return failed(state, "room_full", "Spectator capacity reached");
+    }
     return null;
   }
   if (

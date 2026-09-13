@@ -11,7 +11,10 @@ import { DurableObject } from "cloudflare:workers";
 import { createConnectionTicket } from "../auth/ticket";
 import { verifyToken } from "../auth/token";
 import type { Env } from "../env";
-import { RoomSession } from "./room-session";
+import {
+  respectsSpectatorCapacityReservation,
+  RoomSession,
+} from "./room-session";
 import {
   ROOM_IDLE_TTL_MS,
   RoomStorage,
@@ -174,7 +177,7 @@ export class PersistentRoomController {
       const seatsInClass = current.seats.filter(
         (seat) => seat.seatClass === seatClass,
       ).length;
-      if (seatsInClass >= 16) {
+      if (!input.asSpectator && seatsInClass >= 16) {
         return { ok: false, code: "room_full" };
       }
 
@@ -188,6 +191,9 @@ export class PersistentRoomController {
         connected: false,
         seatTokenHash: input.seatTokenHash,
       });
+      if (input.asSpectator && !respectsSpectatorCapacityReservation(next)) {
+        return { ok: false, code: "room_full" };
+      }
       next.revision = current.revision + 1;
       next.lastActivity = this.#now().toISOString();
       await this.#storage.write(next);

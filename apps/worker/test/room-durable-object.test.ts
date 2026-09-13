@@ -28,6 +28,7 @@ import {
 import {
   createLobbyState,
   type RoomActor,
+  type RoomSeat,
   type RoomState,
 } from "../src/room/room-state";
 import type { RoomDurableObject } from "../src/room/room-durable-object";
@@ -198,6 +199,83 @@ function configuredFourTeamRoom(code: string): RoomState {
     },
   );
   return state;
+}
+
+function spectatorSeats(count: number, offset = 0): RoomSeat[] {
+  return Array.from({ length: count }, (_, index) => ({
+    playerId: `spectator-${offset + index}`,
+    displayName: `Spectator ${offset + index}`,
+    seatClass: "spectator",
+    teamId: null,
+    role: "spectator",
+    connected: false,
+    seatTokenHash: (offset + index + 16).toString(16).padStart(64, "0"),
+  }));
+}
+
+function spectatorJoin(index: number): {
+  playerId: string;
+  displayName: string;
+  seatTokenHash: string;
+  asSpectator: true;
+} {
+  return {
+    playerId: `late-spectator-${index}`,
+    displayName: `Late Spectator ${index}`,
+    seatTokenHash: (index + 4_096).toString(16).padStart(64, "0"),
+    asSpectator: true,
+  };
+}
+
+async function nominateHazard(
+  controller: PersistentRoomController,
+): Promise<{ hazardCardId: string; operative: RoomActor }> {
+  await expect(
+    controller.dispatch(
+      hostActor(),
+      envelope(controller.getSnapshot()!.revision, {
+        type: "submit_clue",
+        word: "Orbit",
+        count: 1,
+      }),
+    ),
+  ).resolves.toMatchObject({ ok: true });
+  const hazardCardId = controller
+    .getSnapshot()!
+    .game!.board.order.find(
+      (cardId) =>
+        controller.getSnapshot()!.game!.board.cards[cardId]!.owner === "hazard",
+    )!;
+  const operative = {
+    playerId: "red-operative",
+    hostAuthority: false,
+  };
+  await expect(
+    controller.dispatch(
+      operative,
+      envelope(controller.getSnapshot()!.revision, {
+        type: "nominate_card",
+        cardId: hazardCardId,
+      }),
+    ),
+  ).resolves.toMatchObject({ ok: true });
+  return { hazardCardId, operative };
+}
+
+async function revealHazard(
+  controller: PersistentRoomController,
+): Promise<string> {
+  const { hazardCardId, operative } = await nominateHazard(controller);
+  await expect(
+    controller.dispatch(
+      operative,
+      envelope(controller.getSnapshot()!.revision, {
+        type: "confirm_reveal",
+        cardId: hazardCardId,
+      }),
+    ),
+  ).resolves.toMatchObject({ ok: true });
+  return hazardCardId;
 }
 
 function stub(name: string): DurableObjectStub<RoomDurableObject> {
@@ -558,6 +636,39 @@ describe("RoomDurableObject persistence", () => {
     expect(reloaded.getSnapshot()).toEqual(persisted);
   });
 
+  it("admits a late spectator at the outstanding-reserve boundary and rejects the next", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    const state = configuredFourTeamRoom("R3SV13");
+    state.seats.push(...spectatorSeats(13));
+    await controller.initialize(state);
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+
+    await expect(controller.join(spectatorJoin(0))).resolves.toEqual({
+      ok: true,
+      revision: 2,
+    });
+    expect(
+      controller
+        .getSnapshot()!
+        .seats.filter((seat) => seat.seatClass === "spectator"),
+    ).toHaveLength(14);
+    const atBoundary = controller.getSnapshot();
+    const writesAtBoundary = storage.writes.length;
+
+    await expect(controller.join(spectatorJoin(1))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+    expect(controller.getSnapshot()).toEqual(atBoundary);
+    expect(storage.writes).toHaveLength(writesAtBoundary);
+  });
+
   it("persists one complete hazard-elimination revision before publishing it", async () => {
     const storage = new FakeRoomStorage();
     const published: RoomState[] = [];
@@ -569,30 +680,21 @@ describe("RoomDurableObject persistence", () => {
         published.push(structuredClone(state));
       },
     );
-    await controller.initialize(configuredFourTeamRoom("HAZ4RD"));
-    await controller.dispatch(
-      hostActor(),
-      envelope(0, { type: "start_board" }),
-    );
-    await controller.dispatch(
-      hostActor(),
-      envelope(1, { type: "submit_clue", word: "Orbit", count: 1 }),
-    );
-    const hazardCardId = controller
-      .getSnapshot()!
-      .game!.board.order.find(
-        (cardId) =>
-          controller.getSnapshot()!.game!.board.cards[cardId]!.owner ===
-          "hazard",
-      )!;
-    const operative = {
-      playerId: "red-operative",
-      hostAuthority: false,
-    };
-    await controller.dispatch(
-      operative,
-      envelope(2, { type: "nominate_card", cardId: hazardCardId }),
-    );
+    const state = configuredFourTeamRoom("HAZ4RD");
+    state.seats.push(...spectatorSeats(14));
+    await controller.initialize(state);
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    const beforeLateJoin = controller.getSnapshot();
+    const writesBeforeLateJoin = storage.writes.length;
+    await expect(controller.join(spectatorJoin(20))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+    expect(controller.getSnapshot()).toEqual(beforeLateJoin);
+    expect(storage.writes).toHaveLength(writesBeforeLateJoin);
+    const { hazardCardId, operative } = await nominateHazard(controller);
     const before = controller.getSnapshot()!;
     const writesBefore = storage.writes.length;
     const publishedBefore = published.length;
@@ -644,6 +746,9 @@ describe("RoomDurableObject persistence", () => {
         role: "spectator",
       }),
     ]);
+    expect(
+      persisted.seats.filter((seat) => seat.seatClass === "spectator"),
+    ).toHaveLength(16);
     expect(persisted.initialOwners).toEqual(before.initialOwners);
 
     const reloaded = new PersistentRoomController(
@@ -652,6 +757,69 @@ describe("RoomDurableObject persistence", () => {
     );
     await reloaded.load();
     expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
+  it("releases the outstanding reserve after a hazard elimination", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(configuredFourTeamRoom("R3EH4Z"));
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    await revealHazard(controller);
+    expect(controller.getSnapshot()?.game?.eliminatedTeams).toEqual(["red"]);
+
+    for (let index = 0; index < 14; index += 1) {
+      await expect(
+        controller.join(spectatorJoin(100 + index)),
+      ).resolves.toEqual({ ok: true, revision: 5 + index });
+    }
+    expect(
+      controller
+        .getSnapshot()!
+        .seats.filter((seat) => seat.seatClass === "spectator"),
+    ).toHaveLength(16);
+    await expect(controller.join(spectatorJoin(114))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+  });
+
+  it("releases the outstanding reserve when a two-team board completes", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    const state = configuredRoom("C0MP23");
+    state.startingTeam = "red";
+    state.seats.push(...spectatorSeats(14));
+    await controller.initialize(state);
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    await revealHazard(controller);
+    expect(controller.getSnapshot()).toMatchObject({
+      revision: 4,
+      phase: "complete",
+      game: { phase: "board_complete", eliminatedTeams: [] },
+    });
+
+    await expect(controller.join(spectatorJoin(200))).resolves.toEqual({
+      ok: true,
+      revision: 5,
+    });
+    await expect(controller.join(spectatorJoin(201))).resolves.toEqual({
+      ok: true,
+      revision: 6,
+    });
+    await expect(controller.join(spectatorJoin(202))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
   });
 
   it("normalizes v1 storage in memory and writes v2 only after an accepted mutation", async () => {

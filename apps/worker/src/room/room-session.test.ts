@@ -1055,6 +1055,58 @@ describe("RoomSession lobby mutations and capacity", () => {
     );
   });
 
+  it("allows a spectator role transition at the elimination-reserve boundary", async () => {
+    const configured = configuredMultiTeamState(4);
+    const session = RoomSession.from({
+      ...configured,
+      seats: [
+        ...configured.seats,
+        seat({ playerId: "red-extra", teamId: "red", role: "operative" }),
+        ...Array.from({ length: 13 }, (_, index) =>
+          seat({ playerId: `watcher-${index}`, seatClass: "spectator" }),
+        ),
+      ],
+    });
+
+    expect(
+      await dispatchHost(session, {
+        type: "set_role",
+        playerId: "red-extra",
+        role: "spectator",
+      }),
+    ).toEqual({ ok: true, revision: 1 });
+    expect(
+      session
+        .snapshot()
+        .seats.filter((candidate) => candidate.seatClass === "spectator"),
+    ).toHaveLength(14);
+  });
+
+  it("rejects a spectator role transition that consumes the elimination reserve", async () => {
+    const configured = configuredMultiTeamState(4);
+    const session = RoomSession.from({
+      ...configured,
+      seats: [
+        ...configured.seats,
+        ...Array.from({ length: 14 }, (_, index) =>
+          seat({ playerId: `watcher-${index}`, seatClass: "spectator" }),
+        ),
+      ],
+    });
+    const before = session.snapshot();
+
+    expectError(
+      await dispatchHost(session, {
+        type: "set_role",
+        playerId: "yellow-operative",
+        role: "spectator",
+      }),
+      "room_full",
+      0,
+    );
+    expect(session.snapshot()).toEqual(before);
+  });
+
   it("rejects missing assignment targets and supports prototype-like player IDs", async () => {
     const state = configuredState({
       seats: [
