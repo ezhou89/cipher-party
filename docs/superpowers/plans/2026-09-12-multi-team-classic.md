@@ -545,7 +545,7 @@ Remove the now-stale `authorize` and `applyLobbyCommand` exemptions. Keep every 
 - Consumes: v2 projection fields from Task 3 and Worker output from Task 5.
 - Produces: dynamic team presentation, team-count control, dimension-driven CSS grid, eliminated-team status, explicit input/focus behavior, and responsive four-team layouts.
 
-- [ ] **Step 1: Add failing UI tests for dynamic teams and dimensions.**
+- [x] **Step 1: Add failing UI tests for dynamic teams and dimensions.**
 
 Add projections for 2/3/4 teams and assert:
 
@@ -560,17 +560,17 @@ expect(screen.getByText("Eliminated")).toBeVisible();
 
 Keep existing two-team assertions and add checks that public roles have no secret-key DOM nodes, first card activation only nominates, and Escape cancels/restores focus.
 
-- [ ] **Step 2: Run web tests and verify the RED failure.**
+- [x] **Step 2: Run web tests and verify the RED failure.**
 
 ```bash
 pnpm --filter @cipher-party/web test -- src/features/lobby/LobbyView.test.tsx src/features/game/GameView.test.tsx
 ```
 
-- [ ] **Step 3: Expand centralized team presentation and lobby rendering.**
+- [x] **Step 3: Expand centralized team presentation and lobby rendering.**
 
 Add Green/Verdant and Yellow/Amber to `TEAM_PRESENTATION` with symbols and callsigns. Update `TeamPanelIdentity` to accept all canonical IDs plus waiting. Render configured teams from projection data, add the host’s unlocked-lobby team selector, and derive readiness messages/minimum counts from `teamCount` rather than Red/Blue branches.
 
-- [ ] **Step 4: Make board and game components projection-driven.**
+- [x] **Step 4: Make board and game components projection-driven.**
 
 Replace local Red/Blue maps with the centralized catalog. Render `TeamScore`, `BoardResult`, `GameHistory`, announcements, and turn labels by iterating configured teams. Add an elimination announcement from `card_revealed.eliminatedTeam`; show eliminated seats as spectators and disable their actions. Pass `rows`/`columns` into `BoardGrid` and set a CSS custom property from the projection:
 
@@ -595,11 +595,11 @@ const cardsById = new Map(cards.map((card) => [card.id, card]));
 </ol>
 ```
 
-- [ ] **Step 5: Implement responsive and accessibility behavior.**
+- [x] **Step 5: Implement responsive and accessibility behavior.**
 
 Add CSS for `repeat(var(--board-columns), minmax(0, 1fr))`, 5 × 6/6 × 6 bounded board scrolling, compact four-team desktop chips, phone bottom-sheet details, high-contrast/forced-colors team patterns, and no horizontal page overflow at 320 × 780. Keep card buttons at least 44px where possible; retain explicit reveal confirmation. Add an accessible zoom control or native-scroll fallback rather than gesture-only navigation.
 
-- [ ] **Step 6: Verify web tests and commit.**
+- [x] **Step 6: Verify web tests and commit.**
 
 ```bash
 pnpm --filter @cipher-party/web test -- src/features/lobby/LobbyView.test.tsx src/features/game/GameView.test.tsx
