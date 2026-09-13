@@ -320,7 +320,12 @@ function mediaCssRule(condition: string, selector: string): CSSStyleRule {
   );
   const rule = Array.from(media?.cssRules ?? []).find(
     (candidate): candidate is CSSStyleRule =>
-      "selectorText" in candidate && candidate.selectorText === selector,
+      "selectorText" in candidate &&
+      typeof candidate.selectorText === "string" &&
+      candidate.selectorText
+        .split(",")
+        .map((part) => part.trim())
+        .includes(selector),
   );
   if (rule === undefined) {
     throw new Error(`CSS rule ${selector} in ${condition} was not parsed`);
@@ -2573,7 +2578,7 @@ describe("GameView route integration and responsive contract", () => {
     expect(
       mediaCssRule("(forced-colors: active)", ".team-score strong").style
         .forcedColorAdjust,
-    ).toBe("none");
+    ).toBe("auto");
 
     renderGame();
     const status = screen.getByRole("region", { name: "Turn status" });

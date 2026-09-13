@@ -1622,39 +1622,35 @@ button.board-card:active:not(:disabled) {
   .team-score strong,
   .turn-status,
   .board-card.is-revealed {
-    forced-color-adjust: none;
+    forced-color-adjust: auto;
     border-color: CanvasText;
     background: Canvas;
     color: CanvasText;
   }
 
-  .team-score strong {
-    forced-color-adjust: none;
-  }
-
   .team-panel-red,
-  .team-score-red,
+  .team-score .team-score-red,
   .turn-status-red,
   .board-card.owner-red {
     border-style: solid;
   }
 
   .team-panel-blue,
-  .team-score-blue,
+  .team-score .team-score-blue,
   .turn-status-blue,
   .board-card.owner-blue {
     border-style: double;
   }
 
   .team-panel-green,
-  .team-score-green,
+  .team-score .team-score-green,
   .turn-status-green,
   .board-card.owner-green {
     border-style: dashed;
   }
 
   .team-panel-yellow,
-  .team-score-yellow,
+  .team-score .team-score-yellow,
   .turn-status-yellow,
   .board-card.owner-yellow {
     border-style: dotted;
