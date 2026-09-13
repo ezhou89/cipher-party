@@ -180,13 +180,6 @@ async function generatedStates(
     });
   }
   const session = RoomSession.from(initial);
-  function persistedSnapshot(): RoomState {
-    const state = session.snapshot();
-    if (state.game !== null && state.initialOwners === null) {
-      state.initialOwners = initialOwnersFor(state.game);
-    }
-    return state;
-  }
   let sequence = 0;
   async function command(command: ClientCommand, playerId = "host") {
     const envelope: CommandEnvelope = {
@@ -216,7 +209,7 @@ async function generatedStates(
   }
   const states = [lobby(), session.snapshot()];
   await command({ type: "start_board" });
-  states.push(persistedSnapshot());
+  states.push(session.snapshot());
   const team = session.snapshot().game!.activeTeam;
   const targets = Object.values(session.snapshot().game!.board.cards).filter(
     (card) => card.owner === team,
@@ -229,15 +222,15 @@ async function generatedStates(
     },
     team === "red" ? "host" : "blue-clue",
   );
-  states.push(persistedSnapshot());
+  states.push(session.snapshot());
   await command({ type: "pause_room" });
-  states.push(persistedSnapshot());
+  states.push(session.snapshot());
   await command({ type: "resume_room" });
   await command(
     { type: "challenge_clue" },
     team === "red" ? "blue-clue" : "host",
   );
-  states.push(persistedSnapshot());
+  states.push(session.snapshot());
   await command({ type: "resolve_challenge", decision: "accept" });
   const hazard = Object.values(session.snapshot().game!.board.cards).find(
     (card) => card.owner === "hazard",
@@ -245,10 +238,10 @@ async function generatedStates(
   const operative = team === "red" ? "red-operative" : "blue-operative";
   for (const card of completion === "targets" ? targets : [hazard]) {
     await command({ type: "nominate_card", cardId: card.id }, operative);
-    states.push(persistedSnapshot());
+    states.push(session.snapshot());
     await command({ type: "confirm_reveal", cardId: card.id }, operative);
   }
-  states.push(persistedSnapshot());
+  states.push(session.snapshot());
   return states;
 }
 

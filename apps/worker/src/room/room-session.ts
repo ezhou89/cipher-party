@@ -275,13 +275,15 @@ function applyLobbyCommand(
       if (cardPoolFailure !== null) {
         return failed(state, "invalid_command", cardPoolFailure);
       }
-      state.game = createClassicGame(
-        createClassicBoard({
-          cards: cardPool,
-          seed: `${state.boardSeed}/board-0`,
-          startingTeam: state.startingTeam,
-        }),
+      const board = createClassicBoard({
+        cards: cardPool,
+        seed: `${state.boardSeed}/board-0`,
+        startingTeam: state.startingTeam,
+      });
+      state.initialOwners = Object.fromEntries(
+        board.order.map((cardId) => [cardId, board.cards[cardId]!.owner]),
       );
+      state.game = createClassicGame(board);
       state.phase = "playing";
       return null;
     }

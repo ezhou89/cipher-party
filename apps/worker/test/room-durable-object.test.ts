@@ -490,6 +490,28 @@ describe("PersistentRoomController failure atomicity", () => {
 });
 
 describe("RoomDurableObject persistence", () => {
+  it("reloads a freshly started board with its private ownership provenance", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(configuredRoom("R3AD01"));
+
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+
+    const persisted = structuredClone(storage.snapshot!);
+    const reloaded = new PersistentRoomController(
+      new RawRoomStorage(persisted),
+      () => INITIALIZED_AT,
+    );
+    await reloaded.load();
+
+    expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
   it("normalizes v1 storage in memory and writes v2 only after an accepted mutation", async () => {
     const storage = new RawRoomStorage(
       legacySnapshot(roomInitialization("M1GR8T")),
