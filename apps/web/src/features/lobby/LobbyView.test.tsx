@@ -396,7 +396,7 @@ describe("LobbyView authoritative projection", () => {
       spectators: 14,
       ready: false,
       reason:
-        "Ask 1 spectator to leave before starting. The room must reserve 3 spectator seats for a possible team elimination.",
+        "Use the host role controls to reassign at least 1 spectator seat as an active player before starting. If that is not possible, start a new room with fewer spectators. The room must reserve 3 spectator seats for a possible team elimination.",
     },
   ])(
     "reserves a three-player team's elimination capacity with $spectators spectators",

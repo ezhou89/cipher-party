@@ -187,7 +187,7 @@ function startReadiness(projection: ClientProjection): {
   if (excessSpectators > 0) {
     return {
       ready: false,
-      message: `Ask ${excessSpectators} spectator${excessSpectators === 1 ? "" : "s"} to leave before starting. The room must reserve ${largestTeamSize} spectator seats for a possible team elimination.`,
+      message: `Use the host role controls to reassign at least ${excessSpectators} spectator seat${excessSpectators === 1 ? "" : "s"} as ${excessSpectators === 1 ? "an active player" : "active players"} before starting. If that is not possible, start a new room with fewer spectators. The room must reserve ${largestTeamSize} spectator seats for a possible team elimination.`,
     };
   }
   return {
