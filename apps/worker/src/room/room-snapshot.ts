@@ -41,6 +41,10 @@ function ownRecordEntries(value: unknown): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return null;
+  }
   return Object.keys(value).map((key) => [
     key,
     (value as Record<string, unknown>)[key],

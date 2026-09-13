@@ -59,6 +59,28 @@ function renameFirstCard(state: RoomState, replacementId: string): void {
   });
 }
 
+const nonPlainRecordFactories = [
+  ["Map", () => new Map()],
+  ["Set", () => new Set()],
+  ["Date", () => new Date(0)],
+] as const;
+
+function nonPlainRecordWithEntries(
+  factory: () => object,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const value = factory();
+  for (const key of Object.keys(source)) {
+    Object.defineProperty(value, key, {
+      value: source[key],
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return value as unknown as Record<string, unknown>;
+}
+
 function fourTeamState(): RoomState {
   const state = lobby();
   const teams = ["red", "blue", "green", "yellow"] as const;
@@ -323,6 +345,51 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     },
   );
 
+  it.each(nonPlainRecordFactories)(
+    "rejects a v2 board card map supplied as a %s instance",
+    (name, factory) => {
+      const state = fourTeamState();
+      state.game!.board.cards = nonPlainRecordWithEntries(
+        factory,
+        state.game!.board.cards,
+      ) as NonNullable<RoomState["game"]>["board"]["cards"];
+
+      expect(() => parseRoomSnapshot(state), name).toThrow(
+        InvalidRoomSnapshotError,
+      );
+    },
+  );
+
+  it.each(nonPlainRecordFactories)(
+    "rejects a v2 initial-owner map supplied as a %s instance",
+    (name, factory) => {
+      const state = fourTeamState();
+      state.initialOwners = nonPlainRecordWithEntries(
+        factory,
+        state.initialOwners!,
+      ) as NonNullable<RoomState["initialOwners"]>;
+
+      expect(() => parseRoomSnapshot(state), name).toThrow(
+        InvalidRoomSnapshotError,
+      );
+    },
+  );
+
+  it.each(nonPlainRecordFactories)(
+    "rejects a v2 elimination-conversion map supplied as a %s instance",
+    (name, factory) => {
+      const state = fourTeamState();
+      state.eliminationConversions = nonPlainRecordWithEntries(
+        factory,
+        state.eliminationConversions,
+      ) as RoomState["eliminationConversions"];
+
+      expect(() => parseRoomSnapshot(state), name).toThrow(
+        InvalidRoomSnapshotError,
+      );
+    },
+  );
+
   it("parses the supported three-team geometry and distribution", () => {
     const restored = parseRoomSnapshot(threeTeamState());
 
@@ -373,6 +440,23 @@ describe("strict v1/v2 snapshot storage boundary", () => {
       expect(
         Object.getPrototypeOf(normalized.eliminationConversions),
       ).toBeNull();
+    },
+  );
+
+  it.each(nonPlainRecordFactories)(
+    "rejects a v1 board card map supplied as a %s instance",
+    async (name, factory) => {
+      const legacy = legacyV1State((await generatedStates())[2]!) as {
+        game: { board: { cards: Record<string, unknown> } };
+      };
+      legacy.game.board.cards = nonPlainRecordWithEntries(
+        factory,
+        legacy.game.board.cards,
+      );
+
+      expect(() => parseRoomSnapshot(legacy), name).toThrow(
+        InvalidRoomSnapshotError,
+      );
     },
   );
 
