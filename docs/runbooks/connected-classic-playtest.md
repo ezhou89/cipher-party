@@ -4,6 +4,8 @@
 
 This is the required Connected Classic human exit gate. Automated checks and a preliminary release gate are preconditions, not substitutes for four real humans using four distinct browser profiles or devices named A through D. Each participant opens exactly one assigned game window. Keep the results record below blank or `PENDING` until the session actually occurs.
 
+This remains the unchanged two-team regression gate. The separate [Multi-team Classic eight-human playtest](multi-team-playtest.md) covers four-team elimination and does not replace this session; passing either gate is not evidence that the other ran.
+
 ## Session setup
 
 Use four human participants and four genuinely distinct browser profiles or devices named A, B, C, and D. Assign one profile or device to each human, and open exactly one game window for each participant. Choose one origin for the whole session:

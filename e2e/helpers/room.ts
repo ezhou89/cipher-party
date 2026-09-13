@@ -80,6 +80,18 @@ export interface ConnectedClassicRoom {
   seats: ObservedSeat[];
 }
 
+const futurePublicProjectionRoles = new WeakMap<
+  RoomFrameObserver,
+  "operative" | "spectator"
+>();
+
+export function auditFuturePublicProjectionFrames(
+  observer: RoomFrameObserver,
+  expectedViewRole: "operative" | "spectator",
+): void {
+  futurePublicProjectionRoles.set(observer, expectedViewRole);
+}
+
 export function unexpectedServerOutcomes(
   observer: RoomFrameObserver,
 ): string[] {
@@ -141,11 +153,8 @@ export function auditPublicProjection(
   observer: RoomFrameObserver,
   expectedViewRole?: "operative" | "spectator",
 ): void {
-  if (expectedViewRole === undefined) {
-    return;
-  }
-
   if (
+    expectedViewRole !== undefined &&
     isRecord(projection) &&
     (projection.roomPhase === "playing" ||
       projection.roomPhase === "complete") &&
@@ -165,6 +174,27 @@ export function auditPublicProjection(
 
     for (const [field, nested] of Object.entries(value)) {
       const normalizedField = field.toLowerCase().replace(/[^a-z]/gu, "");
+      if (normalizedField === "eliminatedteam") {
+        const publicHazardElimination =
+          path.length === 2 &&
+          path[0] === "publicHistory" &&
+          typeof path[1] === "number" &&
+          value.type === "card_revealed" &&
+          value.owner === "hazard";
+        if (!publicHazardElimination) {
+          observer.privacyViolations.push(
+            "eliminated_team_outside_hazard_reveal",
+          );
+        }
+        continue;
+      }
+      if (
+        normalizedField.includes("targettotal") ||
+        normalizedField.includes("totaltarget")
+      ) {
+        observer.privacyViolations.push("forbidden_target_total");
+        continue;
+      }
       if (normalizedField === "owner") {
         const boardCardOwner =
           path.length === 3 &&
@@ -270,14 +300,16 @@ function recordReceivedRoomFrame(
     const rawProjectionIndex = socketProjectionIndex;
     const nextProjectionIndex = socketProjectionIndex + 1;
     const rawProjection = rawMessage.projection;
-    if (options.publicObserver === true) {
+    const futurePublicRole = futurePublicProjectionRoles.get(observer);
+    if (options.publicObserver === true || futurePublicRole !== undefined) {
       auditPublicProjection(
         rawProjection,
         observer,
-        options.expectedViewRole === "operative" ||
+        futurePublicRole ??
+          (options.expectedViewRole === "operative" ||
           options.expectedViewRole === "spectator"
-          ? options.expectedViewRole
-          : undefined,
+            ? options.expectedViewRole
+            : undefined),
       );
     }
 
@@ -403,7 +435,7 @@ export function observeRoomPage(
       const frame = parseJsonFrame(payload);
       if (
         frame !== null &&
-        frame.protocolVersion === 1 &&
+        frame.protocolVersion === 2 &&
         typeof frame.commandId === "string" &&
         isRecord(frame.command)
       ) {

@@ -2,6 +2,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import type { ClientProjection } from "@cipher-party/protocol";
 
 import {
+  auditFuturePublicProjectionFrames,
   auditPublicProjection,
   closeConnectedClassicRoom,
   createConnectedClassicRoom,
@@ -15,7 +16,7 @@ import {
   type RoomFrameObserver,
 } from "./helpers/room";
 
-const SECRET_OWNER_TEXT = /(?:Red|Blue|Neutral|Hazard) key$/u;
+const SECRET_OWNER_TEXT = /(?:Red|Blue|Green|Yellow|Neutral|Hazard) key$/u;
 const REJECTION_CONSOLE_STATUS =
   /Failed to load resource: the server responded with a status of (\d{3})/u;
 
@@ -67,6 +68,9 @@ function observeSyntheticRoomFrames(
 
   return {
     observer,
+    send(payload: string | Buffer) {
+      socketListeners.get("framesent")?.({ payload });
+    },
     receive(payload: string | Buffer) {
       socketListeners.get("framereceived")?.({ payload });
     },
@@ -75,12 +79,14 @@ function observeSyntheticRoomFrames(
 
 function validSpectatorProjection(revision: number): ClientProjection {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     revision,
     code: "ABC123",
     inviteUrl: "http://room.test/room/ABC123",
     roomPhase: "playing",
     locked: true,
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
     viewer: {
       playerId: "spectator",
       teamId: null,
@@ -1188,6 +1194,8 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
         keyOwner: "synthetic",
         owners: {},
         ownership: {},
+        targetTotal: 8,
+        eliminatedTeam: "red",
       },
       board: {
         cards: [
@@ -1197,6 +1205,16 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
       },
       publicHistory: [
         { type: "card_revealed", owner: "synthetic" },
+        {
+          type: "card_revealed",
+          owner: "hazard",
+          eliminatedTeam: "red",
+        },
+        {
+          type: "card_revealed",
+          owner: "red",
+          eliminatedTeam: "red",
+        },
         { type: "room_paused", owner: "synthetic" },
       ],
     },
@@ -1210,8 +1228,66 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
     "forbidden_hidden_field",
     "forbidden_hidden_field",
     "forbidden_hidden_field",
+    "forbidden_target_total",
+    "eliminated_team_outside_hazard_reveal",
     "owner_on_unrevealed_board_card",
+    "eliminated_team_outside_hazard_reveal",
     "owner_outside_public_reveal",
+  ]);
+});
+
+test("room observer captures only protocol-v2 command envelopes", () => {
+  const { observer, send } = observeSyntheticRoomFrames();
+
+  send(
+    JSON.stringify({
+      protocolVersion: 1,
+      commandId: "00000000-0000-4000-8000-000000000001",
+      expectedRevision: 4,
+      command: { type: "end_turn" },
+    }),
+  );
+  send(
+    JSON.stringify({
+      protocolVersion: 2,
+      commandId: "00000000-0000-4000-8000-000000000002",
+      expectedRevision: 5,
+      command: { type: "end_turn" },
+    }),
+  );
+
+  expect(observer.sentCommands).toEqual([
+    {
+      protocolVersion: 2,
+      commandId: "00000000-0000-4000-8000-000000000002",
+      expectedRevision: 5,
+      command: { type: "end_turn" },
+    },
+  ]);
+});
+
+test("room observer can begin raw public auditing at an elimination boundary", () => {
+  const { observer, receive } = observeSyntheticRoomFrames();
+  const leakedPublicFrame = JSON.stringify({
+    type: "projection",
+    projection: {
+      roomPhase: "playing",
+      viewRole: "clue-giver",
+      key: { "secret-card": "hazard" },
+      nested: { targetTotal: 8 },
+    },
+  });
+
+  receive(leakedPublicFrame);
+  expect(observer.privacyViolations).toEqual([]);
+
+  auditFuturePublicProjectionFrames(observer, "spectator");
+  receive(leakedPublicFrame);
+
+  expect(observer.privacyViolations).toEqual([
+    "unexpected_public_view_role",
+    "forbidden_hidden_field",
+    "forbidden_target_total",
   ]);
 });
 
