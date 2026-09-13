@@ -710,7 +710,7 @@ git add docs/PROJECT_SNAPSHOT.md docs/superpowers/plans/2026-09-12-multi-team-cl
 git commit -m "docs: record multi-team implementation handoff"
 ```
 
-Task 8 verification record (source `491c46577234de32197a1aa1c987edc0f6576b4c`): frozen install, `pnpm run check:release`, and `pnpm run deploy:staging --dry-run` passed after the documented sandbox-only Wrangler log/listener denial was retried with narrowly scoped local permission. The release gate passed **818 repository tests**, all five coverage floors, complexity (510 functions; mean 3.36; maximum 34), builds, 8/8 preflight rows, and 59 Playwright tests with one intentional WebKit skip. The checkout was clean and the dry run performed no upload. Current staging remains the prior two-team deployment; no live deployment or human session was executed.
+Task 8 verification record (source `4e138b64a191d6236445b1763d1128004b0fc5ac`): the frozen install was already up to date, and the final `pnpm run check:release` plus `pnpm run deploy:staging --dry-run` passed with the narrowly approved local permission established after the initial documented sandbox-only Wrangler log/listener denial. The final release rerun passed **851 repository tests**, all five coverage floors, complexity (518 functions; mean 3.36; maximum 34), builds, 8/8 preflight rows, and 63 Playwright tests with one intentional WebKit skip. The checkout was clean, the final dry run completed for the exact source, and no upload occurred. Current staging remains the prior two-team deployment; no live deployment or human session was executed.
 
 ## Self-review checklist
 
