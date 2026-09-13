@@ -370,7 +370,7 @@ git commit -m "feat: version protocol for multi-team projections"
 
 **Files:**
 
-- Modify: `apps/worker/src/room/room-state.ts`, `apps/worker/src/room/room-snapshot.ts`
+- Modify: `apps/worker/src/room/room-state.ts`, `apps/worker/src/room/room-snapshot.ts`, `apps/worker/src/room/room-session.ts` (board-start provenance seam only)
 - Test: `apps/worker/test/room-snapshot.test.ts`, `apps/worker/test/room-durable-object.test.ts`
 
 **Interfaces:**
@@ -416,7 +416,7 @@ export interface RoomState {
 }
 ```
 
-Keep v1 and v2 Zod schemas separate. The parser first recognizes the version, validates the complete v1 shape, injects two-team defaults, 5 × 5 metadata, and an `initialOwners` map copied from the unchanged legacy board owners, then validates the normalized v2 state. New board state writes an exact server-only `initialOwners` map keyed by card ID before any reveal; it is never included in client projections. No SQLite migration is added.
+Keep v1 and v2 Zod schemas separate. The parser first recognizes the version, validates the complete v1 shape, injects two-team defaults, 5 × 5 metadata, and an `initialOwners` map copied from the unchanged legacy board owners, then validates the normalized v2 state. New board state writes an exact server-only `initialOwners` map keyed by card ID before any reveal; the minimal `start_board` writer seam may be added here so a freshly persisted board is reloadable. It is never included in client projections. No SQLite migration is added.
 
 - [ ] **Step 4: Generalize snapshot invariants.**
 
@@ -432,13 +432,13 @@ git add apps/worker/src/room/room-state.ts apps/worker/src/room/room-snapshot.ts
 git commit -m "feat: migrate room snapshots to multi-team state"
 ```
 
-At this intermediate boundary, the Worker typecheck may report v2 adoption errors in `room-session.ts` or its existing tests; those files belong to Task 5. Record exact failures without changing room-session behavior in Task 4, and require the focused snapshot/durable-object tests and all Task 4-owned typechecks to pass.
+At this intermediate boundary, the Worker typecheck may still report v2 adoption errors in `room-session.ts` or its existing tests; Task 5 owns those command/projection changes. The only room-session change permitted here is the minimal `initialOwners` write at `start_board`. Record exact remaining failures without pulling in other room-session behavior, and require the focused snapshot/durable-object tests and all Task 4-owned typechecks to pass.
 
 ### Task 5: Worker lobby, authorization, and atomic room transitions
 
 **Files:**
 
-- Modify: `apps/worker/src/room/room-session.ts`, `apps/worker/src/room/room-durable-object.ts` only if v2 initialization types require it
+- Modify: `apps/worker/src/room/room-session.ts`, `apps/worker/src/room/room-durable-object.ts` only if v2 initialization types require it (the Task 4 board-start provenance seam must be preserved)
 - Test: `apps/worker/src/room/room-session.test.ts`, `apps/worker/test/room-durable-object.test.ts`
 
 **Interfaces:**
