@@ -438,7 +438,7 @@ At this intermediate boundary, the Worker typecheck may still report v2 adoption
 
 **Files:**
 
-- Modify: `apps/worker/src/room/room-session.ts`, `apps/worker/src/room/room-durable-object.ts` only if v2 initialization types require it (the Task 4 board-start provenance seam must be preserved)
+- Modify: `apps/worker/src/room/room-session.ts`, `apps/worker/src/room/room-durable-object.ts` only if v2 initialization types require it (the Task 4 board-start provenance seam must be preserved); `apps/worker/src/room/room-snapshot.ts` only for cohesive complexity extraction; `scripts/complexity-baseline.json` for stale exemption removal
 - Test: `apps/worker/src/room/room-session.test.ts`, `apps/worker/test/room-durable-object.test.ts`
 
 **Interfaces:**
@@ -523,10 +523,13 @@ Capture the actor’s team before applying the transition. Persist the next stat
 ```bash
 pnpm --filter @cipher-party/worker test -- src/room/room-session.test.ts test/room-durable-object.test.ts
 pnpm --filter @cipher-party/worker typecheck
+pnpm run check:complexity
 
-git add apps/worker/src/room/room-session.ts apps/worker/src/room/room-durable-object.ts apps/worker/src/room/room-session.test.ts apps/worker/test/room-durable-object.test.ts
+git add apps/worker/src/room/room-session.ts apps/worker/src/room/room-durable-object.ts apps/worker/src/room/room-snapshot.ts scripts/complexity-baseline.json apps/worker/src/room/room-session.test.ts apps/worker/test/room-durable-object.test.ts
 git commit -m "feat: authorize and persist multi-team rooms"
 ```
+
+Remove the now-stale `authorize` and `applyLobbyCommand` exemptions. Keep every new or extracted runtime function at classic complexity 20 or below; if Task 4 snapshot predicates exceed that cap, split them into cohesive helpers without changing their validation order or acceptance semantics.
 
 ### Task 6: Dynamic React lobby and game surface
 
