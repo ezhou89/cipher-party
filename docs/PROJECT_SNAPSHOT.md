@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 36
+**Snapshot revision:** 37
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–4 (canonical teams/board geometry, reducer transitions, protocol v2 projections, and v1-to-v2 persisted snapshots) are implemented and review-clean through `28a5eefd`; dynamic room-session adoption and UI work are intentionally pending. After explicit deployment authorization, the guarded release is live and attested on staging at the current reviewed source; the apex was not changed. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–5 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, and dynamic Worker lobby/authorization/persistence) are implemented and review-clean through `078293c`; UI and browser acceptance work are intentionally pending. Staging remains the previously deployed two-team regression reference; no multi-team deployment was made. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
 **Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Begin Task 5 (Worker lobby, authorization, and atomic room transitions) of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow implementation and fresh verification.
+**Next execution:** Begin Task 6 (React UI, responsive board, and accessibility) of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow implementation and fresh verification.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -67,11 +67,11 @@ The current runtime does not yet deliver the pack builder, image uploads, AI sug
 
 ## Work ledger
 
-- **Last accepted task:** Task 4 — v1-to-v2 room state and snapshot migration at `28a5eefd`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
-- **Current task:** Tasks 1–4 accepted; preparing Task 5.
-- **Next task:** Execute Task 5 (Worker lobby, authorization, and atomic room transitions) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md`.
-- **Current blockers:** The repository-wide typecheck remains intentionally blocked by the four room-session v2 adoption errors reserved for Task 5; hosted CI has no configured repository/provider; the real four-human two-team session has not been run; the eight-player four-team session cannot run until implementation and deployment are authorized. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
-- **Audit baseline:** 445 tracked runtime functions; classic mean 3.38 after Task 6, maximum 34, 26 above 10, and exactly four approved exceptions above 20. GameWorkspace fell 36→10 and applyGameAction 30→18; both exceptions were removed. Remaining exceptions are permissionsFor 34, authorize 24, ModerationPanel 21, and applyLobbyCommand 21. Confirmed terminal/throttled reconnect retry loop and scratch-only lint failure. Do not treat historical release evidence below as a fresh passing gate on the current workspace until Task 7 reruns it.
+- **Last accepted task:** Task 5 — Worker lobby, authorization, and atomic room transitions at `078293c`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
+- **Current task:** Tasks 1–5 accepted; preparing Task 6.
+- **Next task:** Execute Task 6 (React UI, responsive board, and accessibility) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md`.
+- **Current blockers:** Hosted CI has no configured repository/provider; the real four-human two-team session has not been run; the eight-player four-team session cannot run until implementation and deployment are authorized. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
+- **Audit baseline:** 495 tracked runtime functions; classic mean 3.37, maximum 34, and exactly the approved baseline exceptions above 20 after Task 5's lobby/persistence refactor. The >20-function gate is green and inline waivers cannot suppress inventory. Do not treat historical release evidence below as a fresh passing gate on the current workspace until Task 8 reruns it.
 
 ## Current hardening evidence
 
@@ -87,10 +87,11 @@ The current runtime does not yet deliver the pack builder, image uploads, AI sug
 
 ## Current multi-team implementation evidence
 
-- Task 1 (`8a90cc0`, with implementation `cb5b173`) centralizes the four canonical team slots, exact 2/3/4-team Classic board specifications, deterministic `/cards`/`/grid-order`/`/ownership`/`/starting-team` streams, dynamic 25/30/36-card generation, copied board metadata, and starter validation. Focused game-core tests passed **95/95** with package typecheck; protocol tests/typecheck passed **95/95** as a compatibility check. The repository-wide typecheck is not yet a passing gate because Task 5 must finish Worker room-session adoption. Task review found and accepted the starter validation fix; no finding remains open.
-- Task 2 (`aded8f9`) adds immutable multi-team reducer transitions, configured-team turn rotation that skips eliminations, generalized challenges/target completion, atomic hazard elimination/target-to-neutral conversion, and `GameTransitionEvent` metadata while preserving the state-only `applyGameAction` API and two-team hazard loss. Game-core coverage passed **108/108** with package typecheck; task review found no findings. Repository-wide typecheck remains pending the v2 protocol/Worker migrations.
-- Task 3 (`a4b8e0c`, implementation `84e2374`) upgrades command/projection schemas to v2, adds strict 2/3/4-team/grid/elimination metadata, revealed-only team summaries, complete clue-giver keys, and hazard-only `eliminatedTeam` history while preserving structural public-role privacy. Protocol coverage passed **119/119** with typecheck; task review found and accepted the missing board-level `teamCount` fix. Repository-wide typecheck remains pending the Worker migration.
-- Task 4 (`28a5eefd`, implementation `633da50`) adds strict v2 room state, side-effect-free v1 normalization, exact geometry/distribution and post-hazard invariants, spectator-only eliminated seats, immutable server-only `initialOwners` provenance, and the minimal board-start writer seam. Focused snapshot coverage passed **66/66**; applicable Durable Object coverage passed **20/20**; game-core/protocol suites and typechecks passed. The Worker package still reports exactly four room-session v2 adoption errors reserved for Task 5; no Task 4-owned errors remain.
+- Task 1 (`8a90cc0`, with implementation `cb5b173`) centralizes the four canonical team slots, exact 2/3/4-team Classic board specifications, deterministic `/cards`/`/grid-order`/`/ownership`/`/starting-team` streams, dynamic 25/30/36-card generation, copied board metadata, and starter validation. Focused game-core tests passed **95/95** with package typecheck; protocol tests/typecheck passed **95/95** as a compatibility check. Task review found and accepted the starter validation fix; no finding remains open.
+- Task 2 (`aded8f9`) adds immutable multi-team reducer transitions, configured-team turn rotation that skips eliminations, generalized challenges/target completion, atomic hazard elimination/target-to-neutral conversion, and `GameTransitionEvent` metadata while preserving the state-only `applyGameAction` API and two-team hazard loss. Game-core coverage passed **108/108** with package typecheck; task review found no findings.
+- Task 3 (`a4b8e0c`, implementation `84e2374`) upgrades command/projection schemas to v2, adds strict 2/3/4-team/grid/elimination metadata, revealed-only team summaries, complete clue-giver keys, and hazard-only `eliminatedTeam` history while preserving structural public-role privacy. Protocol coverage passed **119/119** with typecheck; task review found and accepted the missing board-level `teamCount` fix.
+- Task 4 (`28a5eefd`, implementation `633da50`) adds strict v2 room state, side-effect-free v1 normalization, exact geometry/distribution and post-hazard invariants, spectator-only eliminated seats, immutable server-only `initialOwners` provenance, and the minimal board-start writer seam. Focused snapshot coverage passed **66/66**; applicable Durable Object coverage passed **20/20**; game-core/protocol suites and typechecks passed. Task 5 resolved the four downstream room-session adoption errors; no Task 4-owned errors remain.
+- Task 5 (`078293c`, implementation `1523afa`) completes Worker v2 room-session adoption with host-selected 2/3/4-team lobby configuration, dynamic authorization and projections, atomic hazard elimination/history, spectator conversion, and the 16-spectator elimination-capacity reservation (including late join/role-transition enforcement). It preserves server-only `initialOwners` provenance and removes stale complexity exemptions while keeping the >20-function gate green. The prescribed Worker suite passed **295/295** (300 tests including direct focus), Worker typecheck passed, and the complexity gate passed (495 functions; mean 3.37; approved baseline exceptions only). Task review and the reservation fix re-review are clean; staging remains unchanged.
 
 ## Historical integration evidence
 

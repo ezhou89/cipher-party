@@ -446,7 +446,7 @@ At this intermediate boundary, the Worker typecheck may still report v2 adoption
 - Consumes: Task 2 transition metadata, Task 3 commands/projections, and Task 4 v2 room state.
 - Produces: dynamic lobby readiness, `set_team_count`, four-team random/manual assignment, eliminated-seat handling, v2 projection source, `initialOwners` provenance at board start, and one-revision composite hazard history.
 
-- [ ] **Step 1: Add failing room-session tests.**
+- [x] **Step 1: Add failing room-session tests.**
 
 Cover these cases with command envelopes at protocol v2. Reuse the existing
 room-session test helpers for `session`, `hostActor`, `envelope`, and
@@ -500,25 +500,25 @@ expect(session.snapshot().publicHistory.at(-1)?.revision).toBe(
 
 Also test inactive-team assignment rejection, balanced 2/3/4 randomization, spectator-capacity reservation at start and on late spectator admission before a hazard, any active opposing clue-giver challenge, rejected actions from eliminated seats, and all remaining-team turn rotations.
 
-- [ ] **Step 2: Run the focused room tests and verify the RED failure.**
+- [x] **Step 2: Run the focused room tests and verify the RED failure.**
 
 ```bash
 pnpm --filter @cipher-party/worker test -- src/room/room-session.test.ts test/room-durable-object.test.ts
 ```
 
-- [ ] **Step 3: Implement dynamic lobby configuration and validation.**
+- [x] **Step 3: Implement dynamic lobby configuration and validation.**
 
 Add the host-only `set_team_count` branch in the unlocked lobby. Reject a reduction that would leave an active seat assigned to a removed configured team. Make randomization distribute across `state.configuredTeams`; make `validateStart` require `2 × teamCount` active seats, one clue-giver and one operative per team, a maximum size difference of one, and enough spectator capacity for any hazard elimination (`existing spectators + largest active team size ≤ 16`). Use `classicBoardSpec(state.teamCount).cardCount` for card-pool validation. When starting a board, copy each generated card owner into the server-only `initialOwners` map before any gameplay mutation.
 
-- [ ] **Step 4: Implement dynamic authorization and projection source.**
+- [x] **Step 4: Implement dynamic authorization and projection source.**
 
 Reject gameplay commands when the actor’s team is eliminated. Pass configured team metadata, grid dimensions, elimination state, and revealed-only summaries to `projectRoomForSeat`. Convert affected active seats to the existing spectator representation in the same state mutation as hazard elimination; do not add campaign restoration in this slice. Enforce the outstanding largest-team spectator reservation in every spectator-producing join or role transition while a board has no elimination; release the reservation after a hazard elimination or board completion.
 
-- [ ] **Step 5: Connect `applyGameActionWithEvent` and history atomically.**
+- [x] **Step 5: Connect `applyGameActionWithEvent` and history atomically.**
 
 Capture the actor’s team before applying the transition. Persist the next state (including unchanged `initialOwners` provenance), convert eliminated seats, append the single composite `card_revealed` history entry using the transition event, increment revision once, and broadcast only after persistence. Preserve processed-command replay behavior and public-history limits.
 
-- [ ] **Step 6: Run Worker tests, typecheck, and commit.**
+- [x] **Step 6: Run Worker tests, typecheck, and commit.**
 
 ```bash
 pnpm --filter @cipher-party/worker test -- src/room/room-session.test.ts test/room-durable-object.test.ts
