@@ -19,6 +19,7 @@
 - Multi-team hazard eliminates only the active team, converts its unrevealed targets to neutral, skips it in future turns, and awards the board immediately only when one team remains.
 - One accepted command produces one monotonically increasing revision and one public history entry; a multi-team hazard uses optional `eliminatedTeam` metadata on its `card_revealed` entry.
 - New state and wire contracts are v2; valid v1 two-team snapshots normalize to v2 with `teamCount: 2`, `[red, blue]`, 5 × 5 dimensions, and no eliminations.
+- Persisted `initialOwners` provenance is server-only, keyed by card ID, and must never appear in any client projection.
 - Operatives and spectators never receive unrevealed ownership or unrevealed target totals; clue-giver keys remain complete and role-specific.
 - This increment is a single-board Classic text implementation. Blitz, campaigns, campaign scoring/rotation, Pack Studio, AI, picture/mixed cards, and licensed content are not implemented here.
 - The play surface remains React DOM/CSS rather than canvas or Phaser; team identity uses centralized CSS/text presentation with redundant label, symbol, color, and pattern.
@@ -375,11 +376,11 @@ git commit -m "feat: version protocol for multi-team projections"
 **Interfaces:**
 
 - Consumes: Task 1 board metadata and Task 3 v2 schemas.
-- Produces: v2 `RoomState`, persisted `teamCount`/`configuredTeams`, dynamic snapshot validation, and `parseRoomSnapshot` normalization of valid v1 rooms.
+- Produces: v2 `RoomState`, persisted `teamCount`/`configuredTeams` plus server-only `initialOwners` provenance, dynamic snapshot validation, and `parseRoomSnapshot` normalization of valid v1 rooms.
 
 - [ ] **Step 1: Add failing v1/v2 snapshot tests.**
 
-Add tests that a generated v2 four-team snapshot parses, a post-hazard v2 snapshot keeps eliminated-team seats as spectators and preserves revealed target ownership, a v1 two-team fixture parses and normalizes, and invalid dimensions/teams/eliminations/history metadata fail closed:
+Add tests that a generated v2 four-team snapshot parses with exact `initialOwners`, a post-hazard v2 snapshot keeps eliminated-team seats as spectators and preserves revealed target ownership even after an order permutation, a v1 two-team fixture parses and normalizes with derived `initialOwners`, and invalid dimensions/teams/eliminations/history metadata fail closed:
 
 ```ts
 const normalized = parseRoomSnapshot(legacyV1State);
@@ -402,7 +403,7 @@ Expected: failures because the current validator accepts only schema/protocol v1
 
 - [ ] **Step 3: Add the v2 room fields and normalization boundary.**
 
-Change `RoomState` to the v2 in-memory shape:
+Change `RoomState` to the v2 in-memory shape (import `CardId` and `Ownership` from `@cipher-party/game-core`):
 
 ```ts
 export interface RoomState {
@@ -410,15 +411,16 @@ export interface RoomState {
   protocolVersion: 2;
   teamCount: TeamCount;
   configuredTeams: TeamId[];
+  initialOwners: Record<CardId, Ownership> | null;
   // existing fields remain, including room-level startingTeam as a compatibility mirror
 }
 ```
 
-Keep v1 and v2 Zod schemas separate. The parser first recognizes the version, validates the complete v1 shape, injects two-team defaults and 5 × 5 metadata, then validates the normalized v2 state. New state writes v2; no SQLite migration is added.
+Keep v1 and v2 Zod schemas separate. The parser first recognizes the version, validates the complete v1 shape, injects two-team defaults, 5 × 5 metadata, and an `initialOwners` map copied from the unchanged legacy board owners, then validates the normalized v2 state. New board state writes an exact server-only `initialOwners` map keyed by card ID before any reveal; it is never included in client projections. No SQLite migration is added.
 
 - [ ] **Step 4: Generalize snapshot invariants.**
 
-Validate exact board dimensions/distribution using `classicBoardSpec`, configured/eliminated subsets, active-team/winner coherence, role minimums for every non-eliminated configured team, and spectator-only seats for eliminated teams. Validate post-hazard ownership against the original board ownership so only unrevealed targets of the eliminated team may have become neutral; revealed target ownership must remain unchanged even when old history entries are absent. Keep the existing null-prototype card map restoration. Preserve room-level `startingTeam` as a mirror of `game.board.startingTeam` once a board exists.
+Validate exact board dimensions/distribution using `classicBoardSpec`, configured/eliminated subsets, active-team/winner coherence, role minimums for every non-eliminated configured team, and spectator-only seats for eliminated teams. Require `initialOwners` to have exactly the board card IDs and the original exact distribution. Validate post-hazard ownership against this immutable server-side map so only unrevealed targets originally owned by the eliminated team may have become neutral; revealed target ownership must remain unchanged even when old history entries are absent or `board.order` is permuted. Keep the existing null-prototype card map restoration. Preserve room-level `startingTeam` as a mirror of `game.board.startingTeam` once a board exists.
 
 - [ ] **Step 5: Run focused Worker tests and commit.**
 
@@ -442,7 +444,7 @@ At this intermediate boundary, the Worker typecheck may report v2 adoption error
 **Interfaces:**
 
 - Consumes: Task 2 transition metadata, Task 3 commands/projections, and Task 4 v2 room state.
-- Produces: dynamic lobby readiness, `set_team_count`, four-team random/manual assignment, eliminated-seat handling, v2 projection source, and one-revision composite hazard history.
+- Produces: dynamic lobby readiness, `set_team_count`, four-team random/manual assignment, eliminated-seat handling, v2 projection source, `initialOwners` provenance at board start, and one-revision composite hazard history.
 
 - [ ] **Step 1: Add failing room-session tests.**
 
@@ -506,7 +508,7 @@ pnpm --filter @cipher-party/worker test -- src/room/room-session.test.ts test/ro
 
 - [ ] **Step 3: Implement dynamic lobby configuration and validation.**
 
-Add the host-only `set_team_count` branch in the unlocked lobby. Reject a reduction that would leave an active seat assigned to a removed configured team. Make randomization distribute across `state.configuredTeams`; make `validateStart` require `2 × teamCount` active seats, one clue-giver and one operative per team, and a maximum size difference of one. Use `classicBoardSpec(state.teamCount).cardCount` for card-pool validation.
+Add the host-only `set_team_count` branch in the unlocked lobby. Reject a reduction that would leave an active seat assigned to a removed configured team. Make randomization distribute across `state.configuredTeams`; make `validateStart` require `2 × teamCount` active seats, one clue-giver and one operative per team, and a maximum size difference of one. Use `classicBoardSpec(state.teamCount).cardCount` for card-pool validation. When starting a board, copy each generated card owner into the server-only `initialOwners` map before any gameplay mutation.
 
 - [ ] **Step 4: Implement dynamic authorization and projection source.**
 
@@ -514,7 +516,7 @@ Reject gameplay commands when the actor’s team is eliminated. Pass configured 
 
 - [ ] **Step 5: Connect `applyGameActionWithEvent` and history atomically.**
 
-Capture the actor’s team before applying the transition. Persist the next state, convert eliminated seats, append the single composite `card_revealed` history entry using the transition event, increment revision once, and broadcast only after persistence. Preserve processed-command replay behavior and public-history limits.
+Capture the actor’s team before applying the transition. Persist the next state (including unchanged `initialOwners` provenance), convert eliminated seats, append the single composite `card_revealed` history entry using the transition event, increment revision once, and broadcast only after persistence. Preserve processed-command replay behavior and public-history limits.
 
 - [ ] **Step 6: Run Worker tests, typecheck, and commit.**
 
