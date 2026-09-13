@@ -326,6 +326,46 @@ describe("createLobbyState and neutral fixture", () => {
     ).toBe("red");
   });
 
+  it("uses the literal board-0 stream for new-lobby starting teams", () => {
+    const state = createLobbyState({
+      code: "ABC123",
+      inviteUrl: "https://play.example/room/ABC123",
+      boardSeed: "ABC123",
+      hostPlayerId: "host",
+      displayName: "Host",
+      seatTokenHash: "host-seat-hash",
+      hostTokenHash: "host-authority-hash",
+      createdAt: CREATED_AT,
+    });
+
+    expect(state.startingTeam).toBe("red");
+  });
+
+  it("uses the same board-0 stream when the host changes team count", async () => {
+    const state = createLobbyState({
+      code: "ABC123",
+      inviteUrl: "https://play.example/room/ABC123",
+      boardSeed: "ABC123",
+      hostPlayerId: "host",
+      displayName: "Host",
+      seatTokenHash: "host-seat-hash",
+      hostTokenHash: "host-authority-hash",
+      createdAt: CREATED_AT,
+    });
+    state.seats[0]!.connected = true;
+    const session = RoomSession.from(state);
+
+    expect(
+      await dispatchHost(session, { type: "set_team_count", teamCount: 3 }),
+    ).toEqual({ ok: true, revision: 1 });
+    expect(session.snapshot().startingTeam).toBe("red");
+
+    expect(
+      await dispatchHost(session, { type: "set_team_count", teamCount: 4 }),
+    ).toEqual({ ok: true, revision: 2 });
+    expect(session.snapshot().startingTeam).toBe("red");
+  });
+
   it("exports the exact 50 original neutral words and stable IDs", () => {
     expect(neutralWords).toEqual(
       [

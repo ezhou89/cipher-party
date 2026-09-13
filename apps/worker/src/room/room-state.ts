@@ -74,7 +74,10 @@ export interface CreateLobbyStateInput {
 
 export function createLobbyState(input: CreateLobbyStateInput): RoomState {
   const teamCount: TeamCount = 2;
-  const startingTeam = chooseStartingTeam(teamCount, input.boardSeed);
+  const startingTeam = chooseStartingTeam(
+    teamCount,
+    `${input.boardSeed}/board-0`,
+  );
 
   return {
     schemaVersion: 2,

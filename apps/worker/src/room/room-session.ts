@@ -291,7 +291,10 @@ function applyTeamCount(
   }
   state.teamCount = teamCount;
   state.configuredTeams = [...nextTeams];
-  state.startingTeam = chooseStartingTeam(teamCount, state.boardSeed);
+  state.startingTeam = chooseStartingTeam(
+    teamCount,
+    `${state.boardSeed}/board-0`,
+  );
   return null;
 }
 
