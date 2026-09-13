@@ -286,7 +286,10 @@ export class RoomSocket {
       ) {
         return;
       }
-      this.#projection = message.projection;
+      // JSON cannot carry an explicit `undefined`; the strict wire schema has
+      // already validated this value, but Zod widens optional output fields in
+      // a way that is incompatible with exactOptionalPropertyTypes.
+      this.#projection = message.projection as ClientProjection;
       this.#projectionSequence += 1;
       this.#awaitingFreshProjection = false;
       this.#retryAttempt = 0;

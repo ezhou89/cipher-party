@@ -1,5 +1,7 @@
 import type { PublicCard } from "@cipher-party/protocol";
 
+import { OWNER_PRESENTATION } from "../../lib/team-presentation";
+
 type PublicOwner = Extract<PublicCard, { revealed: true }>["owner"];
 
 export interface BoardCardProps {
@@ -9,16 +11,6 @@ export interface BoardCardProps {
   disabled: boolean;
   onNominate?: (cardId: string) => void;
 }
-
-const OWNER_PRESENTATION: Record<
-  PublicOwner,
-  { label: string; symbol: string }
-> = {
-  red: { label: "Red", symbol: "◆" },
-  blue: { label: "Blue", symbol: "●" },
-  neutral: { label: "Neutral", symbol: "◇" },
-  hazard: { label: "Hazard", symbol: "✦" },
-};
 
 function CardContents({
   card,

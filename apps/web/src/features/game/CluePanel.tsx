@@ -5,6 +5,8 @@ import {
 } from "@cipher-party/protocol";
 import { useState, type FormEvent } from "react";
 
+import { TEAM_PRESENTATION, type TeamId } from "../../lib/team-presentation";
+
 const CLUE_TOKEN_PATTERN = /^[\p{L}\p{M}\p{N}'’-]+$/u;
 
 function validClueToken(value: string): boolean {
@@ -23,7 +25,7 @@ interface CluePanelProps {
   challengeAllowed: boolean;
   disabled: boolean;
   maxCount?: number;
-  ownTeam?: "red" | "blue";
+  ownTeam?: TeamId;
   send(command: ClientCommand): void;
 }
 
@@ -68,7 +70,8 @@ export function CluePanel({
       return;
     }
     if (maxCount !== undefined && parsed.data.count > maxCount) {
-      const teamLabel = ownTeam === "blue" ? "Blue" : "Red";
+      const teamLabel =
+        ownTeam === undefined ? "team" : TEAM_PRESENTATION[ownTeam].label;
       setError(
         `Count cannot exceed your ${maxCount} unrevealed ${teamLabel} targets.`,
       );

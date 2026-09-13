@@ -46,6 +46,9 @@ const NO_PERMISSIONS: ClientProjection["permissions"] = {
   resume: false,
 };
 
+type TeamId = ClientProjection["configuredTeams"][number];
+type TeamCount = ClientProjection["teamCount"];
+
 const cardIds = Array.from(
   { length: 25 },
   (_, index) => `card-${String(index + 1).padStart(2, "0")}`,
@@ -103,14 +106,88 @@ const seats: ClientProjection["seats"] = [
   },
 ];
 
+const fourTeamIds = Array.from(
+  { length: 36 },
+  (_, index) => `multi-${String(index + 1).padStart(2, "0")}`,
+);
+
+const fourTeamCards: NonNullable<ClientProjection["board"]>["cards"] =
+  fourTeamIds.map((id, index) => ({
+    id,
+    label: `Signal ${String(index + 1).padStart(2, "0")}`,
+    revealed: false,
+  }));
+
+const fourTeamSeats: ClientProjection["seats"] = [
+  ...seats.filter((seat) => seat.role !== "spectator"),
+  {
+    playerId: "green-clue",
+    displayName: "Gia",
+    teamId: "green",
+    role: "clue-giver",
+    connected: true,
+  },
+  {
+    playerId: "green-op",
+    displayName: "Nia",
+    teamId: "green",
+    role: "operative",
+    connected: true,
+  },
+  {
+    playerId: "yellow-clue",
+    displayName: "Yara",
+    teamId: "yellow",
+    role: "clue-giver",
+    connected: true,
+  },
+  {
+    playerId: "yellow-op",
+    displayName: "Omar",
+    teamId: "yellow",
+    role: "operative",
+    connected: true,
+  },
+];
+
+function fourTeamProjection(options: ProjectionOptions = {}): ClientProjection {
+  return projection({
+    teamCount: 4,
+    configuredTeams: ["red", "blue", "green", "yellow"],
+    seats: fourTeamSeats,
+    cards: fourTeamCards.map((card) => ({ ...card })),
+    ...options,
+    board: {
+      teamCount: 4,
+      rows: 6,
+      columns: 6,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+      eliminatedTeams: [],
+      teamSummaries: [
+        { teamId: "red", revealedTargets: 0, eliminated: false },
+        { teamId: "blue", revealedTargets: 0, eliminated: false },
+        { teamId: "green", revealedTargets: 0, eliminated: false },
+        { teamId: "yellow", revealedTargets: 0, eliminated: false },
+      ],
+      order: [...fourTeamIds],
+      activeTeam: "yellow",
+      ...options.board,
+    },
+  });
+}
+
 interface ProjectionOptions {
   role?: ClientProjection["viewRole"];
-  teamId?: "red" | "blue" | null;
+  teamId?: TeamId | null;
   playerId?: string;
   isHost?: boolean;
   permissions?: Partial<ClientProjection["permissions"]>;
+  teamCount?: TeamCount;
+  configuredTeams?: TeamId[];
+  seats?: ClientProjection["seats"];
   board?: Partial<NonNullable<ClientProjection["board"]>>;
   cards?: NonNullable<ClientProjection["board"]>["cards"];
+  key?: Extract<ClientProjection, { viewRole: "clue-giver" }>["key"];
   publicHistory?: PublicHistoryEntry[];
   roomPhase?: ClientProjection["roomPhase"];
   revision?: number;
@@ -119,6 +196,11 @@ interface ProjectionOptions {
 
 function projection(options: ProjectionOptions = {}): ClientProjection {
   const role = options.role ?? "spectator";
+  const teamCount = options.teamCount ?? options.board?.teamCount ?? 2;
+  const configuredTeams =
+    options.configuredTeams ??
+    options.board?.configuredTeams ??
+    (["red", "blue", "green", "yellow"].slice(0, teamCount) as TeamId[]);
   const teamId =
     options.teamId === undefined
       ? role === "spectator"
@@ -136,9 +218,20 @@ function projection(options: ProjectionOptions = {}): ClientProjection {
           ? "blue-op"
           : "red-op"
         : "spectator");
+  const cards = options.cards ?? publicCards.map((card) => ({ ...card }));
   const board: NonNullable<ClientProjection["board"]> = {
-    order: [...cardIds],
-    cards: options.cards ?? publicCards.map((card) => ({ ...card })),
+    teamCount,
+    rows: teamCount === 4 ? 6 : 5,
+    columns: teamCount === 2 ? 5 : 6,
+    configuredTeams,
+    eliminatedTeams: [],
+    teamSummaries: configuredTeams.map((teamId) => ({
+      teamId,
+      revealedTargets: 0,
+      eliminated: false,
+    })),
+    order: cards.map((card) => card.id),
+    cards,
     activeTeam: "red",
     phase: "guess",
     clue: { word: "Harbor", count: 2 },
@@ -149,12 +242,14 @@ function projection(options: ProjectionOptions = {}): ClientProjection {
     ...options.board,
   };
   const base = {
-    protocolVersion: 1 as const,
+    protocolVersion: 2 as const,
     revision: options.revision ?? 12,
     code: options.code ?? "ABC123",
     inviteUrl: "https://play.example/room/ABC123",
     roomPhase: options.roomPhase ?? "playing",
     locked: true,
+    teamCount,
+    configuredTeams,
     viewer: {
       playerId,
       teamId,
@@ -162,14 +257,18 @@ function projection(options: ProjectionOptions = {}): ClientProjection {
       isHost: options.isHost ?? false,
     },
     permissions: { ...NO_PERMISSIONS, ...options.permissions },
-    seats,
+    seats: options.seats ?? seats,
     publicHistory: options.publicHistory ?? [],
     board,
   };
 
   switch (role) {
     case "clue-giver":
-      return { ...base, viewRole: "clue-giver", key };
+      return {
+        ...base,
+        viewRole: "clue-giver",
+        key: options.key ?? key,
+      };
     case "operative":
       return { ...base, viewRole: "operative" };
     case "unassigned":
@@ -335,6 +434,83 @@ describe("GameView public board", () => {
     expect(board).not.toHaveAttribute("aria-live");
   });
 
+  it("renders a projection-sized six-column board and all four team summaries", () => {
+    renderGame(
+      fourTeamProjection({
+        teamId: "yellow",
+        playerId: "yellow-op",
+        role: "operative",
+        board: {
+          teamSummaries: [
+            { teamId: "red", revealedTargets: 2, eliminated: false },
+            { teamId: "blue", revealedTargets: 1, eliminated: false },
+            { teamId: "green", revealedTargets: 3, eliminated: true },
+            { teamId: "yellow", revealedTargets: 4, eliminated: false },
+          ],
+          eliminatedTeams: ["green"],
+        },
+      }),
+    );
+
+    const board = screen.getByRole("region", { name: "Classic board" });
+    expect(board.querySelectorAll(".board-card")).toHaveLength(36);
+    expect(board.querySelector<HTMLElement>(".board-grid")).toHaveStyle({
+      "--board-columns": "6",
+    });
+    expect(board).toHaveAttribute("tabindex", "0");
+    expect(
+      within(board).getByText(/scroll or arrow keys to explore/iu),
+    ).toBeVisible();
+
+    const score = screen.getByRole("region", { name: "Team progress" });
+    expect(score).toHaveTextContent("Verdant");
+    expect(score).toHaveTextContent("Amber");
+    expect(score).toHaveTextContent("▲ Green revealed targets 3 Eliminated");
+    expect(score).toHaveTextContent("■ Yellow revealed targets 4");
+    expect(score.querySelector(".team-score-yellow")).toHaveClass("is-current");
+  });
+
+  it("preserves the projected five-by-six card order for three teams", () => {
+    const ids = Array.from(
+      { length: 30 },
+      (_, index) => `tri-${String(index + 1).padStart(2, "0")}`,
+    );
+    const cards: NonNullable<ClientProjection["board"]>["cards"] = ids.map(
+      (id, index) => ({
+        id,
+        label: `Relay ${String(index + 1).padStart(2, "0")}`,
+        revealed: false,
+      }),
+    );
+    renderGame(
+      projection({
+        teamCount: 3,
+        configuredTeams: ["red", "blue", "green"],
+        cards,
+        board: {
+          teamCount: 3,
+          rows: 5,
+          columns: 6,
+          configuredTeams: ["red", "blue", "green"],
+          eliminatedTeams: [],
+          teamSummaries: [
+            { teamId: "red", revealedTargets: 0, eliminated: false },
+            { teamId: "blue", revealedTargets: 0, eliminated: false },
+            { teamId: "green", revealedTargets: 0, eliminated: false },
+          ],
+          order: [...ids].reverse(),
+        },
+      }),
+    );
+
+    const board = screen.getByRole("region", { name: "Classic board" });
+    expect(board.querySelectorAll(".board-card")).toHaveLength(30);
+    expect(board.querySelector<HTMLElement>(".board-grid")).toHaveStyle({
+      "--board-columns": "6",
+    });
+    expect(board.querySelector(".board-card")).toHaveTextContent("Relay 30");
+  });
+
   it("keeps every unrevealed public card free of hidden ownership in text, classes, attributes, and descendants", () => {
     renderGame(
       projection({
@@ -374,8 +550,27 @@ describe("GameView public board", () => {
       expect(
         screen.getByRole("region", { name: "Classic board" }),
       ).toBeVisible();
+      expect(document.querySelectorAll(".key-owner")).toHaveLength(0);
     },
   );
+
+  it("keeps a four-team public branch free of secret-key DOM nodes", () => {
+    const current = fourTeamProjection({
+      role: "operative",
+      teamId: "green",
+      playerId: "green-op",
+    });
+    Object.defineProperty(current, "key", {
+      configurable: true,
+      get: () => {
+        throw new Error("A public branch attempted to read the secret key");
+      },
+    });
+
+    expect(() => renderGame(current)).not.toThrow();
+    expect(document.querySelectorAll(".key-owner")).toHaveLength(0);
+    expect(document.body.innerHTML).not.toMatch(/green key|yellow key/iu);
+  });
 
   it("shows a revealed public owner through text, symbol, pattern class, and color class", () => {
     const cards = publicCards.map((card, index) =>
@@ -404,7 +599,18 @@ describe("GameView public board", () => {
           ? ({ ...card, revealed: true, owner: "blue" } as const)
           : { ...card },
     );
-    renderGame(projection({ cards }), { connection: "reconnecting" });
+    renderGame(
+      projection({
+        cards,
+        board: {
+          teamSummaries: [
+            { teamId: "red", revealedTargets: 1, eliminated: false },
+            { teamId: "blue", revealedTargets: 1, eliminated: false },
+          ],
+        },
+      }),
+      { connection: "reconnecting" },
+    );
 
     expect(screen.getByText("Red team’s turn")).toBeVisible();
     expect(screen.getByText("Guessing phase")).toBeVisible();
@@ -500,6 +706,40 @@ describe("GameView public board", () => {
       "The room resumed.",
     ]);
     expect(document.body).not.toHaveTextContent("SECRET-SENTINEL");
+  });
+
+  it("formats multi-team history and the composite hazard elimination explicitly", () => {
+    renderGame(
+      fourTeamProjection({
+        publicHistory: [
+          {
+            revision: 20,
+            at: "2026-09-12T10:00:00.000Z",
+            type: "clue_submitted",
+            teamId: "yellow",
+            word: "Lantern",
+            count: 2,
+          },
+          {
+            revision: 21,
+            at: "2026-09-12T10:01:00.000Z",
+            type: "card_revealed",
+            teamId: "green",
+            cardId: "multi-01",
+            owner: "hazard",
+            eliminatedTeam: "green",
+          },
+        ],
+      }),
+    );
+
+    const items = within(
+      screen.getByRole("region", { name: "Public game history" }),
+    ).getAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "■ Yellow submitted Lantern for 2.",
+      "Signal 01 was revealed as ✦ Hazard by Green. ▲ Green was eliminated.",
+    ]);
   });
 
   it("keeps the game-event live region initially silent and announces only later public transitions", async () => {
@@ -622,6 +862,61 @@ describe("GameView public board", () => {
     await waitFor(() =>
       expect(updates).toHaveTextContent("Blue team. Clue phase."),
     );
+  });
+
+  it("announces elimination and the next active team as one public update", async () => {
+    const initial = fourTeamProjection({
+      role: "operative",
+      teamId: "green",
+      playerId: "green-op",
+      board: { activeTeam: "green" },
+    });
+    const { rerender } = renderGame(initial);
+    const updates = screen.getByRole("status", { name: "Game updates" });
+
+    rerender(
+      <GameView
+        projection={fourTeamProjection({
+          role: "spectator",
+          teamId: null,
+          playerId: "green-op",
+          revision: 13,
+          publicHistory: [
+            {
+              revision: 13,
+              at: "2026-09-12T10:02:00.000Z",
+              type: "card_revealed",
+              teamId: "green",
+              cardId: "multi-01",
+              owner: "hazard",
+              eliminatedTeam: "green",
+            },
+          ],
+          board: {
+            activeTeam: "yellow",
+            phase: "clue",
+            clue: null,
+            eliminatedTeams: ["green"],
+            teamSummaries: [
+              { teamId: "red", revealedTargets: 0, eliminated: false },
+              { teamId: "blue", revealedTargets: 0, eliminated: false },
+              { teamId: "green", revealedTargets: 0, eliminated: true },
+              { teamId: "yellow", revealedTargets: 0, eliminated: false },
+            ],
+          },
+        })}
+        connection="open"
+        pending={false}
+        send={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(updates).toHaveTextContent(
+        "Signal 01 was revealed as ✦ Hazard. Green was eliminated.",
+      );
+      expect(updates).toHaveTextContent("Yellow team. Clue phase.");
+    });
   });
 
   it.each([
@@ -845,7 +1140,11 @@ describe("GameView public board", () => {
         />,
       );
       const current = screen.getByRole("status", { name: "Game updates" });
-      expect(current).not.toBe(previous);
+      if (change.role === undefined) {
+        expect(current).not.toBe(previous);
+      } else {
+        expect(current).toBe(previous);
+      }
       expect(current).toBeEmptyDOMElement();
     },
   );
@@ -895,6 +1194,22 @@ describe("GameView clue-giver controls", () => {
     expect(document.querySelector(".public-owner")).toHaveTextContent(
       "◆ Red revealed",
     );
+  });
+
+  it("hides an open clue-giver key with Escape and returns focus to its control", async () => {
+    renderGame(projection({ role: "clue-giver" }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Show secret key" }));
+    expect(
+      screen.getByRole("button", { name: "Hide secret key" }),
+    ).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+
+    expect(document.querySelectorAll(".key-owner")).toHaveLength(0);
+    expect(
+      screen.getByRole("button", { name: "Show secret key" }),
+    ).toHaveFocus();
   });
 
   it("resets an open privacy veil when room, viewer, or board identity changes", async () => {
@@ -1170,6 +1485,90 @@ describe("GameView operative and moderation interactions", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(nominated).toHaveFocus();
+  });
+
+  it("moves an eliminated operative to spectator copy and focuses the next-team status", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const initial = fourTeamProjection({
+      role: "operative",
+      teamId: "green",
+      playerId: "green-op",
+      permissions: { nominate: true, confirmReveal: true, endTurn: true },
+      board: {
+        activeTeam: "green",
+        nomination: { playerId: "green-op", cardId: "multi-01" },
+      },
+    });
+    const { rerender } = renderGame(initial, { send });
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Signal 01, nominated" }));
+    expect(screen.getByRole("dialog")).toBeVisible();
+
+    rerender(
+      <GameView
+        projection={fourTeamProjection({
+          role: "spectator",
+          teamId: null,
+          playerId: "green-op",
+          revision: 13,
+          permissions: {
+            nominate: false,
+            confirmReveal: false,
+            endTurn: false,
+          },
+          board: {
+            activeTeam: "yellow",
+            phase: "clue",
+            clue: null,
+            nomination: null,
+            eliminatedTeams: ["green"],
+            teamSummaries: [
+              { teamId: "red", revealedTargets: 0, eliminated: false },
+              { teamId: "blue", revealedTargets: 0, eliminated: false },
+              { teamId: "green", revealedTargets: 0, eliminated: true },
+              { teamId: "yellow", revealedTargets: 0, eliminated: false },
+            ],
+          },
+        })}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("You are Spectator")).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: /Signal 01/iu }),
+    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "Turn status" })).toHaveFocus(),
+    );
+  });
+
+  it("disables stale operative actions when the viewer's team is eliminated", () => {
+    renderGame(
+      fourTeamProjection({
+        role: "operative",
+        teamId: "green",
+        playerId: "green-op",
+        permissions: { nominate: true, confirmReveal: true, endTurn: true },
+        board: {
+          activeTeam: "yellow",
+          eliminatedTeams: ["green"],
+          teamSummaries: [
+            { teamId: "red", revealedTargets: 0, eliminated: false },
+            { teamId: "blue", revealedTargets: 0, eliminated: false },
+            { teamId: "green", revealedTargets: 0, eliminated: true },
+            { teamId: "yellow", revealedTargets: 0, eliminated: false },
+          ],
+        },
+      }),
+    );
+
+    expect(screen.getByRole("button", { name: "Signal 01" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "End turn" })).toBeDisabled();
   });
 
   it("retires an open reveal dialog when nomination, phase, or reveal state becomes stale", async () => {
@@ -1903,6 +2302,27 @@ describe("GameView operative and moderation interactions", () => {
     ).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/campaign/iu);
   });
+
+  it("renders a canonical four-team winner without a Red/Blue fallback", () => {
+    renderGame(
+      fourTeamProjection({
+        roomPhase: "complete",
+        board: {
+          phase: "board_complete",
+          winner: "yellow",
+          completionReason: "targets",
+          clue: null,
+          guessesRemaining: 0,
+        },
+      }),
+    );
+
+    const result = screen.getByRole("region", { name: "Board result" });
+    expect(result).toHaveTextContent("■ Yellow wins");
+    expect(result).toHaveTextContent(
+      "All of the winning team’s targets were revealed.",
+    );
+  });
 });
 
 describe("ConfirmDialog committed listener lifecycle", () => {
@@ -2125,8 +2545,9 @@ describe("GameView route integration and responsive contract", () => {
 
   it("uses a real five-column grid, narrow non-reflow guards, and 44px card/dialog targets", () => {
     expect(cssRule(".board-grid").style.gridTemplateColumns).toBe(
-      "repeat(5, minmax(0, 1fr))",
+      "repeat(var(--board-columns), minmax(0, 1fr))",
     );
+    expect(cssRule(".board-region").style.overflow).toBe("auto");
     expect(cssRule(".board-card").style.minHeight).toBe("44px");
     expect(cssRule(".confirm-dialog button").style.minHeight).toBe("44px");
     expect(
@@ -2134,10 +2555,25 @@ describe("GameView route integration and responsive contract", () => {
         .gridTemplateColumns,
     ).toBe("minmax(0, 1fr)");
     expect(
+      mediaCssRule("(max-width: 42rem)", ".game-side-panel").style.overflowY,
+    ).toBe("auto");
+    expect(
+      mediaCssRule("(max-width: 42rem)", ".game-side-panel").style.maxHeight,
+    ).toBe("58dvh");
+    expect(
+      mediaCssRule("(max-width: 42rem)", ".team-score").style.display,
+    ).toBe("flex");
+    expect(
       mediaCssRule("(max-width: 22rem)", ".board-card").style.fontSize,
     ).not.toBe("");
     expect(cssRule(".game-shell").style.minWidth).toMatch(/^0(?:px)?$/u);
     expect(cssRule(".board-grid").style.minWidth).toMatch(/^0(?:px)?$/u);
+    expect(tokenCss.match(/--color-green:\s*#[0-9a-f]{6}/iu)).not.toBeNull();
+    expect(tokenCss.match(/--color-yellow:\s*#[0-9a-f]{6}/iu)).not.toBeNull();
+    expect(
+      mediaCssRule("(forced-colors: active)", ".team-score strong").style
+        .forcedColorAdjust,
+    ).toBe("none");
 
     renderGame();
     const status = screen.getByRole("region", { name: "Turn status" });

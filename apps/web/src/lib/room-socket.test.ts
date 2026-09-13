@@ -26,12 +26,14 @@ const permissions = {
 
 function projection(revision: number): ClientProjection {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     revision,
     code: credentials.code,
     inviteUrl: `https://play.example/room/${credentials.code}`,
     roomPhase: "lobby",
     locked: false,
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
     viewRole: "unassigned",
     viewer: {
       playerId: credentials.playerId,
@@ -282,7 +284,7 @@ describe("RoomSocket authoritative command tracking", () => {
     const firstId = test.client.send({ type: "lock_room", locked: true });
     expect(firstId).toBe("018f6c2e-6f44-7ef0-8000-000000000001");
     expect(JSON.parse(socket.sent[0]!)).toEqual({
-      protocolVersion: 1,
+      protocolVersion: 2,
       commandId: firstId,
       expectedRevision: 5,
       command: { type: "lock_room", locked: true },

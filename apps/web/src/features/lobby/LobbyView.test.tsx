@@ -92,16 +92,54 @@ const lobbySeats: ClientProjection["seats"] = [
   },
 ];
 
+const fourTeamSeats: ClientProjection["seats"] = [
+  ...lobbySeats
+    .filter((seat) => seat.playerId !== "waiting")
+    .map((seat) =>
+      seat.playerId === "blue-op" ? { ...seat, connected: true } : seat,
+    ),
+  {
+    playerId: "green-clue",
+    displayName: "Gia",
+    teamId: "green",
+    role: "clue-giver",
+    connected: true,
+  },
+  {
+    playerId: "green-op",
+    displayName: "Nia",
+    teamId: "green",
+    role: "operative",
+    connected: true,
+  },
+  {
+    playerId: "yellow-clue",
+    displayName: "Yara",
+    teamId: "yellow",
+    role: "clue-giver",
+    connected: true,
+  },
+  {
+    playerId: "yellow-op",
+    displayName: "Omar",
+    teamId: "yellow",
+    role: "operative",
+    connected: true,
+  },
+];
+
 function hostProjection(
   overrides: Partial<ClientProjection> = {},
 ): ClientProjection {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     revision: 7,
     code: "ABC123",
     inviteUrl: "https://play.example/room/ABC123",
     roomPhase: "lobby",
     locked: false,
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
     viewRole: "clue-giver",
     viewer: {
       playerId: "host",
@@ -229,6 +267,95 @@ describe("LobbyView authoritative projection", () => {
     expect(within(waiting).getByText("Noa")).toBeVisible();
     expect(within(waiting).getByText("Jules")).toBeVisible();
     expect(within(waiting).getByText("Spectator")).toBeVisible();
+  });
+
+  it("renders only the four configured team panels with centralized identities", () => {
+    renderLobby(
+      hostProjection({
+        teamCount: 4,
+        configuredTeams: ["red", "blue", "green", "yellow"],
+        seats: fourTeamSeats,
+      }),
+    );
+
+    expect(screen.getAllByRole("heading", { name: /team$/i })).toHaveLength(4);
+    expect(screen.getByRole("region", { name: "▲ Green team" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "■ Yellow team" })).toBeVisible();
+    expect(screen.getByText("Verdant")).toBeVisible();
+    expect(screen.getByText("Amber")).toBeVisible();
+    expect(screen.getByLabelText("Number of teams")).toHaveValue("4");
+    expect(
+      within(screen.getByLabelText("Team for Mina")).getAllByRole("option"),
+    ).toHaveLength(5);
+  });
+
+  it("renders a three-team lobby without an empty Yellow placeholder", () => {
+    renderLobby(
+      hostProjection({
+        teamCount: 3,
+        configuredTeams: ["red", "blue", "green"],
+        seats: fourTeamSeats.filter((seat) => seat.teamId !== "yellow"),
+      }),
+    );
+
+    expect(screen.getAllByRole("heading", { name: /team$/i })).toHaveLength(3);
+    expect(screen.getByRole("region", { name: "▲ Green team" })).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: /Yellow team/iu }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Number of teams")).toHaveValue("3");
+  });
+
+  it("sends team-count changes only from the host's unlocked lobby control", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const current = hostProjection({
+      teamCount: 4,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+      seats: fourTeamSeats,
+    });
+    const { rerender } = render(
+      <LobbyView
+        projection={current}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+
+    await userEvent
+      .setup()
+      .selectOptions(screen.getByLabelText("Number of teams"), "3");
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: "set_team_count",
+      teamCount: 3,
+    });
+
+    rerender(
+      <LobbyView
+        projection={{ ...current, locked: true }}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+    expect(screen.getByLabelText("Number of teams")).toBeDisabled();
+  });
+
+  it("derives the minimum-player readiness message from the selected team count", () => {
+    renderLobby(
+      hostProjection({
+        teamCount: 4,
+        configuredTeams: ["red", "blue", "green", "yellow"],
+      }),
+    );
+
+    const start = screen.getByRole("button", { name: "Start board" });
+    expect(start).toBeDisabled();
+    const reasonId = start.getAttribute("aria-describedby");
+    expect(document.getElementById(reasonId!)).toHaveTextContent(
+      "At least 8 active players are required for 4 teams.",
+    );
   });
 
   it("politely announces other seats going offline and reconnecting without initial noise", async () => {
@@ -480,9 +607,7 @@ describe("LobbyView authoritative projection", () => {
       branch: "a team with no operative",
       projection: hostProjection({
         seats: readyProjection().seats.map((seat) =>
-          seat.playerId === "blue-op"
-            ? { ...seat, teamId: null, role: "spectator" }
-            : seat,
+          seat.playerId === "blue-op" ? { ...seat, role: "clue-giver" } : seat,
         ),
       }),
       ready: false,
@@ -646,6 +771,15 @@ describe("RoomPage invite and socket lifecycle", () => {
         locked: true,
         key,
         board: {
+          teamCount: 2,
+          rows: 5,
+          columns: 5,
+          configuredTeams: ["red", "blue"],
+          eliminatedTeams: [],
+          teamSummaries: [
+            { teamId: "red", revealedTargets: 0, eliminated: false },
+            { teamId: "blue", revealedTargets: 0, eliminated: false },
+          ],
           order: cards.map(({ id }) => id),
           cards,
           phase: "guess",

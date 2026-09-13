@@ -5,6 +5,7 @@ import type {
 } from "@cipher-party/protocol";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -14,6 +15,11 @@ import {
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
 import type { RoomConnectionState } from "../../lib/room-socket";
+import {
+  OWNER_PRESENTATION,
+  TEAM_PRESENTATION,
+  type TeamId,
+} from "../../lib/team-presentation";
 import { BoardGrid } from "./BoardGrid";
 import { BoardResult } from "./BoardResult";
 import { CluePanel } from "./CluePanel";
@@ -40,18 +46,6 @@ export interface GameViewProps {
   pending: boolean;
   send(command: ClientCommand): void;
 }
-
-const TEAM = {
-  red: { label: "Red", symbol: "◆" },
-  blue: { label: "Blue", symbol: "●" },
-} as const;
-
-const OWNER = {
-  red: { label: "Red", symbol: "◆" },
-  blue: { label: "Blue", symbol: "●" },
-  neutral: { label: "Neutral", symbol: "◇" },
-  hazard: { label: "Hazard", symbol: "✦" },
-} as const;
 
 function roleLabel(role: ClientProjection["viewRole"]): string {
   switch (role) {
@@ -95,25 +89,36 @@ function workspaceIdentity(
   return `${projection.code}\u0000${projection.viewer.playerId}\u0000${projection.viewer.teamId ?? ""}\u0000${projection.viewRole}\u0000${boardIdentity(board)}`;
 }
 
+function announcementIdentity(
+  projection: ClientProjection,
+  board: GameBoard,
+): string {
+  return `${projection.code}\u0000${projection.viewer.playerId}\u0000${boardIdentity(board)}`;
+}
+
 function eventAnnouncement(
   entry: PublicHistoryEntry,
   cardLabels: ReadonlyMap<string, string>,
 ): string {
   switch (entry.type) {
     case "card_revealed": {
-      const owner = OWNER[entry.owner];
-      return `${cardLabels.get(entry.cardId) ?? "A board card"} was revealed as ${owner.symbol} ${owner.label}.`;
+      const owner = OWNER_PRESENTATION[entry.owner];
+      const elimination =
+        entry.eliminatedTeam === undefined
+          ? ""
+          : ` ${TEAM_PRESENTATION[entry.eliminatedTeam].label} was eliminated.`;
+      return `${cardLabels.get(entry.cardId) ?? "A board card"} was revealed as ${owner.symbol} ${owner.label}.${elimination}`;
     }
     case "turn_ended":
-      return `${TEAM[entry.teamId].label} ended its turn.`;
+      return `${TEAM_PRESENTATION[entry.teamId].label} ended its turn.`;
     case "room_paused":
       return "The room was paused.";
     case "room_resumed":
       return "The room resumed.";
     case "clue_submitted":
-      return `${TEAM[entry.teamId].label} submitted a clue.`;
+      return `${TEAM_PRESENTATION[entry.teamId].label} submitted a clue.`;
     case "clue_challenged":
-      return `${TEAM[entry.teamId].label}’s clue was challenged.`;
+      return `${TEAM_PRESENTATION[entry.teamId].label}’s clue was challenged.`;
     case "challenge_resolved":
       return `The clue challenge was ${entry.decision === "accept" ? "accepted" : "rejected"}.`;
   }
@@ -140,7 +145,7 @@ function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
   useEffect(() => {
     const latest = projection.publicHistory.at(-1);
     const current: AnnouncementSnapshot = {
-      identity: workspaceIdentity(projection, board),
+      identity: announcementIdentity(projection, board),
       latestEvent:
         latest === undefined ? "" : `${latest.revision}\u0000${latest.type}`,
       phase: board.phase,
@@ -172,20 +177,18 @@ function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
     ) {
       const reason =
         board.completionReason === "targets"
-          ? `All ${TEAM[board.winner].label} targets were revealed.`
+          ? `All ${TEAM_PRESENTATION[board.winner].label} targets were revealed.`
           : "The hazard ended the board.";
-      messages.push(`${TEAM[board.winner].label} wins. ${reason}`);
+      messages.push(`${TEAM_PRESENTATION[board.winner].label} wins. ${reason}`);
     } else if (
       previous.phase !== current.phase ||
       previous.activeTeam !== current.activeTeam
     ) {
       messages.push(
-        `${TEAM[board.activeTeam].label} team. ${phaseLabel(board.phase)}.`,
+        `${TEAM_PRESENTATION[board.activeTeam].label} team. ${phaseLabel(board.phase)}.`,
       );
     }
-    if (messages.length > 0) {
-      setAnnouncement(messages.join(" "));
-    }
+    setAnnouncement(messages.join(" "));
   }, [
     board,
     projection.code,
@@ -212,7 +215,7 @@ interface GameStatusProps {
 }
 
 function GameStatus({ board, focusFallbackRef }: GameStatusProps) {
-  const team = TEAM[board.activeTeam];
+  const team = TEAM_PRESENTATION[board.activeTeam];
   return (
     <section
       className="game-status-strip"
@@ -340,10 +343,11 @@ interface GameWorkspaceProps {
   board: GameBoard;
   connection: RoomConnectionState;
   pending: boolean;
+  focusFallbackRef: RefObject<HTMLElement | null>;
   privacyControl?: ReactNode;
   keyOwnerForCard?: (cardId: string) => PublicOwner | undefined;
   maxClueCount?: number;
-  ownTeam?: "red" | "blue";
+  ownTeam?: TeamId;
   send(command: ClientCommand): void;
 }
 
@@ -352,20 +356,32 @@ function GameWorkspace({
   board,
   connection,
   pending,
+  focusFallbackRef,
   privacyControl,
   keyOwnerForCard,
   maxClueCount,
   ownTeam,
   send,
 }: GameWorkspaceProps) {
-  const focusFallbackRef = useRef<HTMLElement>(null);
-  const availability = deriveGameAvailability({
+  const projectedAvailability = deriveGameAvailability({
     roomPhase: projection.roomPhase,
     board,
     permissions: projection.permissions,
     connection,
     pending,
   });
+  const viewerTeam = projection.viewer.teamId;
+  const viewerEliminated =
+    viewerTeam !== null && board.eliminatedTeams.includes(viewerTeam);
+  const availability = viewerEliminated
+    ? {
+        ...projectedAvailability,
+        gameActionsDisabled: true,
+        nominationEnabled: false,
+        revealRequestEnabled: false,
+        endTurnRequestEnabled: false,
+      }
+    : projectedAvailability;
   const { transportDisabled, gameActionsDisabled, cardActionsAvailable } =
     availability;
   const { dialog, handleCardAction, requestEndTurn } = useGameConfirmation({
@@ -379,7 +395,6 @@ function GameWorkspace({
 
   return (
     <>
-      <GameEventAnnouncer projection={projection} board={board} />
       <GameStatus board={board} focusFallbackRef={focusFallbackRef} />
       {board.phase === "board_complete" ||
       projection.roomPhase === "complete" ? (
@@ -391,6 +406,8 @@ function GameWorkspace({
           <BoardGrid
             cards={board.cards}
             order={board.order}
+            rows={board.rows}
+            columns={board.columns}
             nominatedCardId={board.nomination?.cardId ?? null}
             disabled={gameActionsDisabled}
             {...(cardActionsAvailable ? { onNominate: handleCardAction } : {})}
@@ -439,6 +456,7 @@ interface PublicWorkspaceProps {
   board: GameBoard;
   connection: RoomConnectionState;
   pending: boolean;
+  focusFallbackRef: RefObject<HTMLElement | null>;
   send(command: ClientCommand): void;
 }
 
@@ -451,6 +469,7 @@ interface ClueGiverWorkspaceProps {
   board: GameBoard;
   connection: RoomConnectionState;
   pending: boolean;
+  focusFallbackRef: RefObject<HTMLElement | null>;
   send(command: ClientCommand): void;
 }
 
@@ -459,6 +478,7 @@ function ClueGiverWorkspace({
   board,
   connection,
   pending,
+  focusFallbackRef,
   send,
 }: ClueGiverWorkspaceProps) {
   const [privacyOpen, setPrivacyOpen] = useState(false);
@@ -492,6 +512,7 @@ function ClueGiverWorkspace({
       board={board}
       connection={connection}
       pending={pending}
+      focusFallbackRef={focusFallbackRef}
       send={send}
       privacyControl={
         <PrivacyVeil
@@ -519,10 +540,29 @@ export function GameView({
 }: GameViewProps) {
   const board = projection.board;
   const viewerTeam = projection.viewer.teamId;
-  const assignment =
-    viewerTeam === null
+  const focusFallbackRef = useRef<HTMLElement>(null);
+  const previousViewerTeamRef = useRef<TeamId | null>(viewerTeam);
+  useLayoutEffect(() => {
+    const previousViewerTeam = previousViewerTeamRef.current;
+    previousViewerTeamRef.current = viewerTeam;
+    if (
+      board !== null &&
+      previousViewerTeam !== null &&
+      viewerTeam === null &&
+      board.eliminatedTeams.includes(previousViewerTeam)
+    ) {
+      focusFallbackRef.current?.focus();
+    }
+  }, [board, viewerTeam]);
+  const viewerEliminated =
+    board !== null &&
+    viewerTeam !== null &&
+    board.eliminatedTeams.includes(viewerTeam);
+  const assignment = viewerEliminated
+    ? `${TEAM_PRESENTATION[viewerTeam].label} · Eliminated spectator`
+    : viewerTeam === null
       ? roleLabel(projection.viewRole)
-      : `${TEAM[viewerTeam].label} · ${roleLabel(projection.viewRole)}`;
+      : `${TEAM_PRESENTATION[viewerTeam].label} · ${roleLabel(projection.viewRole)}`;
 
   return (
     <main className="app-shell room-shell game-shell">
@@ -540,24 +580,35 @@ export function GameView({
         <section className="game-empty" aria-label="Game table status">
           Waiting for the authoritative board…
         </section>
-      ) : projection.viewRole === "clue-giver" ? (
-        <ClueGiverWorkspace
-          key={workspaceIdentity(projection, board)}
-          projection={projection}
-          board={board}
-          connection={connection}
-          pending={pending}
-          send={send}
-        />
       ) : (
-        <PublicWorkspace
-          key={workspaceIdentity(projection, board)}
-          projection={projection}
-          board={board}
-          connection={connection}
-          pending={pending}
-          send={send}
-        />
+        <>
+          <GameEventAnnouncer
+            key={announcementIdentity(projection, board)}
+            projection={projection}
+            board={board}
+          />
+          {projection.viewRole === "clue-giver" ? (
+            <ClueGiverWorkspace
+              key={workspaceIdentity(projection, board)}
+              projection={projection}
+              board={board}
+              connection={connection}
+              pending={pending}
+              focusFallbackRef={focusFallbackRef}
+              send={send}
+            />
+          ) : (
+            <PublicWorkspace
+              key={workspaceIdentity(projection, board)}
+              projection={projection}
+              board={board}
+              connection={connection}
+              pending={pending}
+              focusFallbackRef={focusFallbackRef}
+              send={send}
+            />
+          )}
+        </>
       )}
     </main>
   );

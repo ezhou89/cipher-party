@@ -1,5 +1,7 @@
 import type { ClientProjection } from "@cipher-party/protocol";
 
+import { TEAM_PRESENTATION } from "../../lib/team-presentation";
+
 interface BoardResultProps {
   board: NonNullable<ClientProjection["board"]>;
 }
@@ -8,10 +10,7 @@ export function BoardResult({ board }: BoardResultProps) {
   if (board.winner === null || board.completionReason === null) {
     return null;
   }
-  const winner =
-    board.winner === "red"
-      ? { label: "Red", symbol: "◆" }
-      : { label: "Blue", symbol: "●" };
+  const winner = TEAM_PRESENTATION[board.winner];
 
   return (
     <section className="board-result" aria-label="Board result">
