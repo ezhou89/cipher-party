@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cipher Party — Interactive Image Card System</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@600;700&family=Plus+Jakarta+Sans:wght@800;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --surface: #0e0c1a;
+      --surface-bright: #1e1a32;
+      --card-face: #fbf6ec;
+      --card-ink: #0e0c1a;
+      --ruby: #ff2a5f;
+      --cobalt: #00d2ff;
+      --emerald: #00f5a0;
+      --amber: #ffbe0b;
+      --hazard: #ff0055;
+    }
+    body {
+      background-color: var(--surface);
+      color: #f3eefc;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-shadow { box-shadow: 4px 4px 0px #000000; }
+    .pixel-shadow-sm { box-shadow: 2px 2px 0px #000000; }
+    .pixel-btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px #000000; }
+    
+    /* Card Styles */
+    .board-card {
+      position: relative;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      cursor: pointer;
+      user-select: none;
+    }
+    .board-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 5px 5px 0px #000000;
+    }
+    .board-card.dimmed {
+      opacity: 0.18;
+      filter: grayscale(80%);
+    }
+    .board-card.highlighted {
+      transform: scale(1.03);
+      z-index: 10;
+      box-shadow: 0 0 15px rgba(255, 42, 95, 0.8), 4px 4px 0px #000000;
+    }
+    .scanlines {
+      background: linear-gradient(rgba(18, 16, 38, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+      background-size: 100% 4px, 6px 100%;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-3 md:p-6 antialiased flex flex-col items-center">
+  <div class="scanlines fixed inset-0 z-50 pointer-events-none"></div>
+
+  <!-- Main Cabinet Container -->
+  <div class="w-full max-w-5xl bg-[#131022] border-4 border-[#3f3565] pixel-shadow p-4 md:p-6 relative z-10">
+    
+    <!-- Top Arcade Marquee -->
+    <header class="flex flex-wrap items-center justify-between border-b-4 border-[#272041] pb-4 mb-4 gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-4 h-4 bg-[var(--ruby)] animate-pulse border border-black"></div>
+        <div>
+          <h1 class="font-arcade text-sm md:text-base text-white tracking-wider flex items-center gap-2">
+            CIPHER PARTY <span class="text-xs text-[var(--ruby)]">[LIVE BOARD]</span>
+          </h1>
+          <p class="text-xs text-[#a49bbd] font-mono mt-0.5">MIXED BOARD MODE: 10 IMAGES + 15 WORDS (5×5)</p>
+        </div>
+      </div>
+
+      <!-- Controls & Role Switcher -->
+      <div class="flex items-center gap-2">
+        <button id="sfxToggle" onclick="toggleAudio()" class="pixel-btn bg-[#211c36] text-[var(--amber)] border-2 border-black px-3 py-1.5 text-xs font-arcade pixel-shadow-sm flex items-center gap-1">
+          <span id="sfxIcon">🔊</span> SFX: ON
+        </button>
+
+        <div class="flex bg-[#05040a] p-1 border-2 border-black pixel-shadow-sm">
+          <button id="btnOperative" onclick="setRole('operative')" class="font-arcade text-xs px-3 py-1 bg-[var(--ruby)] text-white border border-black">
+            OPERATIVE 🕹️
+          </button>
+          <button id="btnSpymaster" onclick="setRole('spymaster')" class="font-arcade text-xs px-3 py-1 text-[#a49bbd] hover:text-white">
+            SPYMASTER 👁️
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 3 GAMEPLAY OPTIONS SELECTOR -->
+    <div class="mb-4 bg-[#0a0815] border-2 border-[#3f3565] p-2.5 flex flex-wrap items-center justify-between gap-2 pixel-shadow-sm">
+      <div class="flex items-center gap-2">
+        <span class="font-arcade text-[11px] text-[var(--amber)]">GAMEPLAY MODE:</span>
+        <span class="text-xs text-gray-300 font-mono hidden md:inline">Choose how the 5×5 grid renders:</span>
+      </div>
+      <div class="flex bg-[#05040a] p-1 border-2 border-black pixel-shadow-sm gap-1">
+        <button id="btnModeText" onclick="setBoardMode('text')" class="font-arcade text-[10px] md:text-xs px-2.5 py-1 text-[#a49bbd] hover:text-white transition-colors">
+          1. TEXT ONLY 📝
+        </button>
+        <button id="btnModeImages" onclick="setBoardMode('images')" class="font-arcade text-[10px] md:text-xs px-2.5 py-1 text-[#a49bbd] hover:text-white transition-colors">
+          2. IMAGES ONLY 🖼️
+        </button>
+        <button id="btnModeMixed" onclick="setBoardMode('mixed')" class="font-arcade text-[10px] md:text-xs px-2.5 py-1 bg-[var(--amber)] text-black font-bold border border-black">
+          3. COMBINATION ⚡
+        </button>
+      </div>
+    </div>
+
+    <!-- Match Status & Score Bar -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 bg-[#080611] border-2 border-[#272041] p-3">
+      <!-- Team Ruby Score -->
+      <div class="flex items-center justify-between md:justify-start gap-3 border-b md:border-b-0 md:border-r border-[#272041] pb-2 md:pb-0 md:pr-4">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 bg-[var(--ruby)] border border-black"></span>
+          <span class="font-arcade text-xs text-white">RUBY:</span>
+          <span id="rubyCount" class="font-arcade text-sm text-[var(--ruby)] font-bold">9 LEFT</span>
+        </div>
+        <div class="text-xs text-[var(--amber)] font-arcade">[●●●○]</div>
+      </div>
+
+      <!-- Turn & Active Clue Marquee -->
+      <div class="text-center">
+        <div class="font-arcade text-xs text-[var(--amber)] tracking-wider">
+          ACTIVE CLUE: <span id="currentClueText" class="text-white underline">"RAIN" (2)</span>
+        </div>
+        <div class="text-[10px] text-[#a49bbd] font-mono mt-0.5" id="guessLimitText">GUESSES REMAINING: 3 (2+1)</div>
+      </div>
+
+      <!-- Team Cobalt Score -->
+      <div class="flex items-center justify-between md:justify-end gap-3 border-t md:border-t-0 md:border-l border-[#272041] pt-2 md:pt-0 md:pl-4">
+        <div class="text-xs text-[#a49bbd] font-arcade">[●●○○]</div>
+        <div class="flex items-center gap-2">
+          <span class="font-arcade text-xs text-white">COBALT:</span>
+          <span id="cobaltCount" class="font-arcade text-sm text-[var(--cobalt)] font-bold">8 LEFT</span>
+          <span class="w-3 h-3 bg-[var(--cobalt)] border border-black"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Spymaster Spotlight Controls (Visible in Spymaster Mode Only) -->
+    <div id="spymasterHud" class="hidden mb-4 p-3 bg-[#1e1a32] border-2 border-[var(--cobalt)] pixel-shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="font-arcade text-xs text-[var(--cobalt)]">SECRET KEY HUD:</span>
+          <span class="text-xs text-gray-300 font-mono">Spotlight your targets to find visual connections:</span>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <button onclick="setSpotlight('all')" class="spotlight-btn font-arcade text-[10px] px-2.5 py-1 bg-white text-black border border-black" data-filter="all">ALL (25)</button>
+          <button onclick="setSpotlight('ruby')" class="spotlight-btn font-arcade text-[10px] px-2.5 py-1 bg-[#2e274c] text-[var(--ruby)] border border-black hover:bg-black" data-filter="ruby">★ RUBY (9)</button>
+          <button onclick="setSpotlight('cobalt')" class="spotlight-btn font-arcade text-[10px] px-2.5 py-1 bg-[#2e274c] text-[var(--cobalt)] border border-black hover:bg-black" data-filter="cobalt">✦ COBALT (8)</button>
+          <button onclick="setSpotlight('hazard')" class="spotlight-btn font-arcade text-[10px] px-2.5 py-1 bg-[#2e274c] text-[var(--hazard)] border border-black hover:bg-black" data-filter="hazard">☠ HAZARD (1)</button>
+        </div>
+      </div>
+      <!-- Clue Simulation Dispatcher -->
+      <div class="mt-3 pt-2 border-t border-[#3f3565] flex flex-wrap items-center gap-2 text-xs">
+        <span class="font-arcade text-[10px] text-[var(--amber)]">TEST CLUE PRESETS:</span>
+        <button onclick="applyClue('RAIN', 2, ['A2', 'C2'])" class="pixel-btn bg-[#0e0c1a] hover:bg-[var(--ruby)] hover:text-white text-gray-300 font-mono px-2 py-1 border border-gray-600">
+          "RAIN" (2) ➔ A2 (Diner) + C2 (Gargoyle)
+        </button>
+        <button onclick="applyClue('POTION', 2, ['B3', 'D1'])" class="pixel-btn bg-[#0e0c1a] hover:bg-[var(--ruby)] hover:text-white text-gray-300 font-mono px-2 py-1 border border-gray-600">
+          "POTION" (2) ➔ B3 (Bonfire) + D1 (Alchemist)
+        </button>
+        <button onclick="applyClue('NIGHT', 3, ['A1', 'A2', 'C2'])" class="pixel-btn bg-[#0e0c1a] hover:bg-[var(--ruby)] hover:text-white text-gray-300 font-mono px-2 py-1 border border-gray-600">
+          "NIGHT" (3) ➔ Word (SHADOW) + 2 Images
+        </button>
+      </div>
+    </div>
+
+    <!-- Operative Token Bar -->
+    <div id="operativeHud" class="flex flex-wrap items-center justify-between mb-3 px-1 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="font-arcade text-[10px] text-gray-400">YOUR STAMP:</span>
+        <span class="bg-[#211c36] text-[var(--amber)] border border-black px-2 py-0.5 font-arcade text-[10px]">🏎️ RACECAR</span>
+        <span class="text-gray-400 font-mono text-[11px]">(Click any image to inspect & stamp!)</span>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="endTurn()" class="pixel-btn bg-[#211c36] text-white border-2 border-black px-3 py-1 font-arcade text-[10px] pixel-shadow-sm hover:bg-[var(--hazard)]">
+          END GUESSING 🛑
+        </button>
+      </div>
+    </div>
+
+    <!-- 5x5 BOARD GRID -->
+    <div id="boardGrid" class="grid grid-cols-5 gap-2 md:gap-3 bg-[#05040a] p-2 md:p-3 border-4 border-[#272041] pixel-shadow">
+      <!-- 25 cards dynamically rendered by JS -->
+    </div>
+
+  </div>
+
+  <!-- TAP-TO-INSPECT LIGHTBOX MODAL -->
+  <div id="inspectorModal" class="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#181528] border-4 border-white pixel-shadow max-w-lg w-full p-4 md:p-6 relative animate-in fade-in zoom-in-95 duration-150">
+      <!-- Modal Close Button -->
+      <button onclick="closeInspector()" class="absolute top-3 right-3 bg-[var(--ruby)] text-white font-arcade text-xs w-7 h-7 border-2 border-black pixel-shadow-sm hover:scale-110">
+        ✕
+      </button>
+
+      <!-- Inspector Header -->
+      <div class="flex items-center gap-2 mb-3 pb-2 border-b border-[#3f3565]">
+        <span id="modalCoord" class="font-mono text-xs bg-[var(--amber)] text-black px-2 py-0.5 font-bold border border-black">A2</span>
+        <h2 id="modalTitle" class="font-arcade text-xs md:text-sm text-white truncate">The Midnight Diner</h2>
+        <span id="modalIndex" class="ml-auto font-mono text-xs text-gray-400">#02</span>
+      </div>
+
+      <!-- High-Res Image Display -->
+      <div class="w-full aspect-[3/4] max-h-[380px] bg-black border-2 border-black pixel-shadow-sm overflow-hidden mb-3 relative flex items-center justify-center">
+        <img id="modalImg" src="" alt="Inspected Card Artwork" class="w-full h-full object-cover">
+        <!-- Live Stamped Piece Overlay -->
+        <div id="modalStampOverlay" class="hidden absolute bottom-3 right-3 bg-black/80 border-2 border-[var(--amber)] px-3 py-1 text-sm font-arcade text-[var(--amber)] pixel-shadow-sm">
+          [ 🏎️ 1UP ]
+        </div>
+      </div>
+
+      <!-- Accessible Semantic Audio Description -->
+      <div class="bg-[#0e0c1a] border border-[#272041] p-2.5 mb-3">
+        <div class="flex items-center gap-1 text-[10px] font-arcade text-[var(--cobalt)] mb-1">
+          <span>👁️ ACCESSIBLE SCENE DESCRIPTION:</span>
+        </div>
+        <p id="modalDesc" class="text-xs text-gray-300 font-sans leading-relaxed">
+          An empty corner vinyl booth inside a warm retro diner...
+        </p>
+      </div>
+
+      <!-- Clue Semantic Hooks -->
+      <div class="mb-4">
+        <span class="text-[10px] font-arcade text-gray-400 block mb-1.5">ASSOCIATIVE CLUE HOOKS:</span>
+        <div id="modalHooks" class="flex flex-wrap gap-1.5">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="grid grid-cols-2 gap-3 pt-2 border-t border-[#3f3565]">
+        <button id="modalStampBtn" onclick="toggleModalStamp()" class="pixel-btn bg-[#211c36] text-[var(--amber)] border-2 border-black p-2.5 font-arcade text-xs pixel-shadow-sm hover:bg-black">
+          STAMP 🏎️
+        </button>
+        <button id="modalRevealBtn" onclick="confirmModalReveal()" class="pixel-btn bg-[var(--ruby)] text-white border-2 border-black p-2.5 font-arcade text-xs pixel-shadow-sm hover:bg-[#ff0040]">
+          CONFIRM REVEAL 🔥
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- WEB AUDIO API 8-BIT SYNTHESIZER ---
+    let audioCtx = null;
+    let sfxEnabled = true;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+    }
+
+    function toggleAudio() {
+      sfxEnabled = !sfxEnabled;
+      document.getElementById('sfxIcon').innerText = sfxEnabled ? '🔊' : '🔇';
+      document.getElementById('sfxToggle').classList.toggle('opacity-50', !sfxEnabled);
+    }
+
+    function playTone(freq, duration = 0.08, type = 'square') {
+      if (!sfxEnabled) return;
+      try {
+        initAudio();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function playCoinSound() {
+      playTone(987.77, 0.08); // B5
+      setTimeout(() => playTone(1318.51, 0.15), 80); // E6
+    }
+
+    function playBuzzer() {
+      playTone(180, 0.2, 'sawtooth');
+    }
+
+    function playHazardSound() {
+      playTone(350, 0.1, 'sawtooth');
+      setTimeout(() => playTone(250, 0.1, 'sawtooth'), 80);
+      setTimeout(() => playTone(120, 0.25, 'sawtooth'), 160);
+    }
+
+    // --- 25-CARD MASTER DATA MATRIX ---
+    // 10 Real Generated Images + 15 Verified Words
+    // --- 25-CARD MASTER DATA MATRIX ---
+    // Every card has both verified word and image data for all 3 modes!
+    const CARDS = [
+      // Row A
+      { 
+        coord: 'A1', index: '01', kind: 'word', text: 'SHADOW', role: 'ruby', revealed: false, nominated: false,
+        title: 'Shadow Rooftop', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/gargoyle_vigil_card_1788650658129.jpg',
+        desc: 'Dark caped silhouette perched high on a gargoyle overlooking city shadows.', hooks: ['Shadow', 'Cape', 'Night', 'City', 'Stone']
+      },
+      { 
+        coord: 'A2', index: '02', kind: 'picture', text: 'DINER', title: 'The Midnight Diner', role: 'ruby', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/midnight_diner_card_1788650325844.jpg',
+        desc: 'Empty corner vinyl booth in a retro diner with hot black coffee, an off-the-hook rotary phone, and rain streaking across neon window lights outside.',
+        hooks: ['Coffee', 'Diner', 'Rain', 'Midnight', 'Call', 'Neon', 'Telephone', 'Red']
+      },
+      { 
+        coord: 'A3', index: '03', kind: 'word', text: 'ALIBI', role: 'cobalt', revealed: false, nominated: false,
+        title: 'Late Night Call', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/midnight_diner_card_1788650325844.jpg',
+        desc: 'An off-the-hook phone in a secluded booth providing a late-night alibi.', hooks: ['Alibi', 'Call', 'Diner', 'Law', 'Secret']
+      },
+      { 
+        coord: 'A4', index: '04', kind: 'picture', text: 'MECHA', title: 'Mecha Shrine', role: 'cobalt', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/mecha_shrine_card_1788650352539.jpg',
+        desc: 'A giant weathered robot hand covered in moss resting in a misty bamboo grove with sacred Shinto ropes, paper tassels, and glowing fireflies.',
+        hooks: ['Mecha', 'Forest', 'Shrine', 'Spirit', 'Giant', 'Steel', 'Ancient', 'Green']
+      },
+      { 
+        coord: 'A5', index: '05', kind: 'word', text: 'STORM', role: 'bystander', revealed: false, nominated: false,
+        title: 'Gathering Storm', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/gargoyle_vigil_card_1788650658129.jpg',
+        desc: 'Heavy thunderstorm clouds crackling with atmospheric lightning.', hooks: ['Storm', 'Rain', 'Thunder', 'Cloud', 'Sky']
+      },
+
+      // Row B
+      { 
+        coord: 'B1', index: '06', kind: 'picture', text: 'STAGE', title: 'Concert Stage', role: 'cobalt', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/concert_stage_card_1788650408785.jpg',
+        desc: 'Empty stadium stage littered with pastel confetti; a wireless mic sits on a black road case under violet arena spotlights and blue haze.',
+        hooks: ['Stage', 'Mic', 'Confetti', 'Stadium', 'Blue', 'Silence', 'Tour', 'Arena']
+      },
+      { 
+        coord: 'B2', index: '07', kind: 'word', text: 'ROBOT', role: 'bystander', revealed: false, nominated: false,
+        title: 'Ancient Automaton', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/mecha_shrine_card_1788650352539.jpg',
+        desc: 'Decommissioned iron android resting in silence.', hooks: ['Robot', 'Steel', 'Ancient', 'Machine', 'Rest']
+      },
+      { 
+        coord: 'B3', index: '08', kind: 'picture', text: 'BONFIRE', title: 'Bonfire Waypoint', role: 'ruby', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/bonfire_shrine_card_1788650422938.jpg',
+        desc: 'Coiled steel broadsword plunged into an ash campfire inside a stone ruin, with a chained treasure chest and crimson potion bottle.',
+        hooks: ['Fire', 'Sword', 'Ash', 'Rest', 'Chest', 'Stone', 'Potion', 'Save']
+      },
+      { 
+        coord: 'B4', index: '09', kind: 'word', text: 'LIGHTNING', role: 'cobalt', revealed: false, nominated: false,
+        title: 'Electric Flash', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/gargoyle_vigil_card_1788650658129.jpg',
+        desc: 'Yellow searchlight and lightning slicing through rain.', hooks: ['Lightning', 'Electric', 'Flash', 'Storm', 'Beam']
+      },
+      { 
+        coord: 'B5', index: '10', kind: 'picture', text: 'CARTOON', title: 'Saturday Morning', role: 'ruby', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/saturday_morning_card_1788650542163.jpg',
+        desc: '1990s Memphis carpet with an open box and bowl of loop cereal, plastic snap bracelets, and a glowing CRT television with stacked VHS tapes.',
+        hooks: ['Cereal', 'Carpet', 'Tube', 'Toy', 'Slap', 'Morning', 'Color', 'Sugar']
+      },
+
+      // Row C
+      { 
+        coord: 'C1', index: '11', kind: 'word', text: 'SWORD', role: 'ruby', revealed: false, nominated: false,
+        title: 'Sanctuary Blade', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/bonfire_shrine_card_1788650422938.jpg',
+        desc: 'Weathered broadsword resting in glowing embers.', hooks: ['Sword', 'Blade', 'Steel', 'Fire', 'Combat']
+      },
+      { 
+        coord: 'C2', index: '12', kind: 'picture', text: 'GARGOYLE', title: 'Gargoyle Vigil', role: 'ruby', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/gargoyle_vigil_card_1788650658129.jpg',
+        desc: 'Dark caped superhero crouching atop a stone gargoyle in the rain high above a city, cut by a brilliant yellow searchlight beam.',
+        hooks: ['Cape', 'Gargoyle', 'Rain', 'Night', 'Signal', 'City', 'Stone', 'Shadow']
+      },
+      { 
+        coord: 'C3', index: '13', kind: 'word', text: 'HAZARD', role: 'hazard', revealed: false, nominated: false,
+        title: 'Toxic Acid Breach', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/mutagen_breach_card_1788651554592.jpg',
+        desc: '☠ THE LETHAL ASSASSIN: Shattered containment tube spilling glowing green mutagenic acid.',
+        hooks: ['Hazard', 'Acid', 'Green', 'Danger', 'Elimination', 'Toxic']
+      },
+      { 
+        coord: 'C4', index: '14', kind: 'picture', text: 'GARDEN', title: 'Greenhouse Ruin', role: 'bystander', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/greenhouse_ruin_card_1788651339171.jpg',
+        desc: 'Antique glass greenhouse filled with overgrown tropical ferns, orchids, an old bicycle, and sunbeams cutting through morning dust.',
+        hooks: ['Green', 'Plant', 'Bicycle', 'Glass', 'Sun', 'Garden', 'Fern', 'Orchid']
+      },
+      { 
+        coord: 'C5', index: '15', kind: 'word', text: 'POTION', role: 'ruby', revealed: false, nominated: false,
+        title: 'Alchemical Elixir', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/alchemist_attic_card_1788651397962.jpg',
+        desc: 'Glass flask glowing with healing restorative tonic.', hooks: ['Potion', 'Flask', 'Magic', 'Heal', 'Alchemy']
+      },
+
+      // Row D
+      { 
+        coord: 'D1', index: '16', kind: 'picture', text: 'ATTIC', title: 'Alchemist Attic', role: 'ruby', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/alchemist_attic_card_1788651397962.jpg',
+        desc: 'Round wooden attic room filled with shelves of glowing potion flasks, open parchment scrolls, and a black cat sitting on an overhead beam.',
+        hooks: ['Potion', 'Magic', 'Cat', 'Scroll', 'Bottle', 'Attic', 'Books', 'Alchemy']
+      },
+      { 
+        coord: 'D2', index: '17', kind: 'word', text: 'CEREAL', role: 'cobalt', revealed: false, nominated: false,
+        title: 'Breakfast Loop', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/saturday_morning_card_1788650542163.jpg',
+        desc: 'Bowl and box of sugary colorful loop cereal.', hooks: ['Cereal', 'Bowl', 'Morning', 'Food', 'Sugar']
+      },
+      { 
+        coord: 'D3', index: '18', kind: 'picture', text: 'ACID', title: 'Mutagen Breach', role: 'cobalt', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/mutagen_breach_card_1788651554592.jpg',
+        desc: 'Cracked glass containment tube leaking glowing neon-green chemical sludge onto a concrete lab floor with broken steel handcuffs dangling.',
+        hooks: ['Acid', 'Green', 'Tube', 'Glass', 'Lab', 'Break', 'Escape', 'Sludge']
+      },
+      { 
+        coord: 'D4', index: '19', kind: 'word', text: 'COFFEE', role: 'ruby', revealed: false, nominated: false,
+        title: 'Steaming Mug', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/midnight_diner_card_1788650325844.jpg',
+        desc: 'Hot black coffee steaming in a ceramic diner mug.', hooks: ['Coffee', 'Drink', 'Steam', 'Morning', 'Diner']
+      },
+      { 
+        coord: 'D5', index: '20', kind: 'picture', text: 'PIXEL', title: 'Glitched Island', role: 'cobalt', revealed: false, nominated: false,
+        img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/glitched_island_card_1788651516492.jpg',
+        desc: 'Floating voxel grass island chunk drifting in deep space, one side dissolving into glowing neon purple wireframe blocks and cubic pixels.',
+        hooks: ['Glitch', 'Island', 'Pixel', 'Void', 'Purple', 'Code', 'Space', 'Cube']
+      },
+
+      // Row E
+      { 
+        coord: 'E1', index: '21', kind: 'word', text: 'BATTERY', role: 'bystander', revealed: false, nominated: false,
+        title: 'Energy Cell', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/glitched_island_card_1788651516492.jpg',
+        desc: 'Electrochemical power supply storage unit.', hooks: ['Battery', 'Energy', 'Power', 'Cell', 'Tech']
+      },
+      { 
+        coord: 'E2', index: '22', kind: 'word', text: 'MIRROR', role: 'bystander', revealed: false, nominated: false,
+        title: 'Reflective Glass', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/alchemist_attic_card_1788651397962.jpg',
+        desc: 'Reflective silvered mirror pane.', hooks: ['Mirror', 'Glass', 'Reflection', 'Vision', 'Optics']
+      },
+      { 
+        coord: 'E3', index: '23', kind: 'word', text: 'TELEPHONE', role: 'ruby', revealed: false, nominated: false,
+        title: 'Rotary Receiver', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/midnight_diner_card_1788650325844.jpg',
+        desc: 'Vintage rotary phone with receiver off the hook.', hooks: ['Telephone', 'Call', 'Wire', 'Diner', 'Voice']
+      },
+      { 
+        coord: 'E4', index: '24', kind: 'word', text: 'SLIME', role: 'cobalt', revealed: false, nominated: false,
+        title: 'Toxic Goo', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/mutagen_breach_card_1788651554592.jpg',
+        desc: 'Luminescent chemical green slime spill.', hooks: ['Slime', 'Acid', 'Green', 'Goo', 'Chemical']
+      },
+      { 
+        coord: 'E5', index: '25', kind: 'word', text: 'TEMPLE', role: 'bystander', revealed: false, nominated: false,
+        title: 'Sacred Sanctum', img: '/Users/eugenezhou/.gemini/antigravity/brain/648bd5c6-d395-44e0-a80a-903c25e5c772/mecha_shrine_card_1788650352539.jpg',
+        desc: 'Quiet sacred sanctuary nestled in forest greenery.', hooks: ['Temple', 'Shrine', 'Forest', 'Ancient', 'Stone']
+      }
+    ];
+
+    let currentRole = 'operative';
+    let currentSpotlight = 'all';
+    let currentBoardMode = 'mixed'; // 'text' | 'images' | 'mixed'
+    let activeInspectedCard = null;
+
+    // --- BOARD MODE SWITCHER ---
+    function setBoardMode(mode) {
+      currentBoardMode = mode;
+      document.getElementById('btnModeText').className = mode === 'text' 
+        ? 'font-arcade text-[10px] md:text-xs px-2.5 py-1 bg-[var(--amber)] text-black font-bold border border-black'
+        : 'font-arcade text-[10px] md:text-xs px-2.5 py-1 text-[#a49bbd] hover:text-white transition-colors';
+      document.getElementById('btnModeImages').className = mode === 'images' 
+        ? 'font-arcade text-[10px] md:text-xs px-2.5 py-1 bg-[var(--amber)] text-black font-bold border border-black'
+        : 'font-arcade text-[10px] md:text-xs px-2.5 py-1 text-[#a49bbd] hover:text-white transition-colors';
+      document.getElementById('btnModeMixed').className = mode === 'mixed' 
+        ? 'font-arcade text-[10px] md:text-xs px-2.5 py-1 bg-[var(--amber)] text-black font-bold border border-black'
+        : 'font-arcade text-[10px] md:text-xs px-2.5 py-1 text-[#a49bbd] hover:text-white transition-colors';
+
+      playTone(mode === 'text' ? 520 : mode === 'images' ? 680 : 840, 0.08);
+      renderBoard();
+    }
+
+    // --- RENDER 5X5 BOARD ---
+    function renderBoard() {
+      const grid = document.getElementById('boardGrid');
+      grid.innerHTML = '';
+
+      CARDS.forEach(card => {
+        const el = document.createElement('div');
+        el.className = 'board-card rounded bg-[var(--card-face)] border-2 border-black pixel-shadow flex flex-col justify-between overflow-hidden relative aspect-[3/4]';
+        el.dataset.coord = card.coord;
+
+        // Determine effective kind based on selected Gameplay Mode
+        let effectiveKind = card.kind;
+        if (currentBoardMode === 'text') effectiveKind = 'word';
+        else if (currentBoardMode === 'images') effectiveKind = 'picture';
+
+        // Apply Spymaster Key Styling if active
+        if (currentRole === 'spymaster') {
+          if (card.role === 'ruby') el.classList.add('border-[3px]', '!border-[var(--ruby)]', 'shadow-[0_0_8px_rgba(255,42,95,0.7)]');
+          if (card.role === 'cobalt') el.classList.add('border-[3px]', '!border-[var(--cobalt)]', 'shadow-[0_0_8px_rgba(0,210,255,0.7)]');
+          if (card.role === 'hazard') el.classList.add('border-[4px]', '!border-[var(--hazard)]', 'bg-stripes');
+          
+          // Spotlight dimming
+          if (currentSpotlight !== 'all' && card.role !== currentSpotlight) {
+            el.classList.add('dimmed');
+          }
+        }
+
+        // Apply Revealed State
+        if (card.revealed) {
+          el.classList.add('revealed');
+          let bgColor = card.role === 'ruby' ? 'bg-[#ff2a5f]' : card.role === 'cobalt' ? 'bg-[#00d2ff]' : card.role === 'hazard' ? 'bg-[#0c0812]' : 'bg-[#e2d8c3]';
+          let textColor = card.role === 'hazard' ? 'text-[var(--hazard)]' : card.role === 'bystander' ? 'text-[#5e5873]' : 'text-white';
+          let crest = card.role === 'ruby' ? '👑 RUBY' : card.role === 'cobalt' ? '✦ COBALT' : card.role === 'hazard' ? '☠ HAZARD' : '— NEUTRAL';
+
+          el.innerHTML = `
+            <div class="absolute inset-0 ${bgColor} flex flex-col items-center justify-center p-2 text-center z-20 border-2 border-black">
+              <span class="font-mono text-[9px] text-white/70 mb-1">${card.coord}</span>
+              <span class="font-arcade text-[10px] md:text-xs ${textColor} font-bold leading-tight">${crest}</span>
+              <span class="line-through text-[9px] text-white/60 font-mono mt-1">${card.text}</span>
+            </div>
+          `;
+          grid.appendChild(el);
+          return;
+        }
+
+        // UNREVEALED CARD CONTENT
+        if (effectiveKind === 'word') {
+          el.innerHTML = `
+            <!-- Header -->
+            <div class="p-1.5 flex justify-between items-center text-[10px] font-mono text-gray-500">
+              <span>${card.coord}</span>
+              <span>#${card.index}</span>
+            </div>
+            <!-- Word -->
+            <div class="px-2 text-center my-auto">
+              <span class="font-black text-xs md:text-sm tracking-wider text-[#0e0c1a] uppercase leading-none block">
+                ${card.text}
+              </span>
+            </div>
+            <!-- Footer -->
+            <div class="p-1 text-center min-h-[20px]">
+              ${card.nominated ? '<span class="text-[9px] font-arcade bg-black text-[var(--amber)] px-1 py-0.5 border border-black">🏎️ 1UP</span>' : ''}
+            </div>
+          `;
+          el.onclick = () => onCardClick(card, effectiveKind);
+        } else {
+          // PICTURE CARD
+          el.innerHTML = `
+            <!-- Header -->
+            <div class="absolute top-1 left-1 right-1 flex justify-between items-center text-[9px] font-mono text-white bg-black/60 px-1 py-0.5 z-10 border border-black">
+              <span class="font-bold text-[var(--amber)]">${card.coord}</span>
+              <span>#${card.index}</span>
+            </div>
+            <!-- Image Thumbnail -->
+            <div class="w-full h-full bg-black flex items-center justify-center overflow-hidden">
+              <img src="${card.img}" alt="${card.title}" class="w-full h-full object-cover">
+            </div>
+            <!-- Footer (Nomination or Label) -->
+            <div class="absolute bottom-1 left-1 right-1 text-center z-10">
+              ${card.nominated 
+                ? '<span class="text-[8px] md:text-[9px] font-arcade bg-black text-[var(--amber)] px-1.5 py-0.5 border border-[var(--amber)] pixel-shadow-sm">[ 🏎️ 1UP ]</span>' 
+                : `<span class="text-[7px] md:text-[8px] font-mono bg-black/75 text-white px-1 py-0.5 truncate block border border-black/50">${card.title}</span>`
+              }
+            </div>
+          `;
+          el.onclick = () => onCardClick(card, effectiveKind);
+        }
+
+        grid.appendChild(el);
+      });
+
+      updateScoreboard();
+    }
+
+    // --- INTERACTION HANDLERS ---
+    function onCardClick(card, effectiveKind) {
+      if (card.revealed) return;
+      playTone(580, 0.05);
+
+      if (effectiveKind === 'picture') {
+        openInspector(card);
+      } else {
+        // Text card: toggle nomination or confirm
+        if (!card.nominated) {
+          card.nominated = true;
+        } else {
+          revealCard(card);
+        }
+        renderBoard();
+      }
+    }
+
+    function openInspector(card) {
+      activeInspectedCard = card;
+      document.getElementById('modalCoord').innerText = card.coord;
+      document.getElementById('modalTitle').innerText = card.title;
+      document.getElementById('modalIndex').innerText = '#' + card.index;
+      document.getElementById('modalImg').src = card.img;
+      document.getElementById('modalDesc').innerText = card.desc;
+
+      const overlay = document.getElementById('modalStampOverlay');
+      overlay.classList.toggle('hidden', !card.nominated);
+
+      const stampBtn = document.getElementById('modalStampBtn');
+      stampBtn.innerText = card.nominated ? 'REMOVE STAMP ✕' : 'STAMP RACECAR 🏎️';
+
+      // Hooks
+      const hooksEl = document.getElementById('modalHooks');
+      hooksEl.innerHTML = card.hooks.map(h => 
+        `<span class="text-[10px] font-mono bg-[#2e274c] text-[#f3eefc] border border-black px-2 py-0.5">${h}</span>`
+      ).join('');
+
+      document.getElementById('inspectorModal').classList.remove('hidden');
+    }
+
+    function closeInspector() {
+      document.getElementById('inspectorModal').classList.add('hidden');
+      activeInspectedCard = null;
+    }
+
+    function toggleModalStamp() {
+      if (!activeInspectedCard) return;
+      activeInspectedCard.nominated = !activeInspectedCard.nominated;
+      playTone(activeInspectedCard.nominated ? 700 : 400, 0.08);
+      openInspector(activeInspectedCard); // re-render modal
+      renderBoard();
+    }
+
+    function confirmModalReveal() {
+      if (!activeInspectedCard) return;
+      const card = activeInspectedCard;
+      closeInspector();
+      revealCard(card);
+    }
+
+    function revealCard(card) {
+      if (card.revealed) return;
+      card.revealed = true;
+      card.nominated = false;
+
+      if (card.role === 'ruby') {
+        playCoinSound();
+      } else if (card.role === 'hazard') {
+        playHazardSound();
+        alert('☠ HAZARD DETONATED! TEAM RUBY IS ELIMINATED!');
+      } else {
+        playBuzzer();
+      }
+      renderBoard();
+    }
+
+    function setRole(role) {
+      currentRole = role;
+      document.getElementById('btnOperative').className = role === 'operative' 
+        ? 'font-arcade text-xs px-3 py-1 bg-[var(--ruby)] text-white border border-black' 
+        : 'font-arcade text-xs px-3 py-1 text-[#a49bbd] hover:text-white';
+      document.getElementById('btnSpymaster').className = role === 'spymaster' 
+        ? 'font-arcade text-xs px-3 py-1 bg-[var(--cobalt)] text-black font-bold border border-black' 
+        : 'font-arcade text-xs px-3 py-1 text-[#a49bbd] hover:text-white';
+
+      document.getElementById('spymasterHud').classList.toggle('hidden', role !== 'spymaster');
+      document.getElementById('operativeHud').classList.toggle('hidden', role !== 'operative');
+      playTone(role === 'spymaster' ? 880 : 440, 0.1);
+      renderBoard();
+    }
+
+    function setSpotlight(filter) {
+      currentSpotlight = filter;
+      document.querySelectorAll('.spotlight-btn').forEach(btn => {
+        if (btn.dataset.filter === filter) {
+          btn.className = 'spotlight-btn font-arcade text-[10px] px-2.5 py-1 bg-white text-black border border-black';
+        } else {
+          btn.className = 'spotlight-btn font-arcade text-[10px] px-2.5 py-1 bg-[#2e274c] text-gray-300 border border-black hover:bg-black';
+        }
+      });
+      playTone(600, 0.05);
+      renderBoard();
+    }
+
+    function applyClue(word, count, targetCoords) {
+      document.getElementById('currentClueText').innerText = `"${word}" (${count})`;
+      document.getElementById('guessLimitText').innerText = `GUESSES REMAINING: ${count + 1}`;
+      playCoinSound();
+      
+      // Flash the targeted cards briefly in Spymaster mode
+      targetCoords.forEach(coord => {
+        const el = document.querySelector(`[data-coord="${coord}"]`);
+        if (el) {
+          el.classList.add('highlighted');
+          setTimeout(() => el.classList.remove('highlighted'), 1200);
+        }
+      });
+    }
+
+    function endTurn() {
+      playTone(320, 0.15);
+      alert('Turn Ended! Next team\'s turn.');
+    }
+
+    function updateScoreboard() {
+      const rubyRem = CARDS.filter(c => c.role === 'ruby' && !c.revealed).length;
+      const cobaltRem = CARDS.filter(c => c.role === 'cobalt' && !c.revealed).length;
+      document.getElementById('rubyCount').innerText = `${rubyRem} LEFT`;
+      document.getElementById('cobaltCount').innerText = `${cobaltRem} LEFT`;
+    }
+
+    // Initialize on load
+    renderBoard();
+  </script>
+</body>
+</html>

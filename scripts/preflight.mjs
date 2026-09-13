@@ -227,7 +227,7 @@ async function verifyStaticAssets(root, configs) {
   }
   await requireFile(
     resolve(expectedPath, "index.html"),
-    "Worker static assets are missing; run npm run build",
+    "Worker static assets are missing; run pnpm run build",
   );
   return "apps/web/dist/index.html";
 }
@@ -403,10 +403,10 @@ export function createPreflight({
     });
     await runCheck(results, "Lockfile", async () => {
       await requireFile(
-        resolve(root, "package-lock.json"),
-        "package-lock.json is required",
+        resolve(root, "pnpm-lock.yaml"),
+        "pnpm-lock.yaml is required",
       );
-      return "package-lock.json";
+      return "pnpm-lock.yaml";
     });
     await runCheck(results, "Wrangler parity", () =>
       verifyWranglerParity(requireConfigSnapshot()),

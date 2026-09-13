@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { checkAdmissionLimits } from "./admission-limits";
 import { createRoom, issueRoomTicket, joinRoom } from "./rooms";
 
 const JOIN_PATH = /^\/api\/rooms\/([^/]+)\/join$/u;
@@ -13,15 +14,24 @@ export async function routeApiRequest(
   }
   const pathname = new URL(request.url).pathname;
   if (pathname === "/api/rooms") {
-    return createRoom(request, env);
+    return (
+      (await checkAdmissionLimits(request, env, "create")) ??
+      createRoom(request, env)
+    );
   }
   const joinMatch = JOIN_PATH.exec(pathname);
   if (joinMatch !== null) {
-    return joinRoom(request, env, joinMatch[1]!);
+    return (
+      (await checkAdmissionLimits(request, env, "join", joinMatch[1]!)) ??
+      joinRoom(request, env, joinMatch[1]!)
+    );
   }
   const ticketMatch = TICKET_PATH.exec(pathname);
   if (ticketMatch !== null) {
-    return issueRoomTicket(request, env, ticketMatch[1]!);
+    return (
+      (await checkAdmissionLimits(request, env, "ticket", ticketMatch[1]!)) ??
+      issueRoomTicket(request, env, ticketMatch[1]!)
+    );
   }
   return null;
 }

@@ -1,5 +1,10 @@
 # Connected Classic Implementation Plan
 
+> **Historical execution record:** This plan preserves the npm commands and
+> lockfile evidence used for the reviewed Connected Classic implementation. The
+> active September 7 integration plan uses pnpm; do not rewrite the historical
+> steps as if they were rerun.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
 
 **Goal:** Build a deployable, account-free, two-team Classic game that a host, clue-givers, operatives, and spectators can complete across separate browsers with secure reconnects.

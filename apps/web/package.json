@@ -7,14 +7,16 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cipher-party/protocol": "*",
+    "@cipher-party/protocol": "workspace:*",
     "idb": "^8.0.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.3"
+    "react-router-dom": "^7.18.3",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",

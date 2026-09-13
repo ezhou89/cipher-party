@@ -1,6 +1,15 @@
+import { TEAM_IDS } from "@cipher-party/game-core";
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
+
+export const TeamIdSchema = z.enum(TEAM_IDS);
+
+export const TeamCountSchema = z.union([
+  z.literal(2),
+  z.literal(3),
+  z.literal(4),
+]);
 
 const graphemeCount = (value: string) =>
   Array.from(
@@ -26,9 +35,15 @@ export const ClientCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("randomize_teams") }).strict(),
   z
     .object({
+      type: z.literal("set_team_count"),
+      teamCount: TeamCountSchema,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("assign_seat"),
       playerId: z.string().min(1),
-      teamId: z.enum(["red", "blue"]).nullable(),
+      teamId: TeamIdSchema.nullable(),
     })
     .strict(),
   z

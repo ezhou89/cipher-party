@@ -9,5 +9,21 @@ export default defineConfig({
   ],
   test: {
     include: ["src/**/*.test.ts", "test/**/*.test.ts"],
+    coverage: {
+      provider: "istanbul",
+      include: ["src/**/*.ts"],
+      exclude: [
+        "**/*.test.*",
+        "**/*.spec.*",
+        "**/*.config.*",
+        "**/*.typecheck.*",
+        "**/*.d.ts",
+        "**/fixtures/**",
+        "**/generated/**",
+      ],
+      reportsDirectory: "../../coverage/worker",
+      reporter: ["text", "json-summary"],
+      thresholds: { statements: 93, branches: 91, functions: 98, lines: 93 },
+    },
   },
 });

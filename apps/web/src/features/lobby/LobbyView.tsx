@@ -5,6 +5,7 @@ import { ConnectionBadge } from "../../components/ConnectionBadge";
 import { CopyInviteButton } from "../../components/CopyInviteButton";
 import { TeamPanel, type TeamPanelIdentity } from "../../components/TeamPanel";
 import type { RoomConnectionState } from "../../lib/room-socket";
+import { TEAM_PRESENTATION, type TeamId } from "../../lib/team-presentation";
 
 interface LobbyViewProps {
   projection: ClientProjection;
@@ -13,21 +14,22 @@ interface LobbyViewProps {
   send(command: ClientCommand): void;
 }
 
-const RED_TEAM: TeamPanelIdentity = {
-  id: "red",
-  label: "Red team",
-  symbol: "◆",
-};
-const BLUE_TEAM: TeamPanelIdentity = {
-  id: "blue",
-  label: "Blue team",
-  symbol: "●",
-};
+const MAX_SPECTATORS = 16;
+
 const WAITING_TEAM: TeamPanelIdentity = {
   id: "waiting",
   label: "Waiting & spectators",
   symbol: "◇",
 };
+
+function teamPanelIdentity(teamId: TeamId): TeamPanelIdentity {
+  const presentation = TEAM_PRESENTATION[teamId];
+  return {
+    ...presentation,
+    id: teamId,
+    label: `${presentation.label} team`,
+  };
+}
 
 interface SeatPresenceAnnouncerProps {
   roomCode: string;
@@ -117,11 +119,9 @@ function viewerAssignment(projection: ClientProjection): string {
     return "You are a Spectator";
   }
   const team =
-    projection.viewer.teamId === "red"
-      ? "Red"
-      : projection.viewer.teamId === "blue"
-        ? "Blue"
-        : "Waiting";
+    projection.viewer.teamId === null
+      ? "Waiting"
+      : TEAM_PRESENTATION[projection.viewer.teamId].label;
   return `You are ${team} · ${roleLabel(projection.viewer.role)}`;
 }
 
@@ -130,10 +130,20 @@ function startReadiness(projection: ClientProjection): {
   message: string;
 } {
   const active = projection.seats.filter((seat) => seat.role !== "spectator");
+  const minimumPlayers = projection.teamCount * 2;
+  if (active.length < minimumPlayers) {
+    return {
+      ready: false,
+      message: `At least ${minimumPlayers} active players are required for ${projection.teamCount} teams.`,
+    };
+  }
   if (
     active.some(
       (seat) =>
-        !seat.connected || seat.teamId === null || seat.role === "unassigned",
+        !seat.connected ||
+        seat.teamId === null ||
+        !projection.configuredTeams.includes(seat.teamId) ||
+        seat.role === "unassigned",
     )
   ) {
     return {
@@ -141,15 +151,25 @@ function startReadiness(projection: ClientProjection): {
       message: "Every active seat must be online and fully assigned.",
     };
   }
-  const red = active.filter((seat) => seat.teamId === "red");
-  const blue = active.filter((seat) => seat.teamId === "blue");
-  if (Math.abs(red.length - blue.length) > 1) {
+  const teams = projection.configuredTeams.map((teamId) =>
+    active.filter((seat) => seat.teamId === teamId),
+  );
+  const sizes = teams.map((team) => team.length);
+  const largestTeamSize = Math.max(...sizes);
+  if (largestTeamSize - Math.min(...sizes) > 1) {
+    const labels = projection.configuredTeams.map(
+      (teamId) => TEAM_PRESENTATION[teamId].label,
+    );
+    const teamList =
+      labels.length === 2
+        ? labels.join(" and ")
+        : `${labels.slice(0, -1).join(", ")}, and ${labels.at(-1)}`;
     return {
       ready: false,
-      message: "Red and Blue team sizes must differ by no more than one.",
+      message: `${teamList} team sizes must differ by no more than one.`,
     };
   }
-  for (const team of [red, blue]) {
+  for (const team of teams) {
     const clueGivers = team.filter((seat) => seat.role === "clue-giver").length;
     const operatives = team.filter((seat) => seat.role === "operative").length;
     if (clueGivers !== 1 || operatives < 1) {
@@ -159,6 +179,16 @@ function startReadiness(projection: ClientProjection): {
           "Each team needs exactly one clue-giver and at least one operative.",
       };
     }
+  }
+  const spectatorCount = projection.seats.filter(
+    (seat) => seat.role === "spectator",
+  ).length;
+  const excessSpectators = spectatorCount + largestTeamSize - MAX_SPECTATORS;
+  if (excessSpectators > 0) {
+    return {
+      ready: false,
+      message: `Use the host role controls to reassign at least ${excessSpectators} spectator seat${excessSpectators === 1 ? "" : "s"} as ${excessSpectators === 1 ? "an active player" : "active players"} before starting. If that is not possible, start a new room with fewer spectators. The room must reserve ${largestTeamSize} spectator seats for a possible team elimination.`,
+    };
   }
   return {
     ready: true,
@@ -173,12 +203,6 @@ export function LobbyView({
   send,
 }: LobbyViewProps) {
   const [confirmRandomize, setConfirmRandomize] = useState(false);
-  const redSeats = projection.seats.filter(
-    (seat) => seat.teamId === "red" && seat.role !== "spectator",
-  );
-  const blueSeats = projection.seats.filter(
-    (seat) => seat.teamId === "blue" && seat.role !== "spectator",
-  );
   const waitingSeats = projection.seats.filter(
     (seat) => seat.teamId === null || seat.role === "spectator",
   );
@@ -191,7 +215,7 @@ export function LobbyView({
     <main className="app-shell room-shell">
       <header className="room-identity-strip">
         <div>
-          <p className="eyebrow">Private archive table</p>
+          <p className="eyebrow">Private arcade · Lobby</p>
           <h1>Room {projection.code}</h1>
         </div>
         <div className="identity-status">
@@ -202,7 +226,7 @@ export function LobbyView({
 
       <section className="invite-strip" aria-labelledby="invite-heading">
         <div>
-          <p className="card-index">Invite file</p>
+          <p className="card-index">Squad invite</p>
           <h2 id="invite-heading">Bring your crew to the table</h2>
         </div>
         <CopyInviteButton inviteUrl={projection.inviteUrl} />
@@ -216,16 +240,23 @@ export function LobbyView({
         />
         <header className="section-heading">
           <div>
-            <p className="card-index">Seat manifest</p>
+            <p className="card-index">Player select</p>
             <h2 id="lobby-heading">Teams at a glance</h2>
           </div>
           <span className="lock-status">
             {projection.locked ? "Entry locked" : "Entry open"}
           </span>
         </header>
-        <div className="team-grid">
-          <TeamPanel identity={RED_TEAM} seats={redSeats} />
-          <TeamPanel identity={BLUE_TEAM} seats={blueSeats} />
+        <div className="team-grid" data-team-count={projection.teamCount}>
+          {projection.configuredTeams.map((teamId) => (
+            <TeamPanel
+              key={teamId}
+              identity={teamPanelIdentity(teamId)}
+              seats={projection.seats.filter(
+                (seat) => seat.teamId === teamId && seat.role !== "spectator",
+              )}
+            />
+          ))}
           <TeamPanel identity={WAITING_TEAM} seats={waitingSeats} />
         </div>
       </section>
@@ -233,6 +264,27 @@ export function LobbyView({
       {showHostControls ? (
         <fieldset className="host-controls" aria-label="Host controls">
           <legend>Host controls</legend>
+          {projection.permissions.configure ? (
+            <div className="team-count-control">
+              <label htmlFor="team-count">Number of teams</label>
+              <select
+                id="team-count"
+                value={String(projection.teamCount)}
+                disabled={controlsDisabled || projection.locked}
+                onChange={(event) =>
+                  send({
+                    type: "set_team_count",
+                    teamCount: Number(event.currentTarget.value) as 2 | 3 | 4,
+                  })
+                }
+              >
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+              <span>Minimum active players: {projection.teamCount * 2}</span>
+            </div>
+          ) : null}
           <div className="assignment-list">
             {projection.seats.map((seat) => {
               const spectator = seat.role === "spectator";
@@ -252,13 +304,16 @@ export function LobbyView({
                           teamId:
                             event.currentTarget.value === ""
                               ? null
-                              : (event.currentTarget.value as "red" | "blue"),
+                              : (event.currentTarget.value as TeamId),
                         })
                       }
                     >
                       <option value="">Waiting</option>
-                      <option value="red">Red</option>
-                      <option value="blue">Blue</option>
+                      {projection.configuredTeams.map((teamId) => (
+                        <option key={teamId} value={teamId}>
+                          {TEAM_PRESENTATION[teamId].label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label>

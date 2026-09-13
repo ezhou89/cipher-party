@@ -3,6 +3,7 @@ import type {
   OperativeProjection,
   ProjectionBase,
   PublicCard,
+  PublicTeamSummary,
 } from "./projections";
 
 export function assertProjectionDiscriminants(base: ProjectionBase): void {
@@ -45,4 +46,16 @@ export function assertPublicCardDiscriminant(): void {
 
   void unrevealedWithOwner;
   void revealedWithoutOwner;
+}
+
+export function assertPublicTeamSummaryPrivacy(): void {
+  const summary: PublicTeamSummary = {
+    teamId: "green",
+    revealedTargets: 2,
+    eliminated: false,
+    // @ts-expect-error Public summaries cannot represent unrevealed target totals.
+    targetTotal: 7,
+  };
+
+  void summary;
 }

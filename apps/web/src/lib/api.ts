@@ -3,6 +3,8 @@ import type { SeatCredentials } from "./seat-store";
 const TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const CANONICAL_ROOM_CODE_PATTERN = /^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6}$/u;
 const ORIGINAL_ROOM_CODE_PATTERN = /^[A-Za-z0-9]{6}$/u;
+const IMF_FIXDATE_PATTERN =
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (?:0[1-9]|[12]\d|3[01]) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/u;
 
 export type PublicApiErrorCode =
   | "invalid_request"
@@ -11,6 +13,7 @@ export type PublicApiErrorCode =
   | "room_in_progress"
   | "room_full"
   | "unauthorized"
+  | "rate_limited"
   | "network_error"
   | "unexpected_response";
 
@@ -21,6 +24,7 @@ const PUBLIC_ERROR_MESSAGES: Record<PublicApiErrorCode, string> = {
   room_in_progress: "Room is already in progress.",
   room_full: "Room is full.",
   unauthorized: "This room credential is no longer valid.",
+  rate_limited: "Too many attempts. Please wait a minute and try again.",
   network_error:
     "Unable to reach Cipher Party. Check your connection and try again.",
   unexpected_response:
@@ -31,10 +35,42 @@ export class ApiError extends Error {
   constructor(
     readonly code: PublicApiErrorCode,
     readonly status: number | null = null,
+    readonly retryAfterMs: number | null = null,
   ) {
     super(PUBLIC_ERROR_MESSAGES[code]);
     this.name = "ApiError";
   }
+}
+
+function retryAfterMilliseconds(
+  value: string | null,
+  now: number,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (/^\d+$/u.test(trimmed)) {
+    const seconds = Number(trimmed);
+    const milliseconds = seconds * 1_000;
+    return Number.isSafeInteger(seconds) && Number.isSafeInteger(milliseconds)
+      ? milliseconds
+      : null;
+  }
+  if (!IMF_FIXDATE_PATTERN.test(trimmed)) {
+    return null;
+  }
+  const timestamp = Date.parse(trimmed);
+  if (
+    !Number.isFinite(timestamp) ||
+    new Date(timestamp).toUTCString() !== trimmed
+  ) {
+    return null;
+  }
+  const milliseconds = timestamp - now;
+  return Number.isFinite(milliseconds) && milliseconds >= 0
+    ? milliseconds
+    : null;
 }
 
 export interface CreateRoomResponse {
@@ -145,21 +181,28 @@ function parseJoinRoomResponse(value: unknown): JoinRoomResponse | null {
   };
 }
 
-function parsePublicError(value: unknown, status: number): ApiError {
+function parsePublicError(
+  value: unknown,
+  response: Response,
+  now: number,
+): ApiError {
   const outer = exactRecord(value, ["error"]);
   const inner =
     outer === null ? null : exactRecord(outer.error, ["code", "message"]);
   const code = inner?.code;
-  if (
+  const valid =
     typeof code === "string" &&
     Object.hasOwn(PUBLIC_ERROR_MESSAGES, code) &&
     code !== "network_error" &&
     code !== "unexpected_response" &&
-    typeof inner?.message === "string"
-  ) {
-    return new ApiError(code as PublicApiErrorCode, status);
-  }
-  return new ApiError("unexpected_response", status);
+    typeof inner?.message === "string";
+  return new ApiError(
+    valid ? (code as PublicApiErrorCode) : "unexpected_response",
+    response.status,
+    response.status === 429
+      ? retryAfterMilliseconds(response.headers.get("Retry-After"), now)
+      : null,
+  );
 }
 
 async function postJson(
@@ -183,10 +226,10 @@ async function postJson(
   try {
     value = await response.json();
   } catch {
-    throw new ApiError("unexpected_response", response.status);
+    throw parsePublicError(undefined, response, Date.now());
   }
   if (!response.ok) {
-    throw parsePublicError(value, response.status);
+    throw parsePublicError(value, response, Date.now());
   }
   return value;
 }
@@ -236,6 +279,7 @@ export async function joinRoom(
 export async function requestConnectionTicket(
   credentials: SeatCredentials,
   fetchImpl: typeof fetch = fetch,
+  now: () => number = Date.now,
 ): Promise<ConnectionTicket> {
   const headers = new Headers({
     Authorization: `Bearer ${credentials.seatToken}`,
@@ -248,7 +292,13 @@ export async function requestConnectionTicket(
     { method: "POST", headers },
   );
   if (!response.ok) {
-    throw new Error("Room connection ticket request failed");
+    let error: unknown;
+    try {
+      error = await response.json();
+    } catch {
+      throw parsePublicError(undefined, response, now());
+    }
+    throw parsePublicError(error, response, now());
   }
   const value: unknown = await response.json();
   const record =

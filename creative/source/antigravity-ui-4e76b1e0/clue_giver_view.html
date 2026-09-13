@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cipher Party — Focused Clue-Giver Command</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Plus+Jakarta+Sans:wght@700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --color-canvas: #0e0c1a;
+      --color-surface: #161324;
+      --color-surface-high: #211c36;
+      --color-ruby: #ff2a5f;
+      --color-cobalt: #00d2ff;
+      --color-neutral: #8b85a3;
+      --color-card-face: #fbf6ec;
+      --color-card-ink: #0e0c1a;
+      --shadow-pixel: 4px 4px 0px #000000;
+      --shadow-pixel-sm: 2px 2px 0px #000000;
+      --pixel-corners: polygon(
+        0px 3px, 3px 3px, 3px 0px,
+        calc(100% - 3px) 0px, calc(100% - 3px) 3px, 100% 3px,
+        100% calc(100% - 3px), calc(100% - 3px) calc(100% - 3px), calc(100% - 3px) 100%,
+        3px 100%, 3px calc(100% - 3px), 0px calc(100% - 3px)
+      );
+    }
+    body {
+      background-color: var(--color-canvas);
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-corners { clip-path: var(--pixel-corners); }
+    
+    .pixel-card {
+      background-color: var(--color-card-face);
+      border: 3px solid #000;
+      box-shadow: 2px 2px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: all 0.15s ease;
+    }
+
+    /* Target Ownership Hierarchy */
+    /* 1. Ruby Targets (High Signal - Your Team) */
+    .target-ruby {
+      border: 3px solid var(--color-ruby) !important;
+      box-shadow: 0 0 10px rgba(255, 42, 95, 0.3), 3px 3px 0px #000 !important;
+    }
+    .target-ruby .header-strip {
+      background-color: var(--color-ruby);
+      color: #ffffff;
+    }
+
+    /* 2. Cobalt Targets (Subdued - Opponent Team) */
+    .target-cobalt {
+      border: 2px solid rgba(0, 210, 255, 0.4) !important;
+      opacity: 0.85;
+    }
+    .target-cobalt .header-strip {
+      background-color: rgba(0, 210, 255, 0.15);
+      color: #00d2ff;
+      border-bottom: 1px solid rgba(0, 210, 255, 0.3);
+    }
+
+    /* 3. Neutral Cards (Quiet Background) */
+    .target-neutral {
+      border: 2px solid #2d2644 !important;
+      background-color: #f4efe4 !important;
+      opacity: 0.65;
+    }
+    .target-neutral .header-strip {
+      background-color: #e4ddcf;
+      color: #7b738e;
+    }
+
+    /* 4. Hazard Assassin (Distinct Danger) */
+    .target-hazard {
+      background-color: #080611 !important;
+      border: 3px solid #ff0055 !important;
+      box-shadow: 0 0 12px rgba(255, 0, 85, 0.5), 3px 3px 0px #000 !important;
+    }
+    .target-hazard .word-label {
+      color: #ff0055 !important;
+    }
+    .target-hazard .header-strip {
+      background-color: #ff0055;
+      color: #000000;
+      font-weight: 900;
+    }
+
+    /* Solved Card */
+    .card-solved {
+      opacity: 0.35 !important;
+      filter: grayscale(0.8);
+      text-decoration: line-through;
+    }
+
+    /* Spotlight Filter Dimming */
+    .spotlight-my-targets .target-cobalt,
+    .spotlight-my-targets .target-neutral {
+      opacity: 0.18 !important;
+      filter: grayscale(1);
+    }
+    .spotlight-my-targets .target-ruby {
+      transform: scale(1.03);
+      box-shadow: 0 0 16px rgba(255, 42, 95, 0.7), 4px 4px 0px #000 !important;
+      z-index: 10;
+    }
+
+    .spotlight-hazard .target-ruby,
+    .spotlight-hazard .target-cobalt,
+    .spotlight-hazard .target-neutral {
+      opacity: 0.18 !important;
+    }
+    .spotlight-hazard .target-hazard {
+      transform: scale(1.08);
+      box-shadow: 0 0 24px rgba(255, 0, 85, 0.9), 4px 4px 0px #000 !important;
+      z-index: 10;
+    }
+
+    /* Privacy Veil */
+    .veiled .target-ruby,
+    .veiled .target-cobalt,
+    .veiled .target-hazard,
+    .veiled .target-neutral {
+      border: 3px solid #000 !important;
+      box-shadow: 2px 2px 0px #000 !important;
+      background-color: var(--color-card-face) !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+    .veiled .header-strip {
+      background-color: #e2d9c8 !important;
+      color: #8b85a3 !important;
+    }
+    .veiled .word-label {
+      color: #0e0c1a !important;
+    }
+    .veiled .key-glyph {
+      display: none !important;
+    }
+
+    .pixel-btn {
+      border: 3px solid #000;
+      box-shadow: 3px 3px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col pb-6">
+
+  <!-- Top Arcade Header -->
+  <header class="bg-[#161324] border-b-4 border-black px-4 py-2.5 shadow-[0_4px_0_0_#000] sticky top-0 z-40">
+    <div class="max-w-xl mx-auto flex justify-between items-center gap-2">
+      
+      <!-- Brand & Role Indicator -->
+      <div class="flex items-center gap-2">
+        <span class="text-base text-[#ff2a5f]">♥</span>
+        <div>
+          <div class="flex items-center gap-1.5">
+            <h1 class="text-xs font-arcade text-white tracking-wider">RUBY SPYMASTER</h1>
+            <span class="text-[9px] font-mono bg-black text-[#ffbe0b] px-1.5 py-0.5 border border-[#ffbe0b]/40">#882D</span>
+          </div>
+          <span class="text-[9px] font-mono text-slate-400">RD 04 // 7 TARGETS TO CONNECT</span>
+        </div>
+      </div>
+
+      <!-- Right HUD: Timer & Privacy Veil Toggle -->
+      <div class="flex items-center gap-2">
+        <div class="bg-black border-2 border-[#ffbe0b] px-2.5 py-1 text-center">
+          <span class="text-xs font-arcade text-[#ffbe0b] tabular-nums">00:52</span>
+        </div>
+
+        <button id="veil-btn" class="pixel-btn bg-[#ff2a5f] text-white px-3 py-1.5 text-[9px] font-arcade tracking-wider flex items-center gap-1.5 cursor-pointer hover:brightness-110">
+          <span id="veil-icon">👁️</span>
+          <span id="veil-label">VEIL</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Main Game Canvas -->
+  <main class="flex-1 max-w-xl mx-auto w-full p-3 sm:p-4 flex flex-col items-center">
+
+    <!-- Privacy Veil Alert (Visible when veiled) -->
+    <div id="veil-banner" class="hidden w-full mb-3 p-2 bg-[#ffbe0b] text-black font-arcade text-[10px] text-center pixel-corners font-black tracking-widest animate-pulse">
+      🕶️ PRIVACY VEIL ON // KEY BLANKED
+    </div>
+
+    <!-- Spotlight Focus Filters (Solves the Visual Chaos!) -->
+    <div class="w-full mb-3 flex items-center justify-between gap-1.5 bg-[#161324] border-2 border-black p-1.5 pixel-corners">
+      <span class="text-[9px] font-arcade text-slate-400 pl-1">FOCUS:</span>
+      
+      <div class="flex gap-1">
+        <button id="filter-all" class="pixel-btn px-2.5 py-1 text-[9px] font-arcade bg-[#ff2a5f] text-white cursor-pointer">
+          ALL (25)
+        </button>
+        <button id="filter-my" class="pixel-btn px-2.5 py-1 text-[9px] font-arcade bg-[#211c36] text-[#ff2a5f] cursor-pointer hover:bg-[#2c2647]">
+          ★ MY WORDS (7)
+        </button>
+        <button id="filter-hazard" class="pixel-btn px-2.5 py-1 text-[9px] font-arcade bg-[#211c36] text-[#ff0055] cursor-pointer hover:bg-[#2c2647]">
+          ☠ HAZARD
+        </button>
+      </div>
+    </div>
+
+    <!-- 5x5 Clue-Giver Grid -->
+    <div id="board-grid" class="grid grid-cols-5 gap-1.5 sm:gap-2 w-full aspect-square max-w-lg mb-4">
+
+      <!-- Row 1 -->
+      <!-- 1. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">APPLE</span>
+      </div>
+
+      <!-- 2. Cobalt -->
+      <div class="pixel-card target-cobalt p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">✦</span><span>P2</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">BEACH</span>
+      </div>
+
+      <!-- 3. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">CLOCK</span>
+      </div>
+
+      <!-- 4. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">DANCE</span>
+      </div>
+
+      <!-- 5. Cobalt -->
+      <div class="pixel-card target-cobalt p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">✦</span><span>P2</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">EAGLE</span>
+      </div>
+
+      <!-- Row 2 -->
+      <!-- 6. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">FLAME</span>
+      </div>
+
+      <!-- 7. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">GHOST</span>
+      </div>
+
+      <!-- 8. THE HAZARD ASSASSIN (Obvious & Dangerous) -->
+      <div class="pixel-card target-hazard p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">☠</span><span>HAZARD</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase my-auto font-black">HEART</span>
+      </div>
+
+      <!-- 9. Cobalt -->
+      <div class="pixel-card target-cobalt p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">✦</span><span>P2</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">IGLOO</span>
+      </div>
+
+      <!-- 10. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">JEWEL</span>
+      </div>
+
+      <!-- Row 3 -->
+      <!-- 11. Cobalt -->
+      <div class="pixel-card target-cobalt p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">✦</span><span>P2</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">KNIFE</span>
+      </div>
+
+      <!-- 12. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">LEMON</span>
+      </div>
+
+      <!-- 13. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">MOON</span>
+      </div>
+
+      <!-- 14. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">NIGHT</span>
+      </div>
+
+      <!-- 15. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">OCEAN</span>
+      </div>
+
+      <!-- Row 4 -->
+      <!-- 16. Cobalt -->
+      <div class="pixel-card target-cobalt p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">✦</span><span>P2</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">PIZZA</span>
+      </div>
+
+      <!-- 17. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">QUEEN</span>
+      </div>
+
+      <!-- 18. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">RIVER</span>
+      </div>
+
+      <!-- 19. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">SNAKE</span>
+      </div>
+
+      <!-- 20. Cobalt (Already Solved by Opponents) -->
+      <div class="pixel-card target-cobalt card-solved p-1 flex flex-col justify-between items-center relative">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span>✦</span><span>SOLVED</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase my-auto text-slate-500">TRAIN</span>
+      </div>
+
+      <!-- Row 5 -->
+      <!-- 21. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">UMBRA</span>
+      </div>
+
+      <!-- 22. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">VENOM</span>
+      </div>
+
+      <!-- 23. Cobalt -->
+      <div class="pixel-card target-cobalt p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">✦</span><span>P2</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">WATER</span>
+      </div>
+
+      <!-- 24. Neutral -->
+      <div class="pixel-card target-neutral p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">—</span><span>NEUTRAL</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-slate-700 my-auto">XENON</span>
+      </div>
+
+      <!-- 25. Ruby -->
+      <div class="pixel-card target-ruby p-1 flex flex-col justify-between items-center relative cursor-pointer">
+        <div class="header-strip w-full flex justify-between items-center px-1 text-[7px] font-arcade leading-none py-0.5">
+          <span class="key-glyph">♥</span><span>RUBY</span>
+        </div>
+        <span class="word-label font-extrabold text-[10px] sm:text-xs tracking-tight text-center uppercase text-black my-auto">YACHT</span>
+      </div>
+
+    </div>
+
+    <!-- Clean Clue Submission Console -->
+    <div class="w-full bg-[#161324] border-4 border-black p-3.5 pixel-corners shadow-[4px_4px_0_#000] space-y-3">
+      
+      <div class="flex items-center justify-between">
+        <span class="text-[9px] font-arcade text-[#ff2a5f] flex items-center gap-1">
+          <span>▶</span> TRANSMIT CLUE TO OPERATIVES
+        </span>
+        <span class="text-[8px] font-mono text-slate-400">1 WORD // NO SPACES</span>
+      </div>
+
+      <div class="flex gap-2">
+        <!-- 1-Word Input -->
+        <div class="flex-1">
+          <input id="clue-word" type="text" maxlength="20" placeholder="ENTER 1 WORD..." class="w-full bg-black border-2 border-[#3f3565] focus:border-[#ff2a5f] text-white font-mono font-bold text-sm px-3 py-2 outline-none uppercase tracking-wider" value="REPTILE"/>
+        </div>
+
+        <!-- Target Count Stepper -->
+        <div class="flex items-center">
+          <button id="step-down" class="pixel-btn bg-[#211c36] text-white px-2.5 py-2 font-arcade text-xs hover:bg-[#2c2647]">-</button>
+          <div id="target-count" class="bg-black border-y-2 border-[#3f3565] text-[#ffbe0b] font-arcade text-xs px-3 py-2 min-w-[2.5rem] text-center">2</div>
+          <button id="step-up" class="pixel-btn bg-[#211c36] text-white px-2.5 py-2 font-arcade text-xs hover:bg-[#2c2647]">+</button>
+        </div>
+      </div>
+
+      <!-- Submit Action Button -->
+      <button id="transmit-btn" class="pixel-btn w-full bg-[#ff2a5f] text-white font-arcade text-[11px] py-3 tracking-widest flex items-center justify-center gap-2 hover:brightness-110 cursor-pointer">
+        TRANSMIT: <span id="btn-preview" class="text-[#ffbe0b]">REPTILE [ 2 ]</span> ▶
+      </button>
+
+    </div>
+
+  </main>
+
+  <!-- Interactive Logic -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const boardGrid = document.getElementById('board-grid');
+      const filterAll = document.getElementById('filter-all');
+      const filterMy = document.getElementById('filter-my');
+      const filterHazard = document.getElementById('filter-hazard');
+
+      // 1. Spotlight Filter Tabs
+      function clearFilters() {
+        boardGrid.classList.remove('spotlight-my-targets', 'spotlight-hazard');
+        [filterAll, filterMy, filterHazard].forEach(btn => {
+          btn.classList.remove('bg-[#ff2a5f]', 'text-white');
+          btn.classList.add('bg-[#211c36]');
+        });
+      }
+
+      filterAll.addEventListener('click', () => {
+        clearFilters();
+        filterAll.classList.add('bg-[#ff2a5f]', 'text-white');
+      });
+
+      filterMy.addEventListener('click', () => {
+        clearFilters();
+        boardGrid.classList.add('spotlight-my-targets');
+        filterMy.classList.add('bg-[#ff2a5f]', 'text-white');
+      });
+
+      filterHazard.addEventListener('click', () => {
+        clearFilters();
+        boardGrid.classList.add('spotlight-hazard');
+        filterHazard.classList.add('bg-[#ff0055]', 'text-white');
+      });
+
+      // 2. Privacy Veil
+      const veilBtn = document.getElementById('veil-btn');
+      const veilLabel = document.getElementById('veil-label');
+      const veilIcon = document.getElementById('veil-icon');
+      const veilBanner = document.getElementById('veil-banner');
+      let isVeiled = false;
+
+      veilBtn.addEventListener('click', () => {
+        isVeiled = !isVeiled;
+        if (isVeiled) {
+          boardGrid.classList.add('veiled');
+          veilBanner.classList.remove('hidden');
+          veilLabel.textContent = 'UNVEIL';
+          veilIcon.textContent = '🕶️';
+          veilBtn.classList.remove('bg-[#ff2a5f]', 'text-white');
+          veilBtn.classList.add('bg-[#ffbe0b]', 'text-black');
+        } else {
+          boardGrid.classList.remove('veiled');
+          veilBanner.classList.add('hidden');
+          veilLabel.textContent = 'VEIL';
+          veilIcon.textContent = '👁️';
+          veilBtn.classList.remove('bg-[#ffbe0b]', 'text-black');
+          veilBtn.classList.add('bg-[#ff2a5f]', 'text-white');
+        }
+      });
+
+      // 3. Stepper and Preview
+      const wordInput = document.getElementById('clue-word');
+      const stepDown = document.getElementById('step-down');
+      const stepUp = document.getElementById('step-up');
+      const targetCountEl = document.getElementById('target-count');
+      const btnPreview = document.getElementById('btn-preview');
+      let targetCount = 2;
+
+      function updatePreview() {
+        const word = (wordInput.value.trim() || 'CLUE').toUpperCase();
+        btnPreview.textContent = `${word} [ ${targetCount} ]`;
+      }
+
+      stepDown.addEventListener('click', () => {
+        if (targetCount > 1) {
+          targetCount--;
+          targetCountEl.textContent = targetCount;
+          updatePreview();
+        }
+      });
+
+      stepUp.addEventListener('click', () => {
+        if (targetCount < 7) {
+          targetCount++;
+          targetCountEl.textContent = targetCount;
+          updatePreview();
+        }
+      });
+
+      wordInput.addEventListener('input', updatePreview);
+
+      // Transmit button alert
+      document.getElementById('transmit-btn').addEventListener('click', () => {
+        const word = (wordInput.value.trim() || 'CLUE').toUpperCase();
+        alert(`📡 [TRANSMITTED TO OPERATIVES]\nClue: "${word}"\nCount: ${targetCount}`);
+      });
+    });
+  </script>
+</body>
+</html>

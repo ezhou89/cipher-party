@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 interface PrivacyVeilProps {
   open: boolean;
   disabled: boolean;
@@ -5,6 +7,20 @@ interface PrivacyVeilProps {
 }
 
 export function PrivacyVeil({ open, disabled, onToggle }: PrivacyVeilProps) {
+  const toggleRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const hideKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      toggleRef.current?.focus();
+      onToggle();
+    };
+    document.addEventListener("keydown", hideKey);
+    return () => document.removeEventListener("keydown", hideKey);
+  }, [onToggle, open]);
+
   return (
     <div className="privacy-veil">
       <div>
@@ -17,6 +33,7 @@ export function PrivacyVeil({ open, disabled, onToggle }: PrivacyVeilProps) {
       </div>
       <button
         className="button-secondary"
+        ref={toggleRef}
         type="button"
         aria-expanded={open}
         disabled={disabled}

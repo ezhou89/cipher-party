@@ -7,6 +7,8 @@ export default tseslint.config(
       "**/dist/**",
       "**/coverage/**",
       "**/.wrangler/**",
+      ".superpowers/**",
+      "creative/source/**",
       "node_modules/**",
     ],
   },

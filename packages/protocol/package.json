@@ -7,10 +7,11 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@cipher-party/game-core": "*",
+    "@cipher-party/game-core": "workspace:*",
     "zod": "^4.5.4"
   }
 }

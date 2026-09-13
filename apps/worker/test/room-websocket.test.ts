@@ -20,7 +20,8 @@ import {
 } from "../src/room/room-durable-object";
 import type { RoomSocketAttachment } from "../src/room/room-websocket";
 import { createLobbyState, type RoomState } from "../src/room/room-state";
-import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
+import { ROOM_IDLE_TTL_MS, RoomStorage } from "../src/room/room-storage";
+import { RoomSession } from "../src/room/room-session";
 
 interface CreateRoomResponse {
   code: string;
@@ -41,6 +42,11 @@ interface TicketResponse {
 
 type RoomsEnv = { ROOMS: DurableObjectNamespace<RoomDurableObject> };
 
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIAL_TIME = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
 let commandSequence = 0;
 
 function deferred<T>() {
@@ -167,7 +173,7 @@ function envelope(
 ): CommandEnvelope {
   commandSequence += 1;
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     commandId: `00000000-0000-4000-8000-${String(commandSequence).padStart(12, "0")}`,
     expectedRevision,
     command,
@@ -210,7 +216,7 @@ async function configuredRoom(code: string): Promise<{
     displayName: "Red Clue",
     seatTokenHash: hostHash,
     hostTokenHash,
-    createdAt: "2026-08-30T08:00:00.000Z",
+    createdAt: new Date(REAL_PROCESS_TIME_MS).toISOString(),
   });
   state.startingTeam = "red";
   state.seats = [
@@ -295,9 +301,407 @@ afterEach(() => {
 });
 
 describe("room WebSocket admission", () => {
+  it.each([
+    ["malformed JSON", "{"],
+    ["invalid schema", "{}"],
+    ["oversized text", "x".repeat(16_385)],
+    ["binary", new ArrayBuffer(1)],
+  ] as const)(
+    "does not repair stale presence for a budget-admitted %s frame",
+    async (_name, frame) => {
+      const created = await createRoom();
+      await runInDurableObject(
+        roomStub(created.code),
+        async (instance, state) => {
+          // Real OPEN inventory with stale persisted offline presence, as can
+          // occur after an interrupted presence write. No client owns this claim.
+          const pair = new WebSocketPair();
+          state.acceptWebSocket(pair[1], [created.playerId]);
+          pair[1].serializeAttachment({
+            connectionId: crypto.randomUUID(),
+            playerId: created.playerId,
+            hostAuthority: true,
+          });
+          pair[0].accept();
+          const before = instance.getSnapshot()!;
+          expect(before.seats[0]?.connected).toBe(false);
+          const write = vi.spyOn(RoomStorage.prototype, "write");
+          const send = vi.spyOn(pair[1], "send");
+          await instance.webSocketMessage(pair[1], frame);
+          expect(write.mock.calls.length).toBe(0);
+          expect(instance.getSnapshot()?.revision).toBe(before.revision);
+          expect(instance.getSnapshot()?.lastActivity).toBe(
+            before.lastActivity,
+          );
+          expect(instance.getSnapshot()?.seats[0]?.connected).toBe(false);
+          expect(send).toHaveBeenCalledOnce();
+          expect(JSON.parse(send.mock.calls[0]![0] as string)).toMatchObject({
+            type: "error",
+            code: "invalid_message",
+          });
+          await instance.webSocketMessage(
+            pair[1],
+            JSON.stringify(
+              envelope(before.revision, { type: "lock_room", locked: true }),
+            ),
+          );
+          expect(write.mock.calls.length).toBe(1);
+          expect(instance.getSnapshot()?.revision).toBe(before.revision + 1);
+          expect(instance.getSnapshot()?.lastActivity).toBe(
+            before.lastActivity,
+          );
+          expect(instance.getSnapshot()?.seats[0]?.connected).toBe(true);
+          write.mockRestore();
+          pair[0].close();
+        },
+      );
+    },
+  );
+
+  it("fails closed on corrupt persisted state without replacing it or returning an admission projection", async () => {
+    const created = await createRoom();
+    const ticket = (await issueHttpTicket(created)).ticket;
+    const before = await roomStub(created.code).getSnapshot();
+    const corrupt = { ...before!, schemaVersion: 1 };
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        await state.storage.put("room:snapshot", corrupt);
+      },
+    );
+    await evictDurableObject(roomStub(created.code));
+    const response = await connectResponse(created.code, ticket);
+    if (response.webSocket) {
+      response.webSocket.accept();
+      response.webSocket.close();
+    }
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Unauthorized");
+    expect(await roomStub(created.code).initialize(before!)).toEqual({
+      ok: false,
+      code: "already_initialized",
+    });
+    expect(await roomStub(created.code).getSnapshot()).toBeUndefined();
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        expect(
+          JSON.stringify(await state.storage.get("room:snapshot")) ===
+            JSON.stringify(corrupt),
+        ).toBe(true);
+      },
+    );
+  });
+
+  it("repairs a failed last-socket disconnect on the next room event without extending activity", async () => {
+    const created = await createRoom();
+    const probe = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await probe.next();
+    const before = (await roomStub(created.code).getSnapshot())!;
+    const server = await serverSocket(created.code, created.playerId);
+    const write = vi
+      .spyOn(RoomStorage.prototype, "write")
+      .mockRejectedValue(new Error("injected write failure"));
+    await runInDurableObject(roomStub(created.code), async (instance) => {
+      server.close(1000, "closed");
+      await instance.webSocketClose(server).catch(() => undefined);
+    });
+    expect(
+      (await roomStub(created.code).getSnapshot())?.seats[0]?.connected,
+    ).toBe(true);
+    write.mockRestore();
+    await connectResponse(created.code, "x".repeat(43));
+    const after = (await roomStub(created.code).getSnapshot())!;
+    expect(after.seats[0]?.connected).toBe(false);
+    expect(after.lastActivity).toBe(before.lastActivity);
+    expect(after.revision).toBe(before.revision + 1);
+    const stableWrite = vi.spyOn(RoomStorage.prototype, "write");
+    await connectResponse(created.code, "x".repeat(43));
+    expect(stableWrite).not.toHaveBeenCalled();
+    probe.close();
+  });
+
+  it("reconciles stale persisted presence at object load using only OPEN attachments", async () => {
+    const created = await createRoom();
+    const before = (await roomStub(created.code).getSnapshot())!;
+    before.seats[0]!.connected = true;
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        await state.storage.put("room:snapshot", before);
+      },
+    );
+    await evictDurableObject(roomStub(created.code));
+    const after = (await roomStub(created.code).getSnapshot())!;
+    expect(after.seats[0]?.connected).toBe(false);
+    expect(after.lastActivity).toBe(before.lastActivity);
+    expect(after.revision).toBe(before.revision + 1);
+  });
+
+  it("counts malformed and replayed frames across same-seat sockets and hibernation without changing attachments", async () => {
+    const room = await createRoom();
+    const first = await connect(
+      room.code,
+      (await issueHttpTicket(room)).ticket,
+    );
+    await first.next();
+    const second = await connect(
+      room.code,
+      (await issueHttpTicket(room)).ticket,
+    );
+    await Promise.all([first.next(), second.next()]);
+    const seatLimit = {
+      limit: vi
+        .fn<(input: { key: string }) => Promise<{ success: boolean }>>()
+        .mockResolvedValue({ success: true }),
+    };
+    const roomLimit = {
+      limit: vi
+        .fn<(input: { key: string }) => Promise<{ success: boolean }>>()
+        .mockResolvedValue({ success: true }),
+    };
+    const command = JSON.stringify(
+      envelope(2, { type: "lock_room", locked: true }),
+    );
+    const frames = [
+      "{",
+      "{}",
+      new Uint8Array([1]).buffer,
+      "x".repeat(16_385),
+      command,
+      command,
+    ];
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      const runtime = instance as unknown as { env: Env };
+      const previous = runtime.env;
+      runtime.env = {
+        ...previous,
+        CANONICAL_ORIGIN: "https://budget.invalid",
+        COMMAND_BY_SEAT: seatLimit,
+        COMMAND_BY_ROOM: roomLimit,
+      };
+      try {
+        const sockets = state.getWebSockets(room.playerId);
+        for (const [index, frame] of frames.entries())
+          await instance.webSocketMessage(sockets[index % 2]!, frame);
+        for (const socket of sockets)
+          expect(
+            Object.keys(
+              socket.deserializeAttachment() as RoomSocketAttachment,
+            ).sort(),
+          ).toEqual(["connectionId", "hostAuthority", "playerId"]);
+      } finally {
+        runtime.env = previous;
+      }
+    });
+    expect(seatLimit.limit).toHaveBeenCalledTimes(6);
+    expect(roomLimit.limit).toHaveBeenCalledTimes(6);
+    await evictDurableObject(roomStub(room.code));
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      const runtime = instance as unknown as { env: Env };
+      const previous = runtime.env;
+      runtime.env = {
+        ...previous,
+        CANONICAL_ORIGIN: "https://budget.invalid",
+        COMMAND_BY_SEAT: seatLimit,
+        COMMAND_BY_ROOM: roomLimit,
+      };
+      try {
+        await instance.webSocketMessage(
+          state.getWebSockets(room.playerId)[0]!,
+          command,
+        );
+      } finally {
+        runtime.env = previous;
+      }
+    });
+    expect(seatLimit.limit).toHaveBeenCalledTimes(7);
+    expect(
+      new Set(seatLimit.limit.mock.calls.map(([input]) => input.key)).size,
+    ).toBe(1);
+    expect(
+      new Set(roomLimit.limit.mock.calls.map(([input]) => input.key)).size,
+    ).toBe(1);
+    first.close();
+    second.close();
+  });
+
+  it("allows the 64th attached room socket and rejects the next before accept", async () => {
+    const room = await createRoom();
+    const legacyClients: WebSocket[] = [];
+    await runInDurableObject(roomStub(room.code), (_instance, state) => {
+      for (let index = 0; index < 63; index += 1) {
+        const pair = new WebSocketPair();
+        state.acceptWebSocket(pair[1], [`legacy-${index}`]);
+        pair[1].serializeAttachment({
+          connectionId: crypto.randomUUID(),
+          playerId: `legacy-${index}`,
+          hostAuthority: false,
+        });
+        pair[0].accept();
+        legacyClients.push(pair[0]);
+      }
+    });
+    const last = await connect(room.code, (await issueHttpTicket(room)).ticket);
+    await last.next();
+    const deniedTicket = (await issueHttpTicket(room)).ticket;
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      const accept = vi.spyOn(state, "acceptWebSocket");
+      const response = await instance.fetch(
+        new Request(
+          `https://room.internal/api/rooms/${room.code}/connect?ticket=${deniedTicket}`,
+          { headers: { Upgrade: "websocket" } },
+        ),
+      );
+      expect(response.status).toBe(429);
+      expect(response.headers.get("Retry-After")).toBe("60");
+      expect(accept).not.toHaveBeenCalled();
+      expect(state.getWebSockets()).toHaveLength(64);
+      expect(
+        (
+          await instance.consumeTicket({
+            ticket: deniedTicket,
+            now: Date.now(),
+          })
+        ).ok,
+      ).toBe(false);
+    });
+    last.close();
+    await runInDurableObject(roomStub(room.code), () => {
+      for (const client of legacyClients) client.close();
+    });
+  });
+
+  it.each(["seat", "room", "missing", "failure"] as const)(
+    "stops frames before dispatch when the message budget denies %s",
+    async (dimension) => {
+      const room = await createRoom();
+      const probe = await connect(
+        room.code,
+        (await issueHttpTicket(room)).ticket,
+      );
+      await probe.next();
+      const dispatch = vi.spyOn(RoomSession.prototype, "dispatch");
+      const seat = {
+        limit: vi.fn(async () => ({ success: dimension !== "seat" })),
+      };
+      const roomLimit = {
+        limit: vi.fn(async () => ({ success: dimension !== "room" })),
+      };
+      if (dimension === "failure")
+        seat.limit.mockRejectedValue(new Error("platform failed"));
+      await runInDurableObject(roomStub(room.code), async (instance, state) => {
+        const runtime = instance as unknown as { env: Env };
+        const previous = runtime.env;
+        runtime.env = {
+          ...previous,
+          CANONICAL_ORIGIN: "https://budget.invalid",
+          COMMAND_BY_ROOM: roomLimit,
+          ...(dimension === "missing" ? {} : { COMMAND_BY_SEAT: seat }),
+        };
+        try {
+          const socket = state.getWebSockets()[0]!;
+          const close = vi.spyOn(socket, "close");
+          await instance.webSocketMessage(
+            socket,
+            JSON.stringify(envelope(1, { type: "lock_room", locked: true })),
+          );
+          expect(dispatch).not.toHaveBeenCalled();
+          expect(close).toHaveBeenCalledWith(1013, "Room connection is busy");
+          expect(roomLimit.limit).toHaveBeenCalledOnce();
+          if (dimension !== "missing")
+            expect(seat.limit).toHaveBeenCalledOnce();
+        } finally {
+          runtime.env = previous;
+        }
+      });
+      probe.close();
+    },
+  );
+
+  it("admits four concurrent seat sockets and rejects the fifth without evicting them", async () => {
+    const room = await createRoom();
+    const tickets = await Promise.all(
+      Array.from({ length: 5 }, () => issueHttpTicket(room)),
+    );
+    const responses = await Promise.all(
+      tickets.map(({ ticket }) => connectResponse(room.code, ticket)),
+    );
+    expect(responses.filter(({ status }) => status === 101)).toHaveLength(4);
+    expect(responses.filter(({ status }) => status === 429)).toHaveLength(1);
+    const inventory = await runInDurableObject(
+      roomStub(room.code),
+      (_instance, state) => state.getWebSockets().length,
+    );
+    expect(inventory).toBe(4);
+    for (const response of responses) {
+      if (response.webSocket !== null) {
+        const probe = new SocketProbe(response.webSocket);
+        await probe.next();
+        probe.close();
+      }
+    }
+  });
+
+  it("sends stale, unauthorized, and duplicate resync only to the sender while mutations reach all sockets", async () => {
+    const created = await createRoom();
+    const joined = await joinRoom(created.code);
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const guest = await connect(
+      created.code,
+      (await issueHttpTicket(joined)).ticket,
+    );
+    await Promise.all([guest.next(), host.next()]);
+    const otherSend = vi.spyOn(
+      await serverSocket(created.code, joined.playerId),
+      "send",
+    );
+    const accepted = envelope(3, { type: "lock_room", locked: true });
+    host.socket.send(JSON.stringify(accepted));
+    await host.next();
+    await host.next();
+    await guest.next();
+    expect(otherSend).toHaveBeenCalledTimes(1);
+    otherSend.mockClear();
+    for (const command of [
+      accepted,
+      envelope(0, { type: "lock_room", locked: false }),
+    ]) {
+      host.socket.send(JSON.stringify(command));
+      expect((await host.next()).type).toBe("command_result");
+      expect((await host.next()).type).toBe("projection");
+      expect(otherSend).not.toHaveBeenCalled();
+    }
+    const hostSend = vi.spyOn(
+      await serverSocket(created.code, created.playerId),
+      "send",
+    );
+    guest.socket.send(
+      JSON.stringify(envelope(4, { type: "lock_room", locked: false })),
+    );
+    expect(await guest.next()).toMatchObject({
+      type: "command_result",
+      result: { ok: false, code: "unauthorized", revision: 4 },
+    });
+    expect(await guest.next()).toMatchObject({
+      type: "projection",
+      projection: { revision: 4, locked: true },
+    });
+    expect(hostSend).not.toHaveBeenCalled();
+    host.close();
+    guest.close();
+  });
+
   it("consumes a valid one-use ticket, persists presence, and sends a role-safe first frame", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-30T10:00:00.000Z"));
+    vi.setSystemTime(INITIAL_TIME);
     const room = await createRoom();
     const { ticket } = await issueHttpTicket(room);
 
@@ -317,7 +721,7 @@ describe("room WebSocket admission", () => {
     expect(JSON.stringify(message)).not.toContain('"key"');
     await expect(roomStub(room.code).getSnapshot()).resolves.toMatchObject({
       revision: 1,
-      lastActivity: "2026-08-30T10:00:00.000Z",
+      lastActivity: INITIAL_TIME.toISOString(),
       seats: [{ playerId: room.playerId, connected: true }],
       connectionTickets: [],
     });
@@ -345,10 +749,10 @@ describe("room WebSocket admission", () => {
 
   it("returns the same opaque response for unavailable, malformed, expired, and non-upgrade admission", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-30T10:00:00.000Z"));
+    vi.setSystemTime(INITIAL_TIME);
     const room = await createRoom();
     const { ticket } = await issueHttpTicket(room);
-    vi.setSystemTime(new Date("2026-08-30T10:01:00.001Z"));
+    vi.setSystemTime(INITIAL_TIME.getTime() + 60_001);
 
     const responses = await Promise.all([
       connectResponse(room.code, ticket),
@@ -429,12 +833,14 @@ describe("room WebSocket admission", () => {
     await first.next();
     const replacementTicket = (await issueHttpTicket(room)).ticket;
     const disconnectStarted = deferred<void>();
-    const originalDisconnect = PersistentRoomController.prototype.disconnect;
+    let closingStarted = false;
+    const originalDisconnect =
+      PersistentRoomController.prototype.reconcilePresence;
     vi.spyOn(
       PersistentRoomController.prototype,
-      "disconnect",
+      "reconcilePresence",
     ).mockImplementation(function (this: PersistentRoomController, ...args) {
-      disconnectStarted.resolve();
+      if (closingStarted) disconnectStarted.resolve();
       return originalDisconnect.apply(this, args);
     });
     const race = await runInDurableObject(
@@ -447,6 +853,7 @@ describe("room WebSocket admission", () => {
           async (algorithm, data) => {
             if (!delayed) {
               delayed = true;
+              closingStarted = true;
               oldServerSocket.close(1000, "replaced during admission");
               void instance.webSocketClose(oldServerSocket);
               await disconnectStarted.promise;
@@ -521,7 +928,7 @@ describe("role-safe WebSocket command flow", () => {
     );
     expect(await clue.next()).toMatchObject({
       type: "projection",
-      projection: { revision: 2, viewRole: "clue-giver" },
+      projection: { revision: 3, viewRole: "clue-giver" },
     });
     const operative = await connect(
       code,
@@ -533,11 +940,11 @@ describe("role-safe WebSocket command flow", () => {
     ]);
     expect(operativeAtThree).toMatchObject({
       type: "projection",
-      projection: { revision: 3, viewRole: "operative" },
+      projection: { revision: 4, viewRole: "operative" },
     });
     expect(clueAtThree).toMatchObject({
       type: "projection",
-      projection: { revision: 3, viewRole: "clue-giver" },
+      projection: { revision: 4, viewRole: "clue-giver" },
     });
     expect(JSON.stringify(clueAtThree)).toContain('"key"');
     expect(JSON.stringify(operativeAtThree)).not.toContain('"key"');
@@ -545,16 +952,16 @@ describe("role-safe WebSocket command flow", () => {
 
     const commandId = clue.send(
       { type: "submit_clue", word: "ember", count: 2 },
-      3,
+      4,
     );
     const result = await clue.next();
     expect(result).toEqual({
       type: "command_result",
       commandId,
-      result: { ok: true, revision: 4 },
+      result: { ok: true, revision: 5 },
     });
     await expect(roomStub(code).getSnapshot()).resolves.toMatchObject({
-      revision: 4,
+      revision: 5,
       game: { clue: { word: "ember", count: 2 } },
     });
     const [clueProjection, operativeProjection] = await Promise.all([
@@ -563,36 +970,37 @@ describe("role-safe WebSocket command flow", () => {
     ]);
     expect(clueProjection).toMatchObject({
       type: "projection",
-      projection: { revision: 4, viewRole: "clue-giver" },
+      projection: { revision: 5, viewRole: "clue-giver" },
     });
     expect(operativeProjection).toMatchObject({
       type: "projection",
-      projection: { revision: 4, viewRole: "operative" },
+      projection: { revision: 5, viewRole: "operative" },
     });
     expect(JSON.stringify(operativeProjection)).not.toContain('"key"');
 
+    const operativeSend = vi.spyOn(
+      await serverSocket(code, "red-operative"),
+      "send",
+    );
     const staleId = clue.send(
       { type: "submit_clue", word: "again", count: 1 },
-      3,
+      4,
     );
     await expect(clue.next()).resolves.toEqual({
       type: "command_result",
       commandId: staleId,
       result: {
         ok: false,
-        revision: 4,
+        revision: 5,
         code: "stale_revision",
         message: "Expected revision is stale",
       },
     });
     await expect(clue.next()).resolves.toMatchObject({
       type: "projection",
-      projection: { revision: 4 },
+      projection: { revision: 5 },
     });
-    await expect(operative.next()).resolves.toMatchObject({
-      type: "projection",
-      projection: { revision: 4 },
-    });
+    expect(operativeSend).not.toHaveBeenCalled();
 
     clue.close();
     operative.close();
@@ -779,7 +1187,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
     await expect(clue.next()).resolves.toMatchObject({
       type: "projection",
       projection: {
-        revision: 4,
+        revision: 5,
         seats: expect.arrayContaining([
           expect.objectContaining({
             playerId: "red-operative",
@@ -800,7 +1208,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
     expect(operativeProjection).toMatchObject({
       type: "projection",
       projection: {
-        revision: 5,
+        revision: 6,
         viewer: { playerId: "red-operative" },
         board: { phase: "clue", activeTeam: "red" },
       },
@@ -808,7 +1216,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
     expect(clueProjection).toMatchObject({
       type: "projection",
       projection: {
-        revision: 5,
+        revision: 6,
         seats: expect.arrayContaining([
           expect.objectContaining({
             playerId: "red-operative",
@@ -886,7 +1294,7 @@ describe("WebSocket reconnect, close, and hibernation", () => {
 
   it("does not extend activity on close and treats expiry-triggered closes as no-ops", async () => {
     vi.useFakeTimers();
-    const connectedAt = new Date("2026-08-30T10:00:00.000Z");
+    const connectedAt = INITIAL_TIME;
     vi.setSystemTime(connectedAt);
     const created = await createRoom();
     const host = await connect(

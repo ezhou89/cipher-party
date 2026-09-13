@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cipher Party — Arcade Lobby & Token Customizer</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Plus+Jakarta+Sans:wght@700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --color-canvas: #0e0c1a;
+      --color-surface: #161324;
+      --color-surface-high: #211c36;
+      --color-ruby: #ff2a5f;
+      --color-cobalt: #00d2ff;
+      --color-emerald: #00f5a0;
+      --color-amber: #ffbe0b;
+      --color-card-face: #fbf6ec;
+      --shadow-pixel: 4px 4px 0px #000000;
+      --shadow-pixel-sm: 2px 2px 0px #000000;
+      --pixel-corners: polygon(
+        0px 4px, 4px 4px, 4px 0px,
+        calc(100% - 4px) 0px, calc(100% - 4px) 4px, 100% 4px,
+        100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%,
+        4px 100%, 4px calc(100% - 4px), 0px calc(100% - 4px)
+      );
+    }
+    body {
+      background-color: var(--color-canvas);
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-corners { clip-path: var(--pixel-corners); }
+    
+    .pixel-box {
+      background-color: var(--color-surface);
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0px #000;
+      clip-path: var(--pixel-corners);
+    }
+    .pixel-btn {
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0px #000;
+    }
+
+    .player-slot {
+      border: 2px solid #000;
+      box-shadow: 2px 2px 0px #000;
+      transition: all 0.15s ease;
+    }
+    .player-slot:hover {
+      transform: translateY(-1px);
+      box-shadow: 3px 3px 0px #000;
+    }
+
+    .token-chip-select {
+      border: 2px solid #000;
+      box-shadow: 2px 2px 0px #000;
+      transition: all 0.12s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+    .token-chip-select:hover {
+      transform: translateY(-3px) scale(1.04);
+      box-shadow: 0 0 10px rgba(255, 190, 11, 0.5), 3px 3px 0px #000;
+    }
+    .token-chip-select.selected {
+      border-color: #ffbe0b !important;
+      box-shadow: 0 0 14px rgba(255, 190, 11, 0.9), 3px 3px 0px #000 !important;
+      background-color: #2b2348 !important;
+    }
+
+    @keyframes coinPulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px #ffbe0b); }
+      50% { transform: scale(1.12); filter: drop-shadow(0 0 10px #ffbe0b); }
+    }
+    .animate-pulse-coin {
+      animation: coinPulse 1.4s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col p-4 sm:p-6 pb-32">
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#ffbe0b] text-black font-arcade text-xs px-4 py-2.5 border-4 border-black shadow-[4px_4px_0_#000] pixel-corners hidden transition-all">
+    <span id="toast-text">📋 INVITE LINK COPIED TO CLIPBOARD!</span>
+  </div>
+
+  <div class="max-w-3xl mx-auto w-full space-y-4">
+
+    <!-- 1. Header & Room Banner -->
+    <header class="pixel-box p-4 flex flex-col sm:flex-row justify-between items-center gap-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-xl text-[#ff2a5f] font-arcade">🕹️</span>
+          <h1 class="text-sm sm:text-base font-arcade text-white tracking-tight">CIPHER PARTY LOBBY</h1>
+        </div>
+        <p class="text-[10px] font-mono text-slate-400 mt-1">ACCOUNT-FREE RETRO ARCADE MULTIPLAYER</p>
+      </div>
+
+      <!-- Controls: Audio Toggle, Room Code & Copy Action -->
+      <div class="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        <button id="audio-toggle" class="pixel-btn px-2.5 py-2 bg-[#211c36] text-[#ffbe0b] text-[9px] font-arcade flex items-center gap-1.5 cursor-pointer hover:bg-[#2b2447]" title="Toggle 8-Bit Audio FX">
+          <span id="audio-icon">🔊</span> <span id="audio-label">FX: ON</span>
+        </button>
+
+        <div class="bg-black border-2 border-[#3f3565] px-3 py-1.5 text-center flex items-center gap-2">
+          <span class="text-[9px] font-arcade text-slate-400">ROOM:</span>
+          <span class="text-sm font-arcade text-[#ffbe0b] tracking-wider font-bold">882D4F</span>
+        </div>
+        
+        <button id="copy-btn" class="pixel-btn bg-[#ffbe0b] text-black font-arcade text-[9px] px-3 py-2 flex items-center gap-1.5 cursor-pointer hover:brightness-110">
+          <span>📋</span> COPY
+        </button>
+      </div>
+    </header>
+
+    <!-- 2. Match Rule & Team Format Config Bar -->
+    <div class="pixel-box p-3 bg-[#161324] flex flex-col sm:flex-row items-center justify-between gap-2 text-[9px] font-arcade">
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400">ARENA FORMAT:</span>
+        <div class="flex items-center gap-1 bg-black p-1 border border-slate-700 pixel-corners">
+          <button class="team-count-btn px-2 py-1 bg-[#ffbe0b] text-black cursor-pointer font-bold" data-teams="2">2 TEAMS (DUEL)</button>
+          <button class="team-count-btn px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-teams="3">3 TEAMS</button>
+          <button class="team-count-btn px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-teams="4">4 TEAMS (BRAWL)</button>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 text-[#ffbe0b]">
+        <span>●</span> <span id="ready-summary">MATCH READY (6/6 READY)</span>
+      </div>
+    </div>
+
+    <!-- 3. Player Quick Piece Badge Banner -->
+    <div class="pixel-box p-3.5 bg-gradient-to-r from-[#211c36] to-[#161324] flex items-center justify-between border-2 border-[#ffbe0b]/40">
+      <div class="flex items-center gap-3">
+        <div id="sarah-banner-glyph" class="w-10 h-10 bg-[#ff2a5f] border-2 border-black pixel-corners flex items-center justify-center text-xl shadow-[2px_2px_0_#000]">
+          🎩
+        </div>
+        <div>
+          <div class="text-[9px] font-arcade text-slate-300 flex items-center gap-2">
+            <span>YOUR ARCADE PIECE:</span>
+            <span id="sarah-banner-name" class="text-[#ffbe0b] font-bold">TOP HAT (ORIGINAL)</span>
+          </div>
+          <p class="text-[9px] font-mono text-slate-400">Used as your nomination stamp on the 5×5 board.</p>
+        </div>
+      </div>
+
+      <button id="btn-open-customizer-banner" class="pixel-btn bg-[#ffbe0b] text-black font-arcade text-[9px] px-3.5 py-2 cursor-pointer hover:brightness-110 flex items-center gap-1.5 animate-pulse-coin">
+        <span>🎲</span> CHANGE PIECE
+      </button>
+    </div>
+
+    <!-- 4. Versus Team Arena (Dynamic 2, 3, or 4 columns) -->
+    <div id="teams-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+      <!-- Column 1: Team Ruby (P1) -->
+      <div id="col-ruby" class="pixel-box p-3.5 space-y-3 !border-[#ff2a5f] shadow-[0_0_12px_rgba(255,42,95,0.2),4px_4px_0_#000]">
+        
+        <!-- Team Header with Mascot Crest -->
+        <div class="flex justify-between items-center pb-2 border-b-2 border-[#ff2a5f]/40">
+          <div class="flex items-center gap-2">
+            <span id="ruby-crest" class="text-lg text-[#ff2a5f]">👑</span>
+            <div>
+              <span class="text-xs font-arcade text-[#ff2a5f] tracking-wider block">TEAM RUBY</span>
+              <span class="text-[8px] font-mono text-slate-400">CREST: CROWN</span>
+            </div>
+          </div>
+          <span id="ruby-count" class="text-[9px] font-mono px-1.5 py-0.5 bg-[#ff2a5f]/20 text-[#ff2a5f] border border-[#ff2a5f]/40 font-bold">3 PLAYERS</span>
+        </div>
+
+        <!-- Spymaster Slot -->
+        <div class="space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">SPYMASTER (1/1)</span>
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center border-[#ff2a5f]">
+            <div class="flex items-center gap-2">
+              <span class="text-base">👑</span>
+              <span class="text-xs font-bold text-white">Alex</span>
+              <span class="text-[8px] bg-amber-500/20 text-amber-300 px-1 py-0.5 border border-amber-500/40 rounded font-mono">HOST</span>
+            </div>
+            <span class="text-[8px] font-arcade text-[#ff2a5f]">SPY</span>
+          </div>
+        </div>
+
+        <!-- Operatives Slots -->
+        <div class="space-y-1.5">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">OPERATIVES</span>
+          
+          <!-- Sarah (User) Slot with Click-to-Customize -->
+          <div id="slot-sarah" class="player-slot bg-[#ff2a5f] text-white p-2 pixel-corners flex justify-between items-center shadow-[2px_2px_0_#000] cursor-pointer hover:brightness-105 border-2 border-white/60">
+            <div class="flex items-center gap-2">
+              <span id="slot-sarah-glyph" class="text-lg">🎩</span>
+              <div>
+                <span class="text-xs font-extrabold text-white block">Sarah (You)</span>
+                <span id="slot-sarah-piecename" class="text-[7px] font-arcade text-white/90">TOP HAT</span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-[8px] font-arcade bg-black/40 text-[#ffbe0b] px-1.5 py-0.5 rounded border border-[#ffbe0b]/40">EDIT 🎲</span>
+              <span class="text-[8px] font-arcade bg-black/40 px-1.5 py-0.5 rounded">OP</span>
+            </div>
+          </div>
+
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🏎️</span>
+              <div>
+                <span class="text-xs font-bold text-slate-200 block">Marcus</span>
+                <span class="text-[7px] font-arcade text-slate-400">RACECAR</span>
+              </div>
+            </div>
+            <span class="text-[8px] font-arcade text-slate-400">OP</span>
+          </div>
+
+          <div class="player-slot bg-black/40 border-dashed border-[#3f3565] p-2 pixel-corners flex justify-center items-center text-slate-500 text-[10px] font-mono">
+            + Open Slot
+          </div>
+        </div>
+
+        <!-- Team Join / Leave Button -->
+        <button id="btn-join-ruby" class="pixel-btn w-full bg-[#ff2a5f] text-white font-arcade text-[10px] py-2.5 tracking-wider cursor-pointer hover:brightness-110">
+          ✓ CURRENT TEAM (RUBY)
+        </button>
+      </div>
+
+      <!-- Column 2: Team Cobalt (P2) -->
+      <div id="col-cobalt" class="pixel-box p-3.5 space-y-3 !border-[#00d2ff] shadow-[0_0_12px_rgba(0,210,255,0.2),4px_4px_0_#000]">
+        
+        <!-- Team Header with Mascot Crest -->
+        <div class="flex justify-between items-center pb-2 border-b-2 border-[#00d2ff]/40">
+          <div class="flex items-center gap-2">
+            <span id="cobalt-crest" class="text-lg text-[#00d2ff]">🚀</span>
+            <div>
+              <span class="text-xs font-arcade text-[#00d2ff] tracking-wider block">TEAM COBALT</span>
+              <span class="text-[8px] font-mono text-slate-400">CREST: ROCKET</span>
+            </div>
+          </div>
+          <span id="cobalt-count" class="text-[9px] font-mono px-1.5 py-0.5 bg-[#00d2ff]/20 text-[#00d2ff] border border-[#00d2ff]/40 font-bold">3 PLAYERS</span>
+        </div>
+
+        <!-- Spymaster Slot -->
+        <div class="space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">SPYMASTER (1/1)</span>
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center border-[#00d2ff]">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🎯</span>
+              <span class="text-xs font-bold text-white">David</span>
+            </div>
+            <span class="text-[8px] font-arcade text-[#00d2ff]">SPY</span>
+          </div>
+        </div>
+
+        <!-- Operatives Slots -->
+        <div class="space-y-1.5">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">OPERATIVES</span>
+          
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-base">👾</span>
+              <div>
+                <span class="text-xs font-bold text-slate-200 block">Elena</span>
+                <span class="text-[7px] font-arcade text-slate-400">INVADER</span>
+              </div>
+            </div>
+            <span class="text-[8px] font-arcade text-slate-400">OP</span>
+          </div>
+
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-base">⚡</span>
+              <div>
+                <span class="text-xs font-bold text-slate-200 block">Jason</span>
+                <span class="text-[7px] font-arcade text-slate-400">BOLT</span>
+              </div>
+            </div>
+            <span class="text-[8px] font-arcade text-slate-400">OP</span>
+          </div>
+
+          <div class="player-slot bg-black/40 border-dashed border-[#3f3565] p-2 pixel-corners flex justify-center items-center text-slate-500 text-[10px] font-mono">
+            + Open Slot
+          </div>
+        </div>
+
+        <!-- Team Join Button -->
+        <button id="btn-join-cobalt" class="pixel-btn w-full bg-[#00d2ff] text-black font-arcade text-[10px] py-2.5 tracking-wider cursor-pointer hover:brightness-110">
+          SWITCH TO COBALT ▶
+        </button>
+      </div>
+
+      <!-- Column 3: Team Emerald (P3 - Hidden by default in 2-team) -->
+      <div id="col-emerald" class="pixel-box p-3.5 space-y-3 !border-[#00f5a0] shadow-[0_0_12px_rgba(0,245,160,0.2),4px_4px_0_#000] hidden">
+        <div class="flex justify-between items-center pb-2 border-b-2 border-[#00f5a0]/40">
+          <div class="flex items-center gap-2">
+            <span class="text-lg text-[#00f5a0]">🗡️</span>
+            <div>
+              <span class="text-xs font-arcade text-[#00f5a0] tracking-wider block">TEAM EMERALD</span>
+              <span class="text-[8px] font-mono text-slate-400">CREST: SWORD</span>
+            </div>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 bg-[#00f5a0]/20 text-[#00f5a0] border border-[#00f5a0]/40 font-bold">2 PLAYERS</span>
+        </div>
+
+        <div class="space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">SPYMASTER (1/1)</span>
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center border-[#00f5a0]">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🎯</span>
+              <span class="text-xs font-bold text-white">Maya</span>
+            </div>
+            <span class="text-[8px] font-arcade text-[#00f5a0]">SPY</span>
+          </div>
+        </div>
+
+        <div class="space-y-1.5">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">OPERATIVES</span>
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🦆</span>
+              <div>
+                <span class="text-xs font-bold text-slate-200 block">Kenji</span>
+                <span class="text-[7px] font-arcade text-slate-400">DUCK</span>
+              </div>
+            </div>
+            <span class="text-[8px] font-arcade text-slate-400">OP</span>
+          </div>
+        </div>
+
+        <button id="btn-join-emerald" class="pixel-btn w-full bg-[#00f5a0] text-black font-arcade text-[10px] py-2.5 tracking-wider cursor-pointer hover:brightness-110">
+          SWITCH TO EMERALD ▶
+        </button>
+      </div>
+
+      <!-- Column 4: Team Amber (P4 - Hidden by default in 2-team) -->
+      <div id="col-amber" class="pixel-box p-3.5 space-y-3 !border-[#ffbe0b] shadow-[0_0_12px_rgba(255,190,11,0.2),4px_4px_0_#000] hidden">
+        <div class="flex justify-between items-center pb-2 border-b-2 border-[#ffbe0b]/40">
+          <div class="flex items-center gap-2">
+            <span class="text-lg text-[#ffbe0b]">⚡</span>
+            <div>
+              <span class="text-xs font-arcade text-[#ffbe0b] tracking-wider block">TEAM AMBER</span>
+              <span class="text-[8px] font-mono text-slate-400">CREST: BOLT</span>
+            </div>
+          </div>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 bg-[#ffbe0b]/20 text-[#ffbe0b] border border-[#ffbe0b]/40 font-bold">2 PLAYERS</span>
+        </div>
+
+        <div class="space-y-1">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">SPYMASTER (1/1)</span>
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center border-[#ffbe0b]">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🎯</span>
+              <span class="text-xs font-bold text-white">Chloe</span>
+            </div>
+            <span class="text-[8px] font-arcade text-[#ffbe0b]">SPY</span>
+          </div>
+        </div>
+
+        <div class="space-y-1.5">
+          <span class="text-[8px] font-arcade text-slate-400 block tracking-wider">OPERATIVES</span>
+          <div class="player-slot bg-[#231e3b] p-2 pixel-corners flex justify-between items-center">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🍕</span>
+              <div>
+                <span class="text-xs font-bold text-slate-200 block">Sam</span>
+                <span class="text-[7px] font-arcade text-slate-400">PIZZA</span>
+              </div>
+            </div>
+            <span class="text-[8px] font-arcade text-slate-400">OP</span>
+          </div>
+        </div>
+
+        <button id="btn-join-amber" class="pixel-btn w-full bg-[#ffbe0b] text-black font-arcade text-[10px] py-2.5 tracking-wider cursor-pointer hover:brightness-110">
+          SWITCH TO AMBER ▶
+        </button>
+      </div>
+
+    </div>
+
+    <!-- 5. Spectator Bench & Match Settings -->
+    <div class="pixel-box p-3.5 bg-[#161324] space-y-3">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <span class="text-sm">🍿</span>
+          <span class="text-xs font-arcade text-slate-300">SPECTATOR BENCH</span>
+        </div>
+        <span class="text-[9px] font-mono text-slate-400">2 VIEWERS</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="px-2.5 py-1.5 bg-[#231e3b] border-2 border-black pixel-corners text-xs text-slate-300 flex items-center gap-1.5">
+          <span>👀</span> Jordan
+        </div>
+        <div class="px-2.5 py-1.5 bg-[#231e3b] border-2 border-black pixel-corners text-xs text-slate-300 flex items-center gap-1.5">
+          <span>👀</span> Chris
+        </div>
+        
+        <button id="btn-join-spec" class="pixel-btn ml-auto bg-[#231e3b] text-slate-300 hover:bg-[#2c2647] font-arcade text-[9px] px-3 py-1.5 cursor-pointer">
+          SPECTATE
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Pinned Bottom Launch Controls -->
+  <div class="fixed bottom-0 left-0 w-full bg-[#161324]/95 backdrop-blur border-t-4 border-black p-3 shadow-[0_-4px_0_0_#000] z-40">
+    <div class="max-w-3xl mx-auto flex items-center gap-2 sm:gap-3">
+      
+      <!-- Quick Piece Modal Launcher -->
+      <button id="btn-open-customizer-dock" class="pixel-btn bg-[#ffbe0b] text-black border-2 border-black font-arcade text-[9px] sm:text-[10px] px-3 py-3 cursor-pointer whitespace-nowrap flex items-center gap-1.5 hover:brightness-110">
+        <span id="dock-token-glyph">🎩</span>
+        <span class="hidden sm:inline">PIECE</span>
+      </button>
+
+      <!-- Role Toggle Button -->
+      <button id="btn-toggle-role" class="pixel-btn bg-[#231e3b] text-[#ffbe0b] border-2 border-[#ffbe0b] font-arcade text-[9px] sm:text-[10px] px-3 sm:px-4 py-3 cursor-pointer whitespace-nowrap">
+        🎯 BECOME SPY
+      </button>
+
+      <!-- Launch Match Button -->
+      <button id="btn-start-match" class="pixel-btn flex-1 bg-gradient-to-r from-[#ff2a5f] to-[#ff0055] text-white font-arcade text-xs sm:text-sm py-3 tracking-widest flex items-center justify-center gap-2 cursor-pointer hover:brightness-110 shadow-[0_0_16px_rgba(255,42,95,0.6),4px_4px_0_#000]">
+        <span>🕹️</span> START MATCH ▶
+      </button>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: MONOPOLY-STYLE ARCADE TOKEN SELECTION (POPUP DIALOG)               -->
+  <!-- ========================================================================= -->
+  <div id="piece-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 hidden">
+    <div class="pixel-box max-w-xl w-full bg-[#161324] border-4 border-[#ffbe0b] p-4 sm:p-6 shadow-[0_0_30px_rgba(255,190,11,0.5),8px_8px_0_#000] space-y-4 max-h-[90vh] overflow-y-auto">
+      
+      <!-- Modal Header -->
+      <div class="flex justify-between items-center pb-3 border-b-2 border-black">
+        <div class="flex items-center gap-2">
+          <span class="text-xl text-[#ffbe0b]">🎲</span>
+          <div>
+            <h2 class="text-xs sm:text-sm font-arcade text-white">SELECT YOUR ARCADE PIECE</h2>
+            <p class="text-[9px] font-mono text-slate-400">Choose your Monopoly-style collectible token</p>
+          </div>
+        </div>
+        <button id="btn-close-modal" class="pixel-btn px-2.5 py-1.5 bg-[#231e3b] text-slate-300 hover:text-white font-arcade text-[10px] cursor-pointer">
+          ✕ CLOSE
+        </button>
+      </div>
+
+      <!-- Filter Tabs -->
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-[8px] font-arcade text-slate-400">CATEGORY:</span>
+        <div class="flex items-center gap-1 bg-black p-1 border border-slate-700 pixel-corners text-[8px] font-arcade">
+          <button class="modal-filter-tab px-2 py-1 bg-[#ffbe0b] text-black cursor-pointer" data-filter="all">ALL (16)</button>
+          <button class="modal-filter-tab px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-filter="classic">CLASSIC</button>
+          <button class="modal-filter-tab px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-filter="retro">ARCADE</button>
+          <button class="modal-filter-tab px-2 py-1 text-slate-400 cursor-pointer hover:text-white" data-filter="party">PARTY</button>
+        </div>
+      </div>
+
+      <!-- 16 Collectible Pieces Grid -->
+      <div id="modal-tokens-grid" class="grid grid-cols-4 sm:grid-cols-4 gap-2.5">
+        
+        <!-- 1. Top Hat -->
+        <div class="token-chip-select selected p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="🎩" data-name="TOP HAT" data-desc="The Monopoly OG">
+          <span class="text-2xl">🎩</span>
+          <span class="text-[8px] font-arcade text-white mt-1">TOP HAT</span>
+          <span class="text-[7px] font-mono text-slate-400">Original</span>
+        </div>
+
+        <!-- 2. Racecar -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="🏎️" data-name="RACECAR" data-desc="Speed Demon">
+          <span class="text-2xl">🏎️</span>
+          <span class="text-[8px] font-arcade text-white mt-1">RACECAR</span>
+          <span class="text-[7px] font-mono text-slate-400">Pace</span>
+        </div>
+
+        <!-- 3. Crown -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="👑" data-name="CROWN" data-desc="Royal Sovereign">
+          <span class="text-2xl">👑</span>
+          <span class="text-[8px] font-arcade text-white mt-1">CROWN</span>
+          <span class="text-[7px] font-mono text-slate-400">Royal</span>
+        </div>
+
+        <!-- 4. Sword -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="🗡️" data-name="SWORD" data-desc="Vanguard Duelist">
+          <span class="text-2xl">🗡️</span>
+          <span class="text-[8px] font-arcade text-white mt-1">SWORD</span>
+          <span class="text-[7px] font-mono text-slate-400">Melee</span>
+        </div>
+
+        <!-- 5. Gem -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="classic" data-glyph="💎" data-name="GEM" data-desc="Diamond Hands">
+          <span class="text-2xl">💎</span>
+          <span class="text-[8px] font-arcade text-white mt-1">GEM</span>
+          <span class="text-[7px] font-mono text-slate-400">Precious</span>
+        </div>
+
+        <!-- 6. Rocket -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🚀" data-name="ROCKET" data-desc="Cosmic Cruiser">
+          <span class="text-2xl">🚀</span>
+          <span class="text-[8px] font-arcade text-white mt-1">ROCKET</span>
+          <span class="text-[7px] font-mono text-slate-400">Space</span>
+        </div>
+
+        <!-- 7. Invader -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="👾" data-name="INVADER" data-desc="8-Bit Menace">
+          <span class="text-2xl">👾</span>
+          <span class="text-[8px] font-arcade text-white mt-1">INVADER</span>
+          <span class="text-[7px] font-mono text-slate-400">Glitch</span>
+        </div>
+
+        <!-- 8. Joystick -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🕹️" data-name="JOYSTICK" data-desc="Arcade Cabinet">
+          <span class="text-2xl">🕹️</span>
+          <span class="text-[8px] font-arcade text-white mt-1">JOYSTICK</span>
+          <span class="text-[7px] font-mono text-slate-400">Cabinet</span>
+        </div>
+
+        <!-- 9. Bolt -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="⚡" data-name="BOLT" data-desc="Overdrive Boost">
+          <span class="text-2xl">⚡</span>
+          <span class="text-[8px] font-arcade text-white mt-1">BOLT</span>
+          <span class="text-[7px] font-mono text-slate-400">Energy</span>
+        </div>
+
+        <!-- 10. Cherry -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🍒" data-name="CHERRY" data-desc="1UP Classic">
+          <span class="text-2xl">🍒</span>
+          <span class="text-[8px] font-arcade text-white mt-1">CHERRY</span>
+          <span class="text-[7px] font-mono text-slate-400">1UP</span>
+        </div>
+
+        <!-- 11. Ghost -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="👻" data-name="GHOST" data-desc="Phantom Chaser">
+          <span class="text-2xl">👻</span>
+          <span class="text-[8px] font-arcade text-white mt-1">GHOST</span>
+          <span class="text-[7px] font-mono text-slate-400">Spooky</span>
+        </div>
+
+        <!-- 12. Duck -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="party" data-glyph="🦆" data-name="DUCK" data-desc="Quack Agent">
+          <span class="text-2xl">🦆</span>
+          <span class="text-[8px] font-arcade text-white mt-1">DUCK</span>
+          <span class="text-[7px] font-mono text-slate-400">Quack</span>
+        </div>
+
+        <!-- 13. Pizza -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="party" data-glyph="🍕" data-name="PIZZA" data-desc="Party Fuel">
+          <span class="text-2xl">🍕</span>
+          <span class="text-[8px] font-arcade text-white mt-1">PIZZA</span>
+          <span class="text-[7px] font-mono text-slate-400">Snack</span>
+        </div>
+
+        <!-- 14. Shroom -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="🍄" data-name="SHROOM" data-desc="Super Shroom">
+          <span class="text-2xl">🍄</span>
+          <span class="text-[8px] font-arcade text-white mt-1">SHROOM</span>
+          <span class="text-[7px] font-mono text-slate-400">Power</span>
+        </div>
+
+        <!-- 15. Dino -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="party" data-glyph="🦖" data-name="DINO" data-desc="Offline Runner">
+          <span class="text-2xl">🦖</span>
+          <span class="text-[8px] font-arcade text-white mt-1">DINO</span>
+          <span class="text-[7px] font-mono text-slate-400">Jurassic</span>
+        </div>
+
+        <!-- 16. Bomb -->
+        <div class="token-chip-select p-2.5 bg-[#211c36] pixel-corners flex flex-col items-center text-center" data-category="retro" data-glyph="💣" data-name="BOMB" data-desc="Demolition">
+          <span class="text-2xl">💣</span>
+          <span class="text-[8px] font-arcade text-white mt-1">BOMB</span>
+          <span class="text-[7px] font-mono text-slate-400">Danger</span>
+        </div>
+
+      </div>
+
+      <!-- Live Preview: How it appears on cards -->
+      <div class="p-3 bg-black/60 border-2 border-black pixel-corners flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div id="modal-preview-box" class="w-12 h-12 bg-[#ff2a5f] border-2 border-black pixel-corners flex items-center justify-center text-2xl shadow-[2px_2px_0_#000]">
+            🎩
+          </div>
+          <div>
+            <div class="text-[10px] font-arcade text-white">
+              SELECTED: <span id="modal-selected-label" class="text-[#ffbe0b]">🎩 TOP HAT</span>
+            </div>
+            <p id="modal-selected-desc" class="text-[9px] font-mono text-slate-400">The Monopoly OG</p>
+          </div>
+        </div>
+
+        <button id="btn-equip-piece" class="pixel-btn bg-[#ffbe0b] text-black font-arcade text-[10px] px-4 py-2.5 cursor-pointer hover:brightness-110 flex items-center gap-1.5 shadow-[2px_2px_0_#000]">
+          EQUIP PIECE ▶
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Interactive Logic & Web Audio Synthesizer -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Audio Engine
+      let soundEnabled = true;
+      let audioCtx = null;
+
+      function getAudioContext() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+
+      function play8BitBlip(freq = 440, type = 'square', duration = 0.08) {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.4, ctx.currentTime + duration);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + duration);
+        } catch (e) {}
+      }
+
+      function playCoinJingle() {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          [987.77, 1318.51].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+            gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.16);
+          });
+        } catch (e) {}
+      }
+
+      function playFanfare() {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+            gain.gain.setValueAtTime(0.14, now + idx * 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.2);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.1);
+            osc.stop(now + idx * 0.1 + 0.22);
+          });
+        } catch (e) {}
+      }
+
+      // DOM Elements
+      const copyBtn = document.getElementById('copy-btn');
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      const audioToggle = document.getElementById('audio-toggle');
+      const audioIcon = document.getElementById('audio-icon');
+      const audioLabel = document.getElementById('audio-label');
+
+      const pieceModal = document.getElementById('piece-modal');
+      const btnOpenCustomizerBanner = document.getElementById('btn-open-customizer-banner');
+      const btnOpenCustomizerDock = document.getElementById('btn-open-customizer-dock');
+      const slotSarah = document.getElementById('slot-sarah');
+      const btnCloseModal = document.getElementById('btn-close-modal');
+      const btnEquipPiece = document.getElementById('btn-equip-piece');
+
+      const modalTokens = document.querySelectorAll('.token-chip-select');
+      const modalFilters = document.querySelectorAll('.modal-filter-tab');
+      const modalPreviewBox = document.getElementById('modal-preview-box');
+      const modalSelectedLabel = document.getElementById('modal-selected-label');
+      const modalSelectedDesc = document.getElementById('modal-selected-desc');
+
+      // Player Slot Bindings
+      const sarahBannerGlyph = document.getElementById('sarah-banner-glyph');
+      const sarahBannerName = document.getElementById('sarah-banner-name');
+      const slotSarahGlyph = document.getElementById('slot-sarah-glyph');
+      const slotSarahPieceName = document.getElementById('slot-sarah-piecename');
+      const dockTokenGlyph = document.getElementById('dock-token-glyph');
+
+      // State
+      let currentGlyph = '🎩';
+      let currentName = 'TOP HAT';
+      let currentDesc = 'The Monopoly OG';
+      let pendingGlyph = '🎩';
+      let pendingName = 'TOP HAT';
+      let pendingDesc = 'The Monopoly OG';
+
+      let currentTeam = 'ruby'; // 'ruby', 'cobalt', 'emerald', 'amber', 'spectator'
+      let currentRole = 'operative';
+
+      // Audio Toggle
+      audioToggle.addEventListener('click', () => {
+        soundEnabled = !soundEnabled;
+        if (soundEnabled) {
+          audioIcon.textContent = '🔊';
+          audioLabel.textContent = 'FX: ON';
+          playCoinJingle();
+        } else {
+          audioIcon.textContent = '🔇';
+          audioLabel.textContent = 'FX: OFF';
+        }
+      });
+
+      // Show Toast
+      function showToast(message) {
+        toastText.textContent = message;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 2200);
+      }
+
+      // Copy Link
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard?.writeText(window.location.href);
+        playCoinJingle();
+        showToast('📋 INVITE LINK COPIED TO CLIPBOARD!');
+      });
+
+      // Open Modal
+      function openModal() {
+        pendingGlyph = currentGlyph;
+        pendingName = currentName;
+        pendingDesc = currentDesc;
+        modalSelectedLabel.textContent = `${pendingGlyph} ${pendingName}`;
+        modalSelectedDesc.textContent = pendingDesc;
+        modalPreviewBox.textContent = pendingGlyph;
+
+        modalTokens.forEach(t => {
+          if (t.getAttribute('data-glyph') === currentGlyph) {
+            t.classList.add('selected');
+          } else {
+            t.classList.remove('selected');
+          }
+        });
+
+        pieceModal.classList.remove('hidden');
+        play8BitBlip(550, 'square', 0.08);
+      }
+
+      function closeModal() {
+        pieceModal.classList.add('hidden');
+        play8BitBlip(320, 'sine', 0.08);
+      }
+
+      btnOpenCustomizerBanner.addEventListener('click', openModal);
+      btnOpenCustomizerDock.addEventListener('click', openModal);
+      slotSarah.addEventListener('click', openModal);
+      btnCloseModal.addEventListener('click', closeModal);
+
+      // Modal Filters
+      modalFilters.forEach(tab => {
+        tab.addEventListener('click', () => {
+          modalFilters.forEach(t => {
+            t.classList.remove('bg-[#ffbe0b]', 'text-black');
+            t.classList.add('text-slate-400');
+          });
+          tab.classList.add('bg-[#ffbe0b]', 'text-black');
+          tab.classList.remove('text-slate-400');
+
+          const filter = tab.getAttribute('data-filter');
+          modalTokens.forEach(token => {
+            const cat = token.getAttribute('data-category');
+            if (filter === 'all' || cat === filter) {
+              token.style.display = 'flex';
+            } else {
+              token.style.display = 'none';
+            }
+          });
+          play8BitBlip(440, 'triangle', 0.06);
+        });
+      });
+
+      // Token Item Selection inside Modal
+      modalTokens.forEach(chip => {
+        chip.addEventListener('click', () => {
+          modalTokens.forEach(c => c.classList.remove('selected'));
+          chip.classList.add('selected');
+          pendingGlyph = chip.getAttribute('data-glyph');
+          pendingName = chip.getAttribute('data-name');
+          pendingDesc = chip.getAttribute('data-desc');
+
+          modalPreviewBox.textContent = pendingGlyph;
+          modalSelectedLabel.textContent = `${pendingGlyph} ${pendingName}`;
+          modalSelectedDesc.textContent = pendingDesc;
+          play8BitBlip(620, 'triangle', 0.08);
+        });
+      });
+
+      // Equip Piece Button
+      btnEquipPiece.addEventListener('click', () => {
+        currentGlyph = pendingGlyph;
+        currentName = pendingName;
+        currentDesc = pendingDesc;
+
+        sarahBannerGlyph.textContent = currentGlyph;
+        sarahBannerName.textContent = `${currentName} (${currentDesc})`;
+        slotSarahGlyph.textContent = currentGlyph;
+        slotSarahPieceName.textContent = currentName;
+        dockTokenGlyph.textContent = currentGlyph;
+
+        closeModal();
+        playCoinJingle();
+        showToast(`🎉 EQUIPPED ${currentGlyph} ${currentName}!`);
+      });
+
+      // Team Format Switcher (2, 3, 4 Teams)
+      const teamBtns = document.querySelectorAll('.team-count-btn');
+      const colEmerald = document.getElementById('col-emerald');
+      const colAmber = document.getElementById('col-amber');
+      const teamsGrid = document.getElementById('teams-grid');
+      const readySummary = document.getElementById('ready-summary');
+
+      teamBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          teamBtns.forEach(b => {
+            b.classList.remove('bg-[#ffbe0b]', 'text-black', 'font-bold');
+            b.classList.add('text-slate-400');
+          });
+          btn.classList.add('bg-[#ffbe0b]', 'text-black', 'font-bold');
+          btn.classList.remove('text-slate-400');
+
+          const count = parseInt(btn.getAttribute('data-teams'), 10);
+          if (count === 2) {
+            colEmerald.classList.add('hidden');
+            colAmber.classList.add('hidden');
+            teamsGrid.className = 'grid grid-cols-1 sm:grid-cols-2 gap-4';
+            readySummary.textContent = 'MATCH READY (6/6 READY)';
+          } else if (count === 3) {
+            colEmerald.classList.remove('hidden');
+            colAmber.classList.add('hidden');
+            teamsGrid.className = 'grid grid-cols-1 sm:grid-cols-3 gap-3';
+            readySummary.textContent = '3-WAY MATCH READY (8/8)';
+          } else if (count === 4) {
+            colEmerald.classList.remove('hidden');
+            colAmber.classList.remove('hidden');
+            teamsGrid.className = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3';
+            readySummary.textContent = '4-WAY BRAWL READY (10/10)';
+          }
+          play8BitBlip(500, 'square', 0.08);
+        });
+      });
+
+      // Role Toggle
+      const btnToggleRole = document.getElementById('btn-toggle-role');
+      btnToggleRole.addEventListener('click', () => {
+        if (currentRole === 'operative') {
+          currentRole = 'spymaster';
+          btnToggleRole.textContent = '🕵️ BECOME OPERATIVE';
+          playCoinJingle();
+          showToast('🎯 YOU ARE NOW SPYMASTER!');
+        } else {
+          currentRole = 'operative';
+          btnToggleRole.textContent = '🎯 BECOME SPY';
+          play8BitBlip(480, 'square', 0.08);
+          showToast('🕵️ YOU ARE NOW OPERATIVE!');
+        }
+      });
+
+      // Start Match Fanfare
+      const btnStartMatch = document.getElementById('btn-start-match');
+      btnStartMatch.addEventListener('click', () => {
+        playFanfare();
+        showToast('🎮 LAUNCHING ROUND 01...');
+        setTimeout(() => {
+          alert(`🎮 [MATCH LAUNCHED]\nPlayer: Sarah\nToken: ${currentGlyph} ${currentName}\nRole: ${currentRole.toUpperCase()}\nMode: Best of 7 Series\nDealing board...`);
+        }, 300);
+      });
+    });
+  </script>
+</body>
+</html>

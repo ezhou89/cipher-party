@@ -7,6 +7,8 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   }
 }

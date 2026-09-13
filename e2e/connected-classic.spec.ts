@@ -2,6 +2,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import type { ClientProjection } from "@cipher-party/protocol";
 
 import {
+  auditFuturePublicProjectionFrames,
   auditPublicProjection,
   closeConnectedClassicRoom,
   createConnectedClassicRoom,
@@ -15,7 +16,7 @@ import {
   type RoomFrameObserver,
 } from "./helpers/room";
 
-const SECRET_OWNER_TEXT = /(?:Red|Blue|Neutral|Hazard) key$/u;
+const SECRET_OWNER_TEXT = /(?:Red|Blue|Green|Yellow|Neutral|Hazard) key$/u;
 const REJECTION_CONSOLE_STATUS =
   /Failed to load resource: the server responded with a status of (\d{3})/u;
 
@@ -67,6 +68,9 @@ function observeSyntheticRoomFrames(
 
   return {
     observer,
+    send(payload: string | Buffer) {
+      socketListeners.get("framesent")?.({ payload });
+    },
     receive(payload: string | Buffer) {
       socketListeners.get("framereceived")?.({ payload });
     },
@@ -75,12 +79,14 @@ function observeSyntheticRoomFrames(
 
 function validSpectatorProjection(revision: number): ClientProjection {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     revision,
     code: "ABC123",
     inviteUrl: "http://room.test/room/ABC123",
     roomPhase: "playing",
     locked: true,
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
     viewer: {
       playerId: "spectator",
       teamId: null,
@@ -803,6 +809,45 @@ async function assertPhoneBoard(page: Page): Promise<void> {
     .getByRole("region", { name: "Classic board" })
     .locator(".board-card");
   await expect(cards).toHaveCount(25);
+  // Keep every label, ID, and per-card measurement inside the public page.
+  // Only aggregate booleans may appear in these geometry diagnostics.
+  const labelGeometry = await cards
+    .locator(".board-card-label")
+    .evaluateAll((labels) => {
+      let singleLine = labels.length === 25;
+      let horizontallyUnclipped = labels.length === 25;
+      for (const label of labels) {
+        const lineHeight = Number.parseFloat(
+          getComputedStyle(label).lineHeight,
+        );
+        const labelBounds = label.getBoundingClientRect();
+        const cardBounds = label
+          .closest(".board-card")
+          ?.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const textBounds = range.getBoundingClientRect();
+        singleLine &&=
+          labelBounds.height > 0 &&
+          labelBounds.height <= lineHeight + 1 &&
+          textBounds.height <= lineHeight + 1;
+        horizontallyUnclipped &&=
+          label.scrollWidth <= label.clientWidth + 1 &&
+          textBounds.left >= labelBounds.left - 1 &&
+          textBounds.right <= labelBounds.right + 1 &&
+          cardBounds !== undefined &&
+          textBounds.left >= cardBounds.left - 1 &&
+          textBounds.right <= cardBounds.right + 1;
+      }
+      return { singleLine, horizontallyUnclipped };
+    });
+  expect(labelGeometry.singleLine, "public_card_labels_must_fit_one_line").toBe(
+    true,
+  );
+  expect(
+    labelGeometry.horizontallyUnclipped,
+    "public_card_labels_must_not_clip_horizontally",
+  ).toBe(true);
   const boxes = await Promise.all(
     Array.from({ length: 25 }, (_, index) => cards.nth(index).boundingBox()),
   );
@@ -1149,6 +1194,8 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
         keyOwner: "synthetic",
         owners: {},
         ownership: {},
+        targetTotal: 8,
+        eliminatedTeam: "red",
       },
       board: {
         cards: [
@@ -1158,6 +1205,16 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
       },
       publicHistory: [
         { type: "card_revealed", owner: "synthetic" },
+        {
+          type: "card_revealed",
+          owner: "hazard",
+          eliminatedTeam: "red",
+        },
+        {
+          type: "card_revealed",
+          owner: "red",
+          eliminatedTeam: "red",
+        },
         { type: "room_paused", owner: "synthetic" },
       ],
     },
@@ -1171,8 +1228,192 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
     "forbidden_hidden_field",
     "forbidden_hidden_field",
     "forbidden_hidden_field",
+    "forbidden_target_total",
+    "eliminated_team_outside_hazard_reveal",
     "owner_on_unrevealed_board_card",
+    "invalid_public_owner_value",
+    "invalid_public_owner_value",
+    "eliminated_team_outside_hazard_reveal",
     "owner_outside_public_reveal",
+  ]);
+});
+
+test("raw public audit rejects nested hazard elimination metadata before schema parsing", () => {
+  const { observer, receive } = observeSyntheticRoomFrames({
+    expectedViewRole: "spectator",
+    publicObserver: true,
+  });
+
+  receive(
+    JSON.stringify({
+      type: "projection",
+      projection: {
+        ...validSpectatorProjection(1),
+        publicHistory: [
+          {
+            revision: 1,
+            at: "2026-09-12T00:00:00.000Z",
+            type: "card_revealed",
+            teamId: "red",
+            cardId: "public-card",
+            owner: "hazard",
+            eliminatedTeam: {
+              key: { "private-card": "hazard" },
+              targetTotal: 8,
+              ownershipMap: { "private-card": "red" },
+            },
+          },
+        ],
+      },
+    }),
+  );
+
+  expect(observer.privacyViolations).toEqual([
+    "invalid_eliminated_team_value",
+    "forbidden_hidden_field",
+    "forbidden_target_total",
+    "forbidden_hidden_field",
+  ]);
+  expect(observer.projectionViolations).toEqual(["projection_schema_invalid"]);
+  expect(observer.serverMessageViolations).toEqual(["invalid_server_message"]);
+  expect(observer.serverFrameOutcomes).toEqual([
+    {
+      outcome: "invalid_projection_payload",
+      socketIndex: 1,
+      socketProjectionIndex: 0,
+    },
+  ]);
+  expect(observer.projections).toEqual([]);
+});
+
+const nestedPublicOwner = {
+  key: { "private-card": "hazard" },
+  targetTotal: 8,
+  ownershipMap: { "private-card": "red" },
+};
+
+for (const ownerCase of [
+  {
+    location: "revealed board-card",
+    projection: {
+      ...validSpectatorProjection(1),
+      board: {
+        cards: [
+          {
+            id: "public-card",
+            label: "Public card",
+            revealed: true,
+            owner: nestedPublicOwner,
+          },
+        ],
+      },
+    },
+  },
+  {
+    location: "public card-reveal",
+    projection: {
+      ...validSpectatorProjection(1),
+      publicHistory: [
+        {
+          revision: 1,
+          at: "2026-09-12T00:00:00.000Z",
+          type: "card_revealed",
+          teamId: "red",
+          cardId: "public-card",
+          owner: nestedPublicOwner,
+        },
+      ],
+    },
+  },
+] as const) {
+  test(`raw public audit rejects a nested ${ownerCase.location} owner before schema parsing`, () => {
+    const { observer, receive } = observeSyntheticRoomFrames({
+      expectedViewRole: "spectator",
+      publicObserver: true,
+    });
+
+    receive(
+      JSON.stringify({
+        type: "projection",
+        projection: ownerCase.projection,
+      }),
+    );
+
+    expect(observer.privacyViolations).toEqual([
+      "invalid_public_owner_value",
+      "forbidden_hidden_field",
+      "forbidden_target_total",
+      "forbidden_hidden_field",
+    ]);
+    expect(observer.projectionViolations).toEqual([
+      "projection_schema_invalid",
+    ]);
+    expect(observer.serverMessageViolations).toEqual([
+      "invalid_server_message",
+    ]);
+    expect(observer.serverFrameOutcomes).toEqual([
+      {
+        outcome: "invalid_projection_payload",
+        socketIndex: 1,
+        socketProjectionIndex: 0,
+      },
+    ]);
+    expect(observer.projections).toEqual([]);
+  });
+}
+
+test("room observer captures only protocol-v2 command envelopes", () => {
+  const { observer, send } = observeSyntheticRoomFrames();
+
+  send(
+    JSON.stringify({
+      protocolVersion: 1,
+      commandId: "00000000-0000-4000-8000-000000000001",
+      expectedRevision: 4,
+      command: { type: "end_turn" },
+    }),
+  );
+  send(
+    JSON.stringify({
+      protocolVersion: 2,
+      commandId: "00000000-0000-4000-8000-000000000002",
+      expectedRevision: 5,
+      command: { type: "end_turn" },
+    }),
+  );
+
+  expect(observer.sentCommands).toEqual([
+    {
+      protocolVersion: 2,
+      commandId: "00000000-0000-4000-8000-000000000002",
+      expectedRevision: 5,
+      command: { type: "end_turn" },
+    },
+  ]);
+});
+
+test("room observer can begin raw public auditing at an elimination boundary", () => {
+  const { observer, receive } = observeSyntheticRoomFrames();
+  const leakedPublicFrame = JSON.stringify({
+    type: "projection",
+    projection: {
+      roomPhase: "playing",
+      viewRole: "clue-giver",
+      key: { "secret-card": "hazard" },
+      nested: { targetTotal: 8 },
+    },
+  });
+
+  receive(leakedPublicFrame);
+  expect(observer.privacyViolations).toEqual([]);
+
+  auditFuturePublicProjectionFrames(observer, "spectator");
+  receive(leakedPublicFrame);
+
+  expect(observer.privacyViolations).toEqual([
+    "unexpected_public_view_role",
+    "forbidden_hidden_field",
+    "forbidden_target_total",
   ]);
 });
 
@@ -1547,6 +1788,23 @@ test("five isolated clients complete Connected Classic without hidden-data or du
 
     const firstTarget = redTargets[0]!;
     await cancelReveal(room.redOperative, firstTarget);
+    // Inspect only the public nomination cue, without exposing a target label
+    // or reading the secret key into assertion diagnostics.
+    const nominationSize = await room.redOperative.page
+      .locator(".nomination-marker")
+      .evaluate((marker) => {
+        const style = getComputedStyle(marker);
+        return {
+          contentHeight:
+            marker.getBoundingClientRect().height -
+            Number.parseFloat(style.paddingTop) -
+            Number.parseFloat(style.paddingBottom),
+          lineHeight: Number.parseFloat(style.lineHeight),
+        };
+      });
+    expect(nominationSize.contentHeight).toBeLessThanOrEqual(
+      nominationSize.lineHeight + 1,
+    );
     const firstRevealCommandId = await revealTarget(
       room.redOperative,
       firstTarget,

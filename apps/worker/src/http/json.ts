@@ -8,7 +8,8 @@ export type ApiErrorCode =
   | "room_locked"
   | "room_in_progress"
   | "room_full"
-  | "unauthorized";
+  | "unauthorized"
+  | "rate_limited";
 
 const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   invalid_request: "Invalid request",
@@ -17,6 +18,7 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   room_in_progress: "Room is in progress",
   room_full: "Room is full",
   unauthorized: "Unauthorized",
+  rate_limited: "Too many attempts. Please wait a minute and try again.",
 };
 
 export function apiError(status: number, code: ApiErrorCode): Response {

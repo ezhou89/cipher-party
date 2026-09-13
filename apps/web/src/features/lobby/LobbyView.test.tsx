@@ -4,6 +4,7 @@ import type {
   CommandResult,
 } from "@cipher-party/protocol";
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -91,16 +92,54 @@ const lobbySeats: ClientProjection["seats"] = [
   },
 ];
 
+const fourTeamSeats: ClientProjection["seats"] = [
+  ...lobbySeats
+    .filter((seat) => seat.playerId !== "waiting")
+    .map((seat) =>
+      seat.playerId === "blue-op" ? { ...seat, connected: true } : seat,
+    ),
+  {
+    playerId: "green-clue",
+    displayName: "Gia",
+    teamId: "green",
+    role: "clue-giver",
+    connected: true,
+  },
+  {
+    playerId: "green-op",
+    displayName: "Nia",
+    teamId: "green",
+    role: "operative",
+    connected: true,
+  },
+  {
+    playerId: "yellow-clue",
+    displayName: "Yara",
+    teamId: "yellow",
+    role: "clue-giver",
+    connected: true,
+  },
+  {
+    playerId: "yellow-op",
+    displayName: "Omar",
+    teamId: "yellow",
+    role: "operative",
+    connected: true,
+  },
+];
+
 function hostProjection(
   overrides: Partial<ClientProjection> = {},
 ): ClientProjection {
   return {
-    protocolVersion: 1,
+    protocolVersion: 2,
     revision: 7,
     code: "ABC123",
     inviteUrl: "https://play.example/room/ABC123",
     roomPhase: "lobby",
     locked: false,
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
     viewRole: "clue-giver",
     viewer: {
       playerId: "host",
@@ -124,6 +163,34 @@ function readyProjection(): ClientProjection {
       .map((seat) =>
         seat.playerId === "blue-op" ? { ...seat, connected: true } : seat,
       ),
+  });
+}
+
+function readyProjectionWithThreePlayerTeamAndSpectators(
+  total: number,
+): ClientProjection {
+  const ready = readyProjection();
+  const current = ready.seats.filter(
+    (seat) => seat.role === "spectator",
+  ).length;
+  return hostProjection({
+    seats: [
+      ...ready.seats,
+      {
+        playerId: "red-extra-operative",
+        displayName: "Sora",
+        teamId: "red",
+        role: "operative",
+        connected: true,
+      },
+      ...Array.from({ length: total - current }, (_, index) => ({
+        playerId: `extra-spectator-${index}`,
+        displayName: `Watcher ${index + 1}`,
+        teamId: null,
+        role: "spectator" as const,
+        connected: true,
+      })),
+    ],
   });
 }
 
@@ -229,6 +296,124 @@ describe("LobbyView authoritative projection", () => {
     expect(within(waiting).getByText("Jules")).toBeVisible();
     expect(within(waiting).getByText("Spectator")).toBeVisible();
   });
+
+  it("renders only the four configured team panels with centralized identities", () => {
+    renderLobby(
+      hostProjection({
+        teamCount: 4,
+        configuredTeams: ["red", "blue", "green", "yellow"],
+        seats: fourTeamSeats,
+      }),
+    );
+
+    expect(screen.getAllByRole("heading", { name: /team$/i })).toHaveLength(4);
+    expect(screen.getByRole("region", { name: "▲ Green team" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "■ Yellow team" })).toBeVisible();
+    expect(screen.getByText("Verdant")).toBeVisible();
+    expect(screen.getByText("Amber")).toBeVisible();
+    expect(screen.getByLabelText("Number of teams")).toHaveValue("4");
+    expect(
+      within(screen.getByLabelText("Team for Mina")).getAllByRole("option"),
+    ).toHaveLength(5);
+  });
+
+  it("renders a three-team lobby without an empty Yellow placeholder", () => {
+    renderLobby(
+      hostProjection({
+        teamCount: 3,
+        configuredTeams: ["red", "blue", "green"],
+        seats: fourTeamSeats.filter((seat) => seat.teamId !== "yellow"),
+      }),
+    );
+
+    expect(screen.getAllByRole("heading", { name: /team$/i })).toHaveLength(3);
+    expect(screen.getByRole("region", { name: "▲ Green team" })).toBeVisible();
+    expect(
+      screen.queryByRole("region", { name: /Yellow team/iu }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Number of teams")).toHaveValue("3");
+  });
+
+  it("sends team-count changes only from the host's unlocked lobby control", async () => {
+    const send = vi.fn<(command: ClientCommand) => void>();
+    const current = hostProjection({
+      teamCount: 4,
+      configuredTeams: ["red", "blue", "green", "yellow"],
+      seats: fourTeamSeats,
+    });
+    const { rerender } = render(
+      <LobbyView
+        projection={current}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+
+    await userEvent
+      .setup()
+      .selectOptions(screen.getByLabelText("Number of teams"), "3");
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: "set_team_count",
+      teamCount: 3,
+    });
+
+    rerender(
+      <LobbyView
+        projection={{ ...current, locked: true }}
+        connection="open"
+        pending={false}
+        send={send}
+      />,
+    );
+    expect(screen.getByLabelText("Number of teams")).toBeDisabled();
+  });
+
+  it("derives the minimum-player readiness message from the selected team count", () => {
+    renderLobby(
+      hostProjection({
+        teamCount: 4,
+        configuredTeams: ["red", "blue", "green", "yellow"],
+      }),
+    );
+
+    const start = screen.getByRole("button", { name: "Start board" });
+    expect(start).toBeDisabled();
+    const reasonId = start.getAttribute("aria-describedby");
+    expect(document.getElementById(reasonId!)).toHaveTextContent(
+      "At least 8 active players are required for 4 teams.",
+    );
+  });
+
+  it.each([
+    {
+      spectators: 13,
+      ready: true,
+      reason: "Ready: each team has one clue-giver and at least one operative.",
+    },
+    {
+      spectators: 14,
+      ready: false,
+      reason:
+        "Use the host role controls to reassign at least 1 spectator seat as an active player before starting. If that is not possible, start a new room with fewer spectators. The room must reserve 3 spectator seats for a possible team elimination.",
+    },
+  ])(
+    "reserves a three-player team's elimination capacity with $spectators spectators",
+    ({ spectators, ready, reason }) => {
+      renderLobby(readyProjectionWithThreePlayerTeamAndSpectators(spectators));
+
+      const start = screen.getByRole("button", { name: "Start board" });
+      if (ready) {
+        expect(start).toBeEnabled();
+      } else {
+        expect(start).toBeDisabled();
+      }
+      expect(
+        document.getElementById(start.getAttribute("aria-describedby")!),
+      ).toHaveTextContent(reason);
+    },
+  );
 
   it("politely announces other seats going offline and reconnecting without initial noise", async () => {
     const initial = readyProjection();
@@ -479,9 +664,7 @@ describe("LobbyView authoritative projection", () => {
       branch: "a team with no operative",
       projection: hostProjection({
         seats: readyProjection().seats.map((seat) =>
-          seat.playerId === "blue-op"
-            ? { ...seat, teamId: null, role: "spectator" }
-            : seat,
+          seat.playerId === "blue-op" ? { ...seat, role: "clue-giver" } : seat,
         ),
       }),
       ready: false,
@@ -613,6 +796,144 @@ describe("ConnectionBadge", () => {
 });
 
 describe("RoomPage invite and socket lifecycle", () => {
+  it("unmounts a visible clue-giver key on terminal expiry without deleting the saved seat", async () => {
+    const cards = Array.from({ length: 25 }, (_, i) => ({
+      id: `card-${i}`,
+      label: `Word ${i}`,
+      revealed: false as const,
+    }));
+    const key: Extract<ClientProjection, { viewRole: "clue-giver" }>["key"] =
+      {};
+    for (const [i, card] of cards.entries())
+      key[card.id] =
+        i < 9 ? "red" : i < 17 ? "blue" : i < 24 ? "neutral" : "hazard";
+    const credentials: SeatCredentials = {
+      code: "ABC123",
+      playerId: "host",
+      seatToken: "a".repeat(43),
+    };
+    let deleted = false;
+    const store: SeatStore = {
+      get: async () => credentials,
+      put: async () => {},
+      delete: async () => {
+        deleted = true;
+      },
+    };
+    const socket = new FakeRoomSocket({
+      connection: "open",
+      lastResult: null,
+      projection: hostProjection({
+        roomPhase: "playing",
+        locked: true,
+        key,
+        board: {
+          teamCount: 2,
+          rows: 5,
+          columns: 5,
+          configuredTeams: ["red", "blue"],
+          eliminatedTeams: [],
+          teamSummaries: [
+            { teamId: "red", revealedTargets: 0, eliminated: false },
+            { teamId: "blue", revealedTargets: 0, eliminated: false },
+          ],
+          order: cards.map(({ id }) => id),
+          cards,
+          phase: "guess",
+          activeTeam: "red",
+          clue: { word: "Example", count: 2 },
+          guessesRemaining: 3,
+          nomination: null,
+          winner: null,
+          completionReason: null,
+        },
+      }),
+    });
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Show secret key" }));
+    expect(document.querySelectorAll(".key-owner").length > 0).toBe(true);
+    act(() =>
+      socket.emit({
+        connection: "closed",
+        projection: null,
+        lastResult: null,
+        error: "room_expired",
+      }),
+    );
+    expect(document.querySelectorAll(".key-owner").length).toBe(0);
+    expect(
+      screen.queryByRole("button", { name: "Hide secret key" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/room has expired/iu);
+    expect(
+      screen.getByRole("button", { name: "Forget saved seat and rejoin" }),
+    ).toBeEnabled();
+    expect(deleted).toBe(false);
+  });
+
+  it("clears pending lobby controls on terminal failure and keeps explicit seat recovery available", async () => {
+    const credentials: SeatCredentials = {
+      code: "ABC123",
+      playerId: "host",
+      seatToken: "a".repeat(43),
+    };
+    let saved: SeatCredentials | undefined = credentials;
+    const store: SeatStore = {
+      get: async () => saved,
+      put: async () => {},
+      delete: async () => {
+        saved = undefined;
+      },
+    };
+    const socket = new FakeRoomSocket({
+      connection: "open",
+      projection: hostProjection(),
+      lastResult: null,
+    });
+    const router = createMemoryRouter(
+      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+      { initialEntries: ["/room/ABC123"] },
+    );
+    render(<App router={router} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Lock room" }));
+    expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
+
+    act(() =>
+      socket.emit({
+        connection: "closed",
+        projection: null,
+        lastResult: null,
+        error: "credential_invalid",
+      }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Lock room" }),
+    ).not.toBeInTheDocument();
+    const recovery = screen.getByRole("button", {
+      name: "Forget saved seat and rejoin",
+    });
+    expect(recovery).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /saved seat.*no longer.*valid/iu,
+    );
+    expect(screen.getByRole("alert")).toHaveFocus();
+    expect(screen.queryByText(/Synchronizing/u)).not.toBeInTheDocument();
+    expect(saved !== undefined).toBe(true);
+    await user.click(recovery);
+    expect(saved === undefined).toBe(true);
+    expect(
+      await screen.findByRole("form", { name: "Join room ABC123" }),
+    ).toBeVisible();
+  });
+
   it("gives the home wordmark and room navigation link 44px touch targets", async () => {
     const store: SeatStore = {
       get: async () => undefined,
@@ -739,7 +1060,7 @@ describe("RoomPage invite and socket lifecycle", () => {
     await router.navigate("/");
     expect(
       await screen.findByRole("heading", {
-        name: "Open the archive. Find the connection.",
+        name: "Gather your crew. Find the connection.",
       }),
     ).toBeVisible();
 
@@ -1116,58 +1437,71 @@ describe("RoomPage invite and socket lifecycle", () => {
     );
   });
 
-  it("shows local public copy for a rejected command without reflecting its server message", async () => {
-    const credentials: SeatCredentials = {
-      code: "ABC123",
-      playerId: "host",
-      seatToken: "durable-seat-token".padEnd(43, "x"),
-      hostToken: "durable-host-token".padEnd(43, "x"),
-    };
-    const store: SeatStore = {
-      get: async () => credentials,
-      put: async () => {},
-      delete: async () => {},
-    };
-    const socket = new FakeRoomSocket({
-      connection: "open",
-      projection: hostProjection(),
-      lastResult: null,
-    });
-    const router = createMemoryRouter(
-      createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
-      { initialEntries: ["/room/ABC123"] },
-    );
-    render(<App router={router} />);
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Lock room" }));
+  it.each([
+    {
+      code: "unauthorized" as const,
+      publicCopy: "You no longer have permission to do that.",
+      serverCopy: "durable-seat-token-SENTINEL must never enter public copy",
+    },
+    {
+      code: "room_full" as const,
+      publicCopy:
+        "The room is full, or its remaining capacity is reserved for a possible team elimination.",
+      serverCopy: "Spectator capacity must reserve room for a team elimination",
+    },
+  ])(
+    "shows local public copy for a rejected $code command without reflecting its server message",
+    async ({ code, publicCopy, serverCopy }) => {
+      const credentials: SeatCredentials = {
+        code: "ABC123",
+        playerId: "host",
+        seatToken: "durable-seat-token".padEnd(43, "x"),
+        hostToken: "durable-host-token".padEnd(43, "x"),
+      };
+      const store: SeatStore = {
+        get: async () => credentials,
+        put: async () => {},
+        delete: async () => {},
+      };
+      const socket = new FakeRoomSocket({
+        connection: "open",
+        projection: hostProjection(),
+        lastResult: null,
+      });
+      const router = createMemoryRouter(
+        createAppRoutes({ seatStore: store, createRoomSocket: () => socket }),
+        { initialEntries: ["/room/ABC123"] },
+      );
+      render(<App router={router} />);
+      const user = userEvent.setup();
+      await user.click(
+        await screen.findByRole("button", { name: "Lock room" }),
+      );
 
-    const rejected: CommandResult = {
-      ok: false,
-      revision: 8,
-      code: "unauthorized",
-      message: "durable-seat-token-SENTINEL must never enter public copy",
-    };
-    socket.emit({
-      connection: "open",
-      projection: hostProjection(),
-      lastResult: rejected,
-    });
-    expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
+      const rejected: CommandResult = {
+        ok: false,
+        revision: 8,
+        code,
+        message: serverCopy,
+      };
+      socket.emit({
+        connection: "open",
+        projection: hostProjection(),
+        lastResult: rejected,
+      });
+      expect(screen.getByRole("button", { name: "Lock room" })).toBeDisabled();
 
-    socket.emit({
-      connection: "open",
-      projection: hostProjection({ revision: 8 }),
-      lastResult: rejected,
-    });
+      socket.emit({
+        connection: "open",
+        projection: hostProjection({ revision: 8 }),
+        lastResult: rejected,
+      });
 
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(
-      "You no longer have permission to do that.",
-    );
-    expect(alert).toHaveFocus();
-    expect(document.body.textContent).not.toContain(
-      "durable-seat-token-SENTINEL",
-    );
-    expect(screen.getByRole("button", { name: "Lock room" })).toBeEnabled();
-  });
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent(publicCopy);
+      expect(alert).toHaveFocus();
+      expect(document.body.textContent).not.toContain(serverCopy);
+      expect(screen.getByRole("button", { name: "Lock room" })).toBeEnabled();
+    },
+  );
 });

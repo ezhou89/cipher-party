@@ -11,7 +11,10 @@ import { DurableObject } from "cloudflare:workers";
 import { createConnectionTicket } from "../auth/ticket";
 import { verifyToken } from "../auth/token";
 import type { Env } from "../env";
-import { RoomSession } from "./room-session";
+import {
+  respectsSpectatorCapacityReservation,
+  RoomSession,
+} from "./room-session";
 import {
   ROOM_IDLE_TTL_MS,
   RoomStorage,
@@ -20,11 +23,20 @@ import {
 import { createLobbyState, type RoomActor, type RoomState } from "./room-state";
 import {
   MAX_CLIENT_MESSAGE_BYTES,
+  OVERLOAD_CLOSE_CODE,
+  OVERLOAD_CLOSE_REASON,
   opaqueAdmissionFailure,
   parseRoomSocketAttachment,
   readUpgradeTicket,
   type RoomSocketAttachment,
 } from "./room-websocket";
+import { rateLimitedResponse } from "../http/admission-limits";
+import {
+  checkMessageBudget,
+  hasSocketCapacity,
+  MAX_TICKETS_PER_ROOM,
+  MAX_TICKETS_PER_SEAT,
+} from "./connection-budget";
 
 export type { RoomSnapshotStore } from "./room-storage";
 
@@ -64,7 +76,7 @@ export interface IssueTicketInput {
 
 type IssueTicketResult =
   | { ok: true; ticket: string; expiresAt: number }
-  | { ok: false; code: "room_unavailable" | "unauthorized" };
+  | { ok: false; code: "room_unavailable" | "unauthorized" | "rate_limited" };
 
 export interface ConsumeTicketInput {
   ticket: string;
@@ -77,6 +89,11 @@ type ConsumeTicketResult =
 
 type MarkConnectedResult = { ok: true } | { ok: false };
 
+interface DispatchOutcome {
+  result: CommandResult;
+  changed: boolean;
+}
+
 type PostPersistHook = (state: RoomState) => void | Promise<void>;
 
 function clone<T>(value: T): T {
@@ -88,6 +105,7 @@ export class PersistentRoomController {
   readonly #now: () => Date;
   readonly #postPersist: PostPersistHook | undefined;
   #state: RoomState | undefined;
+  #loadFailed = false;
   #operationTail: Promise<void> = Promise.resolve();
 
   constructor(
@@ -102,8 +120,15 @@ export class PersistentRoomController {
 
   async load(): Promise<void> {
     await this.#serialize(async () => {
-      const persisted = await this.#storage.read();
-      this.#state = persisted === undefined ? undefined : clone(persisted);
+      try {
+        const persisted = await this.#storage.read();
+        this.#state = persisted === undefined ? undefined : clone(persisted);
+        this.#loadFailed = false;
+      } catch (error) {
+        this.#state = undefined;
+        this.#loadFailed = true;
+        throw error;
+      }
     });
   }
 
@@ -111,7 +136,7 @@ export class PersistentRoomController {
     input: RoomState | InitializeRoomInput,
   ): Promise<InitializeResult> {
     return this.#serialize(async () => {
-      if (this.#state !== undefined) {
+      if (this.#loadFailed || this.#state !== undefined) {
         return { ok: false, code: "already_initialized" };
       }
 
@@ -152,7 +177,7 @@ export class PersistentRoomController {
       const seatsInClass = current.seats.filter(
         (seat) => seat.seatClass === seatClass,
       ).length;
-      if (seatsInClass >= 16) {
+      if (!input.asSpectator && seatsInClass >= 16) {
         return { ok: false, code: "room_full" };
       }
 
@@ -166,6 +191,9 @@ export class PersistentRoomController {
         connected: false,
         seatTokenHash: input.seatTokenHash,
       });
+      if (input.asSpectator && !respectsSpectatorCapacityReservation(next)) {
+        return { ok: false, code: "room_full" };
+      }
       next.revision = current.revision + 1;
       next.lastActivity = this.#now().toISOString();
       await this.#storage.write(next);
@@ -192,14 +220,22 @@ export class PersistentRoomController {
         })),
       );
       const seat = verification.find(({ valid }) => valid)?.seat;
-      if (seat === undefined) {
+      const atCapacity =
+        next.connectionTickets.length >= MAX_TICKETS_PER_ROOM ||
+        next.connectionTickets.filter(
+          (ticket) => ticket.playerId === seat?.playerId,
+        ).length >= MAX_TICKETS_PER_SEAT;
+      if (seat === undefined || atCapacity) {
         if (
           next.connectionTickets.length !== current.connectionTickets.length
         ) {
           await this.#storage.write(next);
           this.#state = clone(next);
         }
-        return { ok: false, code: "unauthorized" };
+        return {
+          ok: false,
+          code: seat === undefined ? "unauthorized" : "rate_limited",
+        };
       }
 
       const hostAuthority =
@@ -313,18 +349,59 @@ export class PersistentRoomController {
     });
   }
 
+  reconcilePresence(
+    openPlayerIds: () => ReadonlySet<string>,
+  ): Promise<{ changed: boolean }> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) return { changed: false };
+      // Sample inside serialization: an earlier queued upgrade may have attached
+      // or closed a socket while this operation waited to acquire its turn.
+      const connected = openPlayerIds();
+      if (
+        current.seats.every(
+          (seat) => seat.connected === connected.has(seat.playerId),
+        )
+      )
+        return { changed: false };
+      const next = clone(current);
+      next.seats = next.seats.map((seat) => ({
+        ...seat,
+        connected: connected.has(seat.playerId),
+      }));
+      next.revision = current.revision + 1;
+      // Presence repair is not user activity and must not postpone expiry.
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      await this.#postPersist?.(clone(next));
+      return { changed: true };
+    });
+  }
+
   dispatch(
     actor: RoomActor,
     envelope: CommandEnvelope,
   ): Promise<CommandResult> {
+    return this.dispatchWithOutcome(actor, envelope).then(
+      ({ result }) => result,
+    );
+  }
+
+  dispatchWithOutcome(
+    actor: RoomActor,
+    envelope: CommandEnvelope,
+  ): Promise<DispatchOutcome> {
     return this.#serialize(async () => {
       const current = this.#state;
       if (current === undefined) {
         return {
-          ok: false,
-          revision: 0,
-          code: "invalid_command",
-          message: "Room is not initialized",
+          changed: false,
+          result: {
+            ok: false,
+            revision: 0,
+            code: "invalid_command",
+            message: "Room is not initialized",
+          },
         };
       }
 
@@ -332,24 +409,31 @@ export class PersistentRoomController {
       const result = await session.dispatch(actor, envelope, this.#now());
       const next = session.snapshot();
       if (next.revision === current.revision) {
-        return result;
+        return { result, changed: false };
       }
 
       try {
         await this.#storage.write(next);
       } catch {
         return {
-          ok: false,
-          revision: current.revision,
-          code: "storage_failed",
-          message: "Room state could not be persisted",
+          changed: false,
+          result: {
+            ok: false,
+            revision: current.revision,
+            code: "storage_failed",
+            message: "Room state could not be persisted",
+          },
         };
       }
 
       this.#state = clone(next);
       await this.#postPersist?.(clone(next));
-      return result;
+      return { result, changed: true };
     });
+  }
+
+  getCode(): string | undefined {
+    return this.#state?.code;
   }
 
   getSnapshot(): RoomState | undefined {
@@ -400,6 +484,7 @@ export class PersistentRoomController {
 
   handleAlarm(closeSockets: () => void | Promise<void>): Promise<void> {
     return this.#serialize(async () => {
+      if (this.#loadFailed) return;
       const persisted = await this.#storage.read();
       if (persisted === undefined) {
         this.#state = undefined;
@@ -437,7 +522,16 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.#controller = new PersistentRoomController(
       new RoomStorage(ctx.storage),
     );
-    ctx.blockConcurrencyWhile(() => this.#controller.load());
+    ctx.blockConcurrencyWhile(async () => {
+      try {
+        await this.#controller.load();
+      } catch {
+        // Invalid/unsupported storage stays intact. Public entry points use
+        // their existing opaque unavailable responses, never validation data.
+        return;
+      }
+      await this.#reconcilePresence();
+    });
   }
 
   initialize(
@@ -447,6 +541,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async join(input: JoinRoomInput): Promise<JoinResult> {
+    await this.#reconcilePresence();
     const result = await this.#controller.join(input);
     if (result.ok) {
       await this.#broadcastProjections();
@@ -478,6 +573,7 @@ export class RoomDurableObject extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
+    await this.#reconcilePresence();
     const snapshot = this.#controller.getSnapshot();
     if (snapshot === undefined) {
       return opaqueAdmissionFailure();
@@ -503,6 +599,10 @@ export class RoomDurableObject extends DurableObject<Env> {
 
     let serverSocket: WebSocket | undefined;
     try {
+      // No await may separate capacity accounting from accept/attach. The
+      // accepted socket reserves its slot before markConnected yields.
+      if (!hasSocketCapacity(this.ctx, admission.playerId))
+        return rateLimitedResponse();
       const pair = new WebSocketPair();
       const clientSocket = pair[0];
       serverSocket = pair[1];
@@ -549,7 +649,20 @@ export class RoomDurableObject extends DurableObject<Env> {
     socket: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    if (socket.readyState !== WebSocket.OPEN) return;
     const attachment = parseRoomSocketAttachment(socket);
+    if (attachment !== null) {
+      const roomCode = this.#controller.getCode();
+      if (
+        roomCode === undefined ||
+        !(await checkMessageBudget(this.env, roomCode, attachment.playerId))
+      ) {
+        socket.close(OVERLOAD_CLOSE_CODE, OVERLOAD_CLOSE_REASON);
+        return;
+      }
+      // A budget await can overlap a close or terminal room event.
+      if (socket.readyState !== WebSocket.OPEN) return;
+    }
     if (
       attachment === null ||
       typeof message !== "string" ||
@@ -596,14 +709,21 @@ export class RoomDurableObject extends DurableObject<Env> {
       });
       return;
     }
+    // Only an admitted, protocol-valid frame from an attached room actor may
+    // trigger presence repair. Malformed and over-budget traffic never writes.
+    await this.#reconcilePresence();
     try {
-      const result = await this.#controller.dispatch(actor, parsed.data);
+      const { result, changed } = await this.#controller.dispatchWithOutcome(
+        actor,
+        parsed.data,
+      );
       this.#send(socket, {
         type: "command_result",
         commandId: parsed.data.commandId,
         result,
       });
-      await this.#broadcastProjections();
+      if (changed) await this.#broadcastProjections();
+      else this.#sendProjection(socket, attachment);
     } catch {
       this.#send(socket, {
         type: "error",
@@ -618,7 +738,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (attachment === null) {
       return;
     }
-    await this.#disconnectIfLast(attachment.playerId, attachment.connectionId);
+    await this.#reconcilePresence(attachment.connectionId);
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {
@@ -659,7 +779,30 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
   }
 
+  async #reconcilePresence(excludedConnectionId?: string): Promise<void> {
+    try {
+      const { changed } = await this.#controller.reconcilePresence(() => {
+        const players = new Set<string>();
+        for (const socket of this.ctx.getWebSockets()) {
+          if (socket.readyState !== WebSocket.OPEN) continue;
+          const attachment = parseRoomSocketAttachment(socket);
+          if (
+            attachment !== null &&
+            attachment.connectionId !== excludedConnectionId
+          )
+            players.add(attachment.playerId);
+        }
+        return players;
+      });
+      if (changed) await this.#broadcastProjections();
+    } catch {
+      // A failed repair leaves the committed flags untouched. The next room
+      // event retries from current runtime inventory, without a timer or log.
+    }
+  }
+
   #send(socket: WebSocket, message: ServerMessage): boolean {
+    if (socket.readyState !== WebSocket.OPEN) return false;
     try {
       socket.send(JSON.stringify(message));
       return true;

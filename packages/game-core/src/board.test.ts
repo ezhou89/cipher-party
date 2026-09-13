@@ -1,8 +1,11 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
+  chooseStartingTeam,
+  configuredTeams,
   countOwnership,
   createClassicBoard,
+  type TeamCount,
   type TeamId,
   type TextCard,
 } from "./index";
@@ -17,6 +20,74 @@ function otherTeam(teamId: TeamId): TeamId {
 }
 
 describe("createClassicBoard", () => {
+  it.each([
+    [2, 5, 5, 25, 9, 8, 7],
+    [3, 5, 6, 30, 8, 7, 7],
+    [4, 6, 6, 36, 8, 7, 6],
+  ] as const)(
+    "creates the exact %d-team board distribution",
+    (
+      teamCount,
+      rows,
+      columns,
+      cardCount,
+      startingTargets,
+      otherTargets,
+      neutralCards,
+    ) => {
+      const startingTeam = chooseStartingTeam(teamCount, "distribution");
+      const board = createClassicBoard({
+        cards,
+        seed: "distribution",
+        startingTeam,
+        teamCount,
+      });
+      const counts = countOwnership(board);
+
+      expect(board).toMatchObject({
+        teamCount,
+        configuredTeams: configuredTeams(teamCount),
+        rows,
+        columns,
+        startingTeam,
+      });
+      expect(board.order).toHaveLength(cardCount);
+      expect(Object.keys(board.cards)).toHaveLength(cardCount);
+      expect(counts[startingTeam]).toBe(startingTargets);
+      for (const teamId of configuredTeams(teamCount)) {
+        expect(counts[teamId]).toBe(
+          teamId === startingTeam ? startingTargets : otherTargets,
+        );
+      }
+      expect(counts.neutral).toBe(neutralCards);
+      expect(counts.hazard).toBe(1);
+    },
+  );
+
+  it.each([2, 3, 4] as const)(
+    "replays the same %d-team board for the same seed",
+    (teamCount) => {
+      const startingTeam = chooseStartingTeam(teamCount, "replay");
+      const input = { cards, seed: "replay", startingTeam, teamCount };
+
+      expect(createClassicBoard(input)).toEqual(createClassicBoard(input));
+    },
+  );
+
+  it.each([2, 3, 4] as const)(
+    "selects every eligible starting-team slot for %d teams",
+    (teamCount) => {
+      const observed = new Set<TeamId>();
+      for (let index = 0; index < 1_000; index += 1) {
+        observed.add(chooseStartingTeam(teamCount, `starter-${index}`));
+      }
+
+      expect([...observed].sort()).toEqual(
+        [...configuredTeams(teamCount)].sort(),
+      );
+    },
+  );
+
   it("creates the approved 9/8/7/1 distribution for a red starter", () => {
     const board = createClassicBoard({
       cards,
@@ -29,6 +100,8 @@ describe("createClassicBoard", () => {
     expect(countOwnership(board)).toEqual({
       red: 9,
       blue: 8,
+      green: 0,
+      yellow: 0,
       neutral: 7,
       hazard: 1,
     });
@@ -50,6 +123,8 @@ describe("createClassicBoard", () => {
     expect(countOwnership(board)).toEqual({
       red: 8,
       blue: 9,
+      green: 0,
+      yellow: 0,
       neutral: 7,
       hazard: 1,
     });
@@ -61,6 +136,56 @@ describe("createClassicBoard", () => {
     ).toEqual(
       createClassicBoard({ cards, seed: "same", startingTeam: "blue" }),
     );
+  });
+
+  it("replays card membership, grid order, and ownership from independent streams", () => {
+    const board = createClassicBoard({
+      cards,
+      seed: "independent-streams",
+      startingTeam: "red",
+    });
+    // Fixed vectors for /cards, then /grid-order, and the existing /ownership
+    // stream. Reusing one stream or arranging the whole pool before selection
+    // must not change either the selected membership or its spatial order.
+    const selected = [
+      31, 11, 4, 33, 13, 36, 18, 25, 21, 28, 14, 10, 39, 22, 12, 38, 24, 0, 9,
+      34, 17, 7, 6, 2, 16,
+    ].map((index) => `card-${index}`);
+    const ordered = [
+      33, 4, 25, 34, 2, 0, 11, 31, 17, 16, 10, 7, 18, 14, 28, 22, 6, 24, 12, 38,
+      21, 39, 9, 36, 13,
+    ].map((index) => `card-${index}`);
+
+    expect([...board.order].sort()).toEqual([...selected].sort());
+    expect(board.order).toEqual(ordered);
+    expect(board.order).not.toEqual(selected);
+    expect(board.order.map((id) => board.cards[id]?.owner)).toEqual([
+      "blue",
+      "blue",
+      "red",
+      "blue",
+      "red",
+      "blue",
+      "hazard",
+      "neutral",
+      "red",
+      "red",
+      "blue",
+      "blue",
+      "blue",
+      "neutral",
+      "red",
+      "red",
+      "red",
+      "neutral",
+      "neutral",
+      "neutral",
+      "red",
+      "neutral",
+      "blue",
+      "neutral",
+      "red",
+    ]);
   });
 
   it("varies the board for distinct known seeds", () => {
@@ -139,6 +264,23 @@ describe("createClassicBoard", () => {
     ).toThrow("Classic board requires at least 25 unique cards");
   });
 
+  it.each([
+    [3, 29, "Classic board requires at least 30 unique cards"],
+    [4, 35, "Classic board requires at least 36 unique cards"],
+  ] as const)(
+    "rejects fewer than the required unique cards for %d teams",
+    (teamCount, cardCount, expectedMessage) => {
+      expect(() =>
+        createClassicBoard({
+          cards: cards.slice(0, cardCount),
+          seed: "short",
+          startingTeam: "red",
+          teamCount,
+        }),
+      ).toThrow(expectedMessage);
+    },
+  );
+
   it("rejects duplicate IDs anywhere in the supplied pool", () => {
     const cardsWithDuplicate = cards.map((card) => ({ ...card }));
     cardsWithDuplicate[39] = { ...cardsWithDuplicate[0]! };
@@ -151,6 +293,63 @@ describe("createClassicBoard", () => {
       }),
     ).toThrow("Classic board requires unique card IDs");
   });
+
+  it.each([2, 3, 4] as const)(
+    "rejects duplicate IDs for a %d-team board",
+    (teamCount) => {
+      const cardsWithDuplicate = cards.map((card) => ({ ...card }));
+      cardsWithDuplicate[39] = { ...cardsWithDuplicate[0]! };
+
+      expect(() =>
+        createClassicBoard({
+          cards: cardsWithDuplicate,
+          seed: "duplicate-by-team-count",
+          startingTeam: "red",
+          teamCount,
+        }),
+      ).toThrow("Classic board requires unique card IDs");
+    },
+  );
+
+  it.each([
+    [2, "green"],
+    [2, "yellow"],
+    [3, "yellow"],
+  ] as const)(
+    "rejects an unconfigured starter for a %d-team board (%s)",
+    (teamCount, startingTeam) => {
+      expect(() =>
+        createClassicBoard({
+          cards,
+          seed: "invalid-starting-team",
+          startingTeam,
+          teamCount,
+        }),
+      ).toThrow("Classic board starting team must be configured");
+    },
+  );
+
+  it.each([2, 3, 4] as const)(
+    "returns isolated configured-team metadata for %d teams",
+    (teamCount: TeamCount) => {
+      const first = createClassicBoard({
+        cards,
+        seed: "metadata-copy",
+        startingTeam: "red",
+        teamCount,
+      });
+      const second = createClassicBoard({
+        cards,
+        seed: "metadata-copy",
+        startingTeam: "red",
+        teamCount,
+      });
+
+      first.configuredTeams.reverse();
+
+      expect(second.configuredTeams).toEqual(configuredTeams(teamCount));
+    },
+  );
 
   it("keeps prototype-like card IDs as own board-card properties", () => {
     const prototypeCardPool: TextCard[] = [
@@ -175,6 +374,8 @@ describe("createClassicBoard", () => {
     expect(countOwnership(board)).toEqual({
       red: 9,
       blue: 8,
+      green: 0,
+      yellow: 0,
       neutral: 7,
       hazard: 1,
     });

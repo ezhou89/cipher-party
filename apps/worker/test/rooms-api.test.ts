@@ -19,8 +19,12 @@ import type { RoomDurableObject } from "../src/room/room-durable-object";
 import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
 
 const TEST_ORIGIN = "http://127.0.0.1:5173";
-const INITIAL_TIME = new Date("2026-08-30T10:00:00.000Z");
-const JOIN_TIME = new Date("2026-08-30T11:00:00.000Z");
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIAL_TIME = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
+const JOIN_TIME = new Date(INITIAL_TIME.getTime() + 60 * 60 * 1000);
 
 interface CreateRoomResponse {
   code: string;
@@ -256,6 +260,30 @@ describe("room bootstrap HTTP API", () => {
     await expect(room("DEF456").getSnapshot()).resolves.toMatchObject({
       seats: [{ displayName: "Collision Host" }],
     });
+  });
+
+  it("allocates a second seat after a successful join response is lost and the user retries", async () => {
+    const created = await createRoom();
+    const first = await jsonRequest(`/api/rooms/${created.body.code}/join`, {
+      displayName: "Guest",
+      asSpectator: false,
+    });
+    expect(first.status).toBe(200);
+    // Simulate a response body lost in transit: no receipt or token is retained.
+    await first.body?.cancel();
+    const afterLost = (await room(created.body.code).getSnapshot())!;
+    expect(afterLost.seats.length).toBe(2);
+    const retry = await joinRoom(created.body.code, "Guest");
+    expect(retry.response.status).toBe(200);
+    const afterRetry = (await room(created.body.code).getSnapshot())!;
+    expect(afterRetry.seats.length).toBe(3);
+    expect(
+      afterRetry.seats[1]!.playerId === afterRetry.seats[2]!.playerId,
+    ).toBe(false);
+    expect(
+      afterRetry.seats[1]!.seatTokenHash === afterRetry.seats[2]!.seatTokenHash,
+    ).toBe(false);
+    expect(afterRetry.revision).toBe(afterLost.revision + 1);
   });
 
   it("joins duplicate display names as distinct disconnected seats and advances activity once", async () => {
@@ -935,6 +963,37 @@ describe("trusted seat mutation persistence", () => {
       hostAuthority: false,
     });
     expect(controller.getSnapshot()?.connectionTickets).toEqual([]);
+  });
+});
+
+describe("outstanding ticket budgets", () => {
+  it("returns recoverable throttling after eight tickets without changing existing tickets or activity", async () => {
+    const created = await createRoom();
+    const tickets = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        issueTicket(created.body.code, created.body.seatToken),
+      ),
+    );
+    const before = await room(created.body.code).getSnapshot();
+    const response = await request(`/api/rooms/${created.body.code}/tickets`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${created.body.seatToken}` },
+    });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(await response.json()).toMatchObject({
+      error: { code: "rate_limited" },
+    });
+    expect(await room(created.body.code).getSnapshot()).toEqual(before);
+    const first = tickets[0]!.body;
+    expect(
+      (
+        await room(created.body.code).consumeTicket({
+          ticket: first.ticket,
+          now: first.expiresAt - 1,
+        })
+      ).ok,
+    ).toBe(true);
   });
 });
 

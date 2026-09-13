@@ -1,9 +1,13 @@
 import type { ClientProjection } from "@cipher-party/protocol";
 
+import type { TeamId } from "../lib/team-presentation";
+
 export interface TeamPanelIdentity {
-  id: "red" | "blue" | "waiting";
+  id: TeamId | "waiting";
   label: string;
   symbol: string;
+  callsign?: string;
+  pattern?: string;
 }
 
 interface TeamPanelProps {
@@ -30,11 +34,19 @@ export function TeamPanel({ identity, seats }: TeamPanelProps) {
     <section
       className={`team-panel team-panel-${identity.id}`}
       aria-labelledby={headingId}
+      {...(identity.pattern === undefined
+        ? {}
+        : { "data-team-pattern": identity.pattern })}
     >
       <header className="team-panel-heading">
-        <h2 id={headingId}>
-          <span>{identity.symbol}</span> {identity.label}
-        </h2>
+        <div>
+          {identity.callsign === undefined ? null : (
+            <p className="team-callsign">{identity.callsign}</p>
+          )}
+          <h2 id={headingId}>
+            <span>{identity.symbol}</span> {identity.label}
+          </h2>
+        </div>
         <span>{seats.length}</span>
       </header>
       {seats.length === 0 ? (
