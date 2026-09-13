@@ -1236,6 +1236,54 @@ test("public projection auditing ignores a frame's claimed role and rejects nest
   ]);
 });
 
+test("raw public audit rejects nested hazard elimination metadata before schema parsing", () => {
+  const { observer, receive } = observeSyntheticRoomFrames({
+    expectedViewRole: "spectator",
+    publicObserver: true,
+  });
+
+  receive(
+    JSON.stringify({
+      type: "projection",
+      projection: {
+        ...validSpectatorProjection(1),
+        publicHistory: [
+          {
+            revision: 1,
+            at: "2026-09-12T00:00:00.000Z",
+            type: "card_revealed",
+            teamId: "red",
+            cardId: "public-card",
+            owner: "hazard",
+            eliminatedTeam: {
+              key: { "private-card": "hazard" },
+              targetTotal: 8,
+              ownershipMap: { "private-card": "red" },
+            },
+          },
+        ],
+      },
+    }),
+  );
+
+  expect(observer.privacyViolations).toEqual([
+    "invalid_eliminated_team_value",
+    "forbidden_hidden_field",
+    "forbidden_target_total",
+    "forbidden_hidden_field",
+  ]);
+  expect(observer.projectionViolations).toEqual(["projection_schema_invalid"]);
+  expect(observer.serverMessageViolations).toEqual(["invalid_server_message"]);
+  expect(observer.serverFrameOutcomes).toEqual([
+    {
+      outcome: "invalid_projection_payload",
+      socketIndex: 1,
+      socketProjectionIndex: 0,
+    },
+  ]);
+  expect(observer.projections).toEqual([]);
+});
+
 test("room observer captures only protocol-v2 command envelopes", () => {
   const { observer, send } = observeSyntheticRoomFrames();
 

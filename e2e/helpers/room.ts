@@ -7,6 +7,7 @@ import {
 import {
   ClientProjectionSchema,
   ServerMessageSchema,
+  TeamIdSchema,
   type ClientProjection,
   type CommandEnvelope,
   type CommandResult,
@@ -181,10 +182,15 @@ export function auditPublicProjection(
           typeof path[1] === "number" &&
           value.type === "card_revealed" &&
           value.owner === "hazard";
+        const canonicalTeamId = TeamIdSchema.safeParse(nested).success;
         if (!publicHazardElimination) {
           observer.privacyViolations.push(
             "eliminated_team_outside_hazard_reveal",
           );
+        }
+        if (!canonicalTeamId) {
+          observer.privacyViolations.push("invalid_eliminated_team_value");
+          visit(nested, [...path, field]);
         }
         continue;
       }
