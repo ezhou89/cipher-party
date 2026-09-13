@@ -32,7 +32,7 @@ A private, account-free multiplayer association game for 4–16 active players o
 
 ## Current delivery boundary
 
-The current deployed/runtime baseline is a deployable two-team Classic game with:
+The prior deployed staging build, which remains the current external runtime reference until a multi-team deployment is explicitly authorized, is a two-team Classic game with:
 
 - Account-free room creation and invite-code joining.
 - Host, clue-giver, operative, and spectator roles.
@@ -44,7 +44,7 @@ The current deployed/runtime baseline is a deployable two-team Classic game with
 - A 24-hour inactivity alarm that closes sockets and clears room storage.
 - A responsive phone/laptop lobby and game board.
 
-The current runtime does not yet deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The approved next slice is a single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms; Blitz, campaigns, packs, picture/mixed cards, and licensed content remain out of scope for that slice.
+That prior deployed two-team staging build does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The reviewed branch/source now implements Tasks 1–8 of the approved single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms, but it has not been deployed. Pack Studio, image uploads, AI suggestions, Blitz, campaigns, TV mode, accounts, public packs, picture/mixed cards, and licensed content remain out of scope for the reviewed source.
 
 ## Architecture snapshot
 
