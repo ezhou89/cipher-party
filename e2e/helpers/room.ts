@@ -214,12 +214,22 @@ export function auditPublicProjection(
           path[0] === "publicHistory" &&
           typeof path[1] === "number" &&
           value.type === "card_revealed";
-        if (!revealedBoardCardOwner && !publicRevealOwner) {
+        const permittedPublicOwner =
+          revealedBoardCardOwner || publicRevealOwner;
+        if (!permittedPublicOwner) {
           observer.privacyViolations.push(
             boardCardOwner
               ? "owner_on_unrevealed_board_card"
               : "owner_outside_public_reveal",
           );
+        }
+        const canonicalPublicOwner =
+          TeamIdSchema.safeParse(nested).success ||
+          nested === "neutral" ||
+          nested === "hazard";
+        if (permittedPublicOwner && !canonicalPublicOwner) {
+          observer.privacyViolations.push("invalid_public_owner_value");
+          visit(nested, [...path, field]);
         }
         continue;
       }
