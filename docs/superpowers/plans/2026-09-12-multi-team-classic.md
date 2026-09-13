@@ -378,7 +378,7 @@ git commit -m "feat: version protocol for multi-team projections"
 - Consumes: Task 1 board metadata and Task 3 v2 schemas.
 - Produces: v2 `RoomState`, persisted `teamCount`/`configuredTeams` plus server-only `initialOwners` provenance, dynamic snapshot validation, and `parseRoomSnapshot` normalization of valid v1 rooms.
 
-- [ ] **Step 1: Add failing v1/v2 snapshot tests.**
+- [x] **Step 1: Add failing v1/v2 snapshot tests.**
 
 Add tests that a generated v2 four-team snapshot parses with exact `initialOwners`, a post-hazard v2 snapshot keeps eliminated-team seats as spectators and preserves revealed target ownership even after an order permutation, a v1 two-team fixture parses and normalizes with derived `initialOwners`, and invalid dimensions/teams/eliminations/history metadata fail closed:
 
@@ -393,7 +393,7 @@ expect(normalized.game?.board.columns).toBe(5);
 expect(normalized.game?.eliminatedTeams).toEqual([]);
 ```
 
-- [ ] **Step 2: Run Worker snapshot tests and verify the RED failure.**
+- [x] **Step 2: Run Worker snapshot tests and verify the RED failure.**
 
 ```bash
 pnpm --filter @cipher-party/worker test -- test/room-snapshot.test.ts test/room-durable-object.test.ts
@@ -401,7 +401,7 @@ pnpm --filter @cipher-party/worker test -- test/room-snapshot.test.ts test/room-
 
 Expected: failures because the current validator accepts only schema/protocol v1 and exactly 25 Red/Blue cards.
 
-- [ ] **Step 3: Add the v2 room fields and normalization boundary.**
+- [x] **Step 3: Add the v2 room fields and normalization boundary.**
 
 Change `RoomState` to the v2 in-memory shape (import `CardId` and `Ownership` from `@cipher-party/game-core`):
 
@@ -418,11 +418,11 @@ export interface RoomState {
 
 Keep v1 and v2 Zod schemas separate. The parser first recognizes the version, validates the complete v1 shape, injects two-team defaults, 5 × 5 metadata, and an `initialOwners` map copied from the unchanged legacy board owners, then validates the normalized v2 state. New board state writes an exact server-only `initialOwners` map keyed by card ID before any reveal; the minimal `start_board` writer seam may be added here so a freshly persisted board is reloadable. It is never included in client projections. No SQLite migration is added.
 
-- [ ] **Step 4: Generalize snapshot invariants.**
+- [x] **Step 4: Generalize snapshot invariants.**
 
 Validate exact board dimensions/distribution using `classicBoardSpec`, configured/eliminated subsets, active-team/winner coherence, role minimums for every non-eliminated configured team, and spectator-only seats for eliminated teams. Require `initialOwners` to have exactly the board card IDs and the original exact distribution. Validate post-hazard ownership against this immutable server-side map so only unrevealed targets originally owned by the eliminated team may have become neutral; revealed target ownership must remain unchanged even when old history entries are absent or `board.order` is permuted. Keep the existing null-prototype card map restoration. Preserve room-level `startingTeam` as a mirror of `game.board.startingTeam` once a board exists.
 
-- [ ] **Step 5: Run focused Worker tests and commit.**
+- [x] **Step 5: Run focused Worker tests and commit.**
 
 ```bash
 pnpm --filter @cipher-party/worker test -- test/room-snapshot.test.ts test/room-durable-object.test.ts
