@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 41
+**Snapshot revision:** 42
 
-**Last updated:** 2026-09-12
+**Last updated:** 2026-09-13
 
-**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean source `4e138b64a191d6236445b1763d1128004b0fc5ac`; this is a documented handoff ready for explicit deployment authorization and human gates. Staging remains the previously deployed two-team regression reference; no multi-team deployment was made. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean runtime source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the public repository handoff is now open in PR #1 from `feature/creative-integration` into the reviewed `main` baseline. Staging remains the previously deployed two-team regression reference; no multi-team deployment was made. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
 **Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Obtain explicit multi-team staging deployment authorization, then run the tracked deployment, exact `check:staging` attestation, public smoke, and the existing four-human plus new eight-player human gates. The current two-team staging build remains the regression reference until that sequence is authorized and completed.
+**Next execution:** Review and merge PR #1, then obtain explicit multi-team staging deployment authorization and run the tracked deployment, exact `check:staging` attestation, public smoke, and the existing four-human plus new eight-player human gates. The current two-team staging build remains the regression reference until that sequence is authorized and completed.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -18,7 +18,7 @@
 
 **Current worktree:** `/Users/eugenezhou/Code/cipher-party/.worktrees/creative-integration`
 
-**Creative source:** `main@128c0f7` plus identified Antigravity prototype/content directories. Preserve the original checkout and its untracked E2E drafts.
+**Creative source:** `legacy/gemini-main@128c0f7` plus identified Antigravity prototype/content directories. Preserve the original checkout and its untracked E2E drafts.
 
 **Roadmap:** docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md
 
@@ -68,8 +68,8 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 ## Work ledger
 
 - **Last accepted task:** Task 8 — full verification and source-bound release handoff for exact source `4e138b64a191d6236445b1763d1128004b0fc5ac`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
-- **Current task:** Tasks 1–8 accepted; awaiting explicit staging deployment authorization and human gates.
-- **Next task:** After authorization, deploy and attest the multi-team build, run artifact-free public smoke, then conduct the four-human two-team and eight-player four-team sessions from the separate runbooks.
+- **Current task:** Tasks 1–8 accepted; public PR #1 is open and mergeable against the reviewed `main` baseline; staging deployment authorization and human gates remain pending.
+- **Next task:** Review/merge PR #1, then after authorization deploy and attest the multi-team build, run artifact-free public smoke, and conduct the four-human two-team and eight-player four-team sessions from the separate runbooks.
 - **Current blockers:** Hosted CI has no configured repository/provider; no multi-team deployment is authorized by this plan; the real four-human two-team and eight-player four-team staging sessions have not been run. Milestone exit requires fresh attestation, the human gates, and resolution of any critical findings. **Human playtests: NOT YET RUN.**
 - **Audit baseline:** 518 tracked runtime functions; classic mean 3.36, maximum 34, and exactly the approved baseline exceptions above 20 after the final whole-branch fixes. The >20-function gate is green and inline waivers cannot suppress inventory. This current measurement comes from the final Task 8 release rerun; earlier task measurements below remain historical.
 
@@ -77,7 +77,7 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 
 - Task 1 restored the Git/ESLint scratch boundary and validates the snapshot's actual active-plan target. `pnpm run check` passed **542 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 94). The coordinator separately reran the 46 focused docs/hygiene/preflight tests successfully.
 - Tracked `smoke:staging:public` discovers four public route/browser cases and stays outside local e2e discovery. It blocks socket creation and unsafe methods/origins/queries; a shared zero-redirect transport helper prevents redirects from contacting forbidden destinations. Eight local Chromium/WebKit policy regressions passed after meaningful RED; lint, types and diff checks passed. The tracked live smoke itself has not been run.
-- No hardening deployment, merge, push, or future-milestone feature is authorized by this plan. Hosted CI awaits a repository/provider; four-human acceptance remains pending.
+- No multi-team staging deployment or merge has occurred. The user authorized the public repository push and PR; hosted CI still awaits provider configuration, and four-human acceptance remains pending.
 - Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
 - Task 3 bounds valid upgrades before Durable Object lookup, caps live socket inventory at four per seat/64 per room, caps outstanding unexpired tickets at eight per seat/256 per room, and applies stable purpose-scoped native command budgets (30/10s per seat, 120/10s per room) before frame parsing. Failed/replayed commands resync only their sender; accepted revision changes broadcast. Focused Worker tests passed 129/129; staging fixtures 47/47; `pnpm run check` passed 588 tests; local e2e 48/48; build, preflight 8/8, and diff checks passed. Counters are location-local/eventually consistent, and capacity denial may consume a one-use ticket; no deployment/live smoke occurred.
 - Task 4 validates complete v1 room snapshots before controller use, rejects unsupported/corrupt storage without writing, clearing, migrating, exposing details, or allowing initialization over it, and restores null-prototype card maps. Presence is reconciled from OPEN serialized attachments on load and later room events; repairs preserve `lastActivity`, retry after failed writes, and never run for over-budget or protocol-invalid frames. Focused resilience tests passed 133/133; `pnpm run check` passed 643 tests; local e2e 48/48; diff checks passed. Lost successful join responses still allocate a second seat on retry; retry-safe identity and replacement remain deferred. No deployment/live smoke occurred.
@@ -107,8 +107,17 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 - `pnpm run deploy:staging` deployed the reviewed source below. Explicit `pnpm run check:staging` passed authenticated source/version/100% traffic, the original room namespace, eight bindings, transport/health/security headers, and all three built HTML/JS/CSS SHA-256 comparisons.
 - Final read-only public smoke passed **2/2** in 8.1 seconds with `pnpm exec playwright test --config .superpowers/sdd/2026-09-07-creative-integration/staging-smoke.config.ts`: desktop Chromium and 320px mobile WebKit checked landing/invite HTML against the local build, UI, focus, viewport, and zero CSP/console/page/request/response errors. No rooms or sockets were created; this is not a live multiplayer or human-session claim.
 - Four final public landing/invite screenshots in `.superpowers/sdd/2026-09-07-creative-integration/staging-screenshots/` were separately captured and visually inspected. Playwright 1.62.1 WebKit screenshot capture itself injects an inline animation-synchronization stylesheet, which the intended CSP blocks. Visual capture is separate from the zero-error smoke; no errors are filtered or assertions weakened.
-- Original `main@128c0f7` with its preexisting untracked E2E drafts and clean `connected-classic@fe264e3` remain untouched. Keep `feature/creative-integration` and its worktree/scratch evidence; no merge, push, apex, zone/account, paid-plan, R2, or AI change was made.
+- Original Gemini history is preserved remotely as `legacy/gemini-main@128c0f7`; reviewed `feature/connected-classic@fe264e3` is the canonical public `main` baseline, and `feature/creative-integration` is published at the reviewed runtime plus docs-only continuation. PR #1 is open and mergeable; no apex, zone/account, paid-plan, R2, AI, or staging deployment change was made.
 - Four-human runbook results remain **PENDING / NOT YET RUN**.
+
+## Public repository handoff
+
+- Repository: <https://github.com/ezhou89/cipher-party> (public).
+- `main`: reviewed Connected Classic baseline `fe264e38b47bac7fcd87517f0cdb84adf4f64226`.
+- `legacy/gemini-main`: preserved original creative history `128c0f79e8a4c7d0451443e22c8916822236f294`.
+- `feature/connected-classic`: published reviewed baseline branch at `fe264e38b47bac7fcd87517f0cdb84adf4f64226`.
+- `feature/creative-integration`: published reviewed source lineage; PR [#1](https://github.com/ezhou89/cipher-party/pull/1) targets `main` and is currently mergeable.
+- The runtime source in the PR is `4e138b64a191d6236445b1763d1128004b0fc5ac`; later branch commits are documentation-only handoff updates.
 
 ## Verified staging deployment
 
