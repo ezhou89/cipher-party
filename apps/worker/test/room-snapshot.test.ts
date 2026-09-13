@@ -36,6 +36,22 @@ function initialOwnersFor(
   );
 }
 
+function renameFirstCard(state: RoomState, replacementId: string): void {
+  const game = state.game!;
+  const originalId = game.board.order[0]!;
+  const originalCard = game.board.cards[originalId]!;
+  const originalOwner = state.initialOwners![originalId]!;
+
+  delete game.board.cards[originalId];
+  game.board.cards[replacementId] = {
+    ...originalCard,
+    id: replacementId,
+  };
+  game.board.order[0] = replacementId;
+  delete state.initialOwners![originalId];
+  state.initialOwners![replacementId] = originalOwner;
+}
+
 function fourTeamState(): RoomState {
   const state = lobby();
   const teams = ["red", "blue", "green", "yellow"] as const;
@@ -284,6 +300,19 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(Object.getPrototypeOf(restored.game!.board.cards)).toBeNull();
   });
 
+  it.each(["constructor", "toString", "hasOwnProperty"])(
+    "parses a v2 snapshot whose board contains the inherited-property card ID %s",
+    (cardId) => {
+      const state = fourTeamState();
+      renameFirstCard(state, cardId);
+
+      const restored = parseRoomSnapshot(state);
+
+      expect(restored.game?.board.order[0]).toBe(cardId);
+      expect(Object.hasOwn(restored.game!.board.cards, cardId)).toBe(true);
+    },
+  );
+
   it("parses the supported three-team geometry and distribution", () => {
     const restored = parseRoomSnapshot(threeTeamState());
 
@@ -317,6 +346,20 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(normalized.game?.eliminatedTeams).toEqual([]);
     expect(Object.getPrototypeOf(normalized.game!.board.cards)).toBeNull();
   });
+
+  it.each(["constructor", "toString", "hasOwnProperty"])(
+    "normalizes a v1 snapshot whose board contains the inherited-property card ID %s",
+    async (cardId) => {
+      const source = (await generatedStates())[2]!;
+      renameFirstCard(source, cardId);
+
+      const normalized = parseRoomSnapshot(legacyV1State(source));
+
+      expect(normalized.game?.board.order[0]).toBe(cardId);
+      expect(Object.hasOwn(normalized.game!.board.cards, cardId)).toBe(true);
+      expect(normalized.eliminationConversions).toEqual({});
+    },
+  );
 
   it("accepts coherent multi-team hazard elimination metadata", () => {
     const state = eliminatedFourTeamState();

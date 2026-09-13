@@ -412,6 +412,15 @@ type InitialOwners = NonNullable<RoomState["initialOwners"]>;
 type EliminationConversions = RoomState["eliminationConversions"];
 type BoardSpec = ReturnType<typeof classicBoardSpec>;
 
+function ownEliminationConversion(
+  eliminationConversions: EliminationConversions,
+  cardId: string,
+): TeamId | undefined {
+  return Object.hasOwn(eliminationConversions, cardId)
+    ? eliminationConversions[cardId]
+    : undefined;
+}
+
 function validBoardMetadata(
   state: RoomState,
   value: PersistedGame,
@@ -499,7 +508,10 @@ function validBoardOwnershipChanges(
   for (const cardId of gameBoard.order) {
     const cardValue = gameBoard.cards[cardId]!;
     const originalOwner = initialOwners[cardId];
-    const convertedBy = eliminationConversions[cardId];
+    const convertedBy = ownEliminationConversion(
+      eliminationConversions,
+      cardId,
+    );
     if (convertedBy !== undefined) {
       if (
         convertedBy !== originalOwner ||
