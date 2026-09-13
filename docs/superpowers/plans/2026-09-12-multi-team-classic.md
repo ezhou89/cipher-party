@@ -668,11 +668,11 @@ git commit -m "test: cover multi-team browser play"
 - Consumes: all implementation and browser-test outputs from Tasks 1–7.
 - Produces: a clean, source-bound, documented handoff ready for explicit staging deployment authorization and the two human gates.
 
-- [ ] **Step 1: Run focused package checks after each task is accepted.**
+- [x] **Step 1: Run focused package checks after each task is accepted.**
 
 Use the package commands recorded in each task; do not skip the focused test cycle or commit boundary.
 
-- [ ] **Step 2: Run the complete local release gate.**
+- [x] **Step 2: Run the complete local release gate.**
 
 ```bash
 pnpm install --frozen-lockfile
@@ -681,7 +681,7 @@ pnpm run check:release
 
 Expected: all existing coverage floors, complexity thresholds, builds, preflight checks, local Worker dry run, two-team E2E, and four-team E2E pass. Any failure receives a focused regression test before a fix.
 
-- [ ] **Step 3: Verify the clean checkout and source identity.**
+- [x] **Step 3: Verify the clean checkout and source identity.**
 
 ```bash
 git diff --check
@@ -691,11 +691,11 @@ git rev-parse HEAD
 
 The worktree must be clean, and the plan/snapshot must record the exact reviewed commit. Do not deploy a dirty or unverified checkout.
 
-- [ ] **Step 4: Refresh the project snapshot.**
+- [x] **Step 4: Refresh the project snapshot.**
 
 Increment the snapshot revision, set the approved multi-team plan as the active plan, state that implementation is complete only if Tasks 1–7 and release checks passed, retain the current staging deployment as the prior two-team reference until a new deployment is authorized, and set the next task to the appropriate human gate. Preserve the existing safety boundaries and record the v1-to-v2, composite-history, and eight-player decisions.
 
-- [ ] **Step 5: Prepare but do not execute live deployment without authorization.**
+- [x] **Step 5: Prepare but do not execute live deployment without authorization.**
 
 ```bash
 pnpm run deploy:staging --dry-run
@@ -703,19 +703,21 @@ pnpm run deploy:staging --dry-run
 
 After explicit authorization, the release operator may run the tracked staging deployment, `check:staging` with exact expected commit/version/namespace, and `pnpm run smoke:staging:public`. The eight-player staging session follows only after fresh attestation.
 
-- [ ] **Step 6: Commit the release handoff.**
+- [x] **Step 6: Commit the release handoff.**
 
 ```bash
 git add docs/PROJECT_SNAPSHOT.md docs/superpowers/plans/2026-09-12-multi-team-classic.md
 git commit -m "docs: record multi-team implementation handoff"
 ```
 
+Task 8 verification record (source `491c46577234de32197a1aa1c987edc0f6576b4c`): frozen install, `pnpm run check:release`, and `pnpm run deploy:staging --dry-run` passed after the documented sandbox-only Wrangler log/listener denial was retried with narrowly scoped local permission. The release gate passed **818 repository tests**, all five coverage floors, complexity (510 functions; mean 3.36; maximum 34), builds, 8/8 preflight rows, and 59 Playwright tests with one intentional WebKit skip. The checkout was clean and the dry run performed no upload. Current staging remains the prior two-team deployment; no live deployment or human session was executed.
+
 ## Self-review checklist
 
-- [ ] Every spec section maps to a task: team model (1), board distributions (1), reducer/hazard rules (2), v2 protocol/projections (3), migration (4), lobby/authorization (5), UI/input (6), browser/human gates (7), rollout/snapshot (8).
-- [ ] No task relies on a two-entry same-revision history; composite hazard metadata is defined in Tasks 2, 3, and 5.
-- [ ] No task leaks target totals to public roles; `teamSummaries` contain revealed counts only.
-- [ ] No task introduces Phaser, canvas, Blitz, campaigns, Pack Studio, picture assets, or licensed content.
-- [ ] All interfaces use the same names: `teamCount`, `configuredTeams`, `eliminatedTeams`, `rows`, `columns`, `teamSummaries`, `eliminatedTeam`, `applyGameActionWithEvent`.
-- [ ] Legacy v1 loading, protocol v2 clients, exact board distributions, 16/16 capacities, and two-team regression coverage are explicit.
-- [ ] Human validation includes the existing four-human two-team gate and a separate eight-active-player four-team gate.
+- [x] Every spec section maps to a task: team model (1), board distributions (1), reducer/hazard rules (2), v2 protocol/projections (3), migration (4), lobby/authorization (5), UI/input (6), browser/human gates (7), rollout/snapshot (8).
+- [x] No task relies on a two-entry same-revision history; composite hazard metadata is defined in Tasks 2, 3, and 5.
+- [x] No task leaks target totals to public roles; `teamSummaries` contain revealed counts only.
+- [x] No task introduces Phaser, canvas, Blitz, campaigns, Pack Studio, picture assets, or licensed content.
+- [x] All interfaces use the same names: `teamCount`, `configuredTeams`, `eliminatedTeams`, `rows`, `columns`, `teamSummaries`, `eliminatedTeam`, `applyGameActionWithEvent`.
+- [x] Legacy v1 loading, protocol v2 clients, exact board distributions, 16/16 capacities, and two-team regression coverage are explicit.
+- [x] Human validation includes the existing four-human two-team gate and a separate eight-active-player four-team gate.
