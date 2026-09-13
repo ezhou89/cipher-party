@@ -409,6 +409,7 @@ function applyLobbyCommand(
       state.initialOwners = Object.fromEntries(
         board.order.map((cardId) => [cardId, board.cards[cardId]!.owner]),
       );
+      state.eliminationConversions = {};
       state.game = createClassicGame(board);
       state.phase = "playing";
       return null;
@@ -549,11 +550,25 @@ function applyGameplayCommand(
     };
   }
   try {
-    const transition = applyGameActionWithEvent(state.game, action);
-    state.game = transition.state;
+    const previousGame = state.game;
+    const transition = applyGameActionWithEvent(previousGame, action);
+    let eliminationConversions = state.eliminationConversions;
+    let seats = state.seats;
     if (transition.event?.eliminatedTeam !== undefined) {
       const eliminatedTeam = transition.event.eliminatedTeam;
-      state.seats = state.seats.map((candidate) =>
+      eliminationConversions = { ...eliminationConversions };
+      for (const cardId of previousGame.board.order) {
+        const before = previousGame.board.cards[cardId]!;
+        const after = transition.state.board.cards[cardId]!;
+        if (
+          before.owner === eliminatedTeam &&
+          !before.revealed &&
+          after.owner === "neutral"
+        ) {
+          eliminationConversions[cardId] = eliminatedTeam;
+        }
+      }
+      seats = seats.map((candidate) =>
         candidate.seatClass === "active" && candidate.teamId === eliminatedTeam
           ? {
               ...candidate,
@@ -564,6 +579,9 @@ function applyGameplayCommand(
           : candidate,
       );
     }
+    state.game = transition.state;
+    state.eliminationConversions = eliminationConversions;
+    state.seats = seats;
     if (state.game.phase === "board_complete") {
       state.phase = "complete";
     }

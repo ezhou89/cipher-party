@@ -99,6 +99,7 @@ function legacyV1State(state: RoomState): unknown {
   delete legacy.teamCount;
   delete legacy.configuredTeams;
   delete legacy.initialOwners;
+  delete legacy.eliminationConversions;
   const game = legacy.game as {
     board: Record<string, unknown>;
     eliminatedTeams?: unknown;
@@ -131,6 +132,7 @@ function eliminatedFourTeamState(
   for (const card of Object.values(game.board.cards)) {
     if (card.owner === eliminatedTeam && !card.revealed) {
       card.owner = "neutral";
+      state.eliminationConversions[card.id] = eliminatedTeam;
     }
   }
   game.eliminatedTeams = [eliminatedTeam];
@@ -304,6 +306,7 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(normalized.protocolVersion).toBe(2);
     expect(normalized.teamCount).toBe(2);
     expect(normalized.configuredTeams).toEqual(["red", "blue"]);
+    expect(normalized.eliminationConversions).toEqual({});
     expect(normalized.initialOwners).toEqual(expectedInitialOwners);
     expect(normalized.game?.board).toMatchObject({
       teamCount: 2,
@@ -326,6 +329,76 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(parseRoomSnapshot(withoutRetainedMetadata)).toEqual(
       withoutRetainedMetadata,
     );
+  });
+
+  it("accepts a later reveal of a converted neutral after history trimming and order permutation", () => {
+    const state = eliminatedFourTeamState();
+    const eliminatedTeam = state.game!.eliminatedTeams[0]!;
+    const converted = Object.values(state.game!.board.cards).find(
+      (card) =>
+        state.initialOwners![card.id] === eliminatedTeam &&
+        card.owner === "neutral" &&
+        !card.revealed,
+    )!;
+    const convertedIndex = state.game!.board.order.indexOf(converted.id);
+    const swapIndex = convertedIndex === 0 ? 1 : 0;
+    [
+      state.game!.board.order[convertedIndex],
+      state.game!.board.order[swapIndex],
+    ] = [
+      state.game!.board.order[swapIndex]!,
+      state.game!.board.order[convertedIndex]!,
+    ];
+    converted.revealed = true;
+    state.revision = 101;
+    state.publicHistory = [];
+
+    expect(parseRoomSnapshot(state)).toEqual(state);
+  });
+
+  it("rejects restoring an unrevealed converted target to its eliminated owner", () => {
+    const state = eliminatedFourTeamState();
+    const eliminatedTeam = state.game!.eliminatedTeams[0]!;
+    const converted = Object.values(state.game!.board.cards).find(
+      (card) =>
+        state.initialOwners![card.id] === eliminatedTeam &&
+        card.owner === "neutral" &&
+        !card.revealed,
+    )!;
+
+    converted.owner = eliminatedTeam;
+
+    expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
+  });
+
+  it.each([
+    [
+      "a missing converted card",
+      (state: RoomState, convertedId: string) => {
+        delete state.eliminationConversions[convertedId];
+      },
+    ],
+    [
+      "an unknown card",
+      (state: RoomState, _convertedId: string, eliminatedTeam: TeamId) => {
+        state.eliminationConversions["unknown-card"] = eliminatedTeam;
+      },
+    ],
+    [
+      "the wrong eliminated team",
+      (state: RoomState, convertedId: string) => {
+        state.eliminationConversions[convertedId] = "blue";
+      },
+    ],
+  ] as Array<
+    [string, (state: RoomState, convertedId: string, team: TeamId) => void]
+  >)("rejects elimination conversion provenance with %s", (_name, mutate) => {
+    const state = eliminatedFourTeamState();
+    const eliminatedTeam = state.game!.eliminatedTeams[0]!;
+    const convertedId = Object.keys(state.eliminationConversions)[0]!;
+    mutate(state, convertedId, eliminatedTeam);
+
+    expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
   });
 
   it("accepts target completion after a prior multi-team hazard", () => {

@@ -283,6 +283,7 @@ describe("createLobbyState and neutral fixture", () => {
       teamCount: 2,
       configuredTeams: ["red", "blue"],
       initialOwners: null,
+      eliminationConversions: {},
       code: "ABC123",
       inviteUrl: "https://play.example/room/ABC123",
       revision: 0,
@@ -1667,6 +1668,18 @@ describe("RoomSession multi-team authorization and transitions", () => {
       }),
     ]);
     expect(snapshot.initialOwners).toEqual(beforeInitialOwners);
+    expect(snapshot).toHaveProperty(
+      "eliminationConversions",
+      Object.fromEntries(
+        snapshot
+          .game!.board.order.filter(
+            (cardId) =>
+              beforeInitialOwners![cardId] === "red" &&
+              snapshot.game!.board.cards[cardId]!.owner === "neutral",
+          )
+          .map((cardId) => [cardId, "red"]),
+      ),
+    );
     const convertedRedCard = Object.entries(beforeInitialOwners!).find(
       ([, owner]) => owner === "red",
     )![0];
@@ -1993,6 +2006,7 @@ describe("RoomSession projections", () => {
     expect("key" in projection).toBe(false);
     const serialized = JSON.stringify(projection);
     expect(serialized).not.toContain("initialOwners");
+    expect(serialized).not.toContain("eliminationConversions");
     expect(serialized).not.toContain("targetTotal");
     expect(serialized).not.toContain("seatTokenHash");
     expect(serialized).not.toContain("hostTokenHash");
@@ -2033,6 +2047,7 @@ describe("RoomSession projections", () => {
     expect(serialized).not.toContain("connectionTickets");
     expect(serialized).not.toContain("boardSeed");
     expect(serialized).not.toContain("initialOwners");
+    expect(serialized).not.toContain("eliminationConversions");
     expect(projection.viewRole).toBe("spectator");
     expect(projection.board?.cards.every((card) => !("owner" in card))).toBe(
       true,

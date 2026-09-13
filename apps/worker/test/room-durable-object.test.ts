@@ -93,6 +93,7 @@ function legacySnapshot(state: RoomState): unknown {
   delete legacy.teamCount;
   delete legacy.configuredTeams;
   delete legacy.initialOwners;
+  delete legacy.eliminationConversions;
   const game = legacy.game as {
     board: Record<string, unknown>;
     eliminatedTeams?: unknown;
@@ -750,12 +751,98 @@ describe("RoomDurableObject persistence", () => {
       persisted.seats.filter((seat) => seat.seatClass === "spectator"),
     ).toHaveLength(16);
     expect(persisted.initialOwners).toEqual(before.initialOwners);
+    expect(persisted.eliminationConversions).toEqual(
+      Object.fromEntries(
+        persisted
+          .game!.board.order.filter(
+            (cardId) =>
+              before.initialOwners![cardId] === "red" &&
+              persisted.game!.board.cards[cardId]!.owner === "neutral",
+          )
+          .map((cardId) => [cardId, "red"]),
+      ),
+    );
 
     const reloaded = new PersistentRoomController(
       new RawRoomStorage(persisted),
       () => INITIALIZED_AT,
     );
     await reloaded.load();
+    expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
+  it("reloads a later converted-neutral reveal after history trimming and order permutation", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(configuredFourTeamRoom("C0NV01"));
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    await revealHazard(controller);
+
+    const afterHazard = controller.getSnapshot()!;
+    const eliminatedTeam = afterHazard.game!.eliminatedTeams[0]!;
+    const converted = Object.values(afterHazard.game!.board.cards).find(
+      (card) =>
+        afterHazard.initialOwners![card.id] === eliminatedTeam &&
+        card.owner === "neutral" &&
+        !card.revealed,
+    )!;
+    await expect(
+      controller.dispatch(
+        { playerId: "blue-clue", hostAuthority: false },
+        envelope(afterHazard.revision, {
+          type: "submit_clue",
+          word: "Orbit",
+          count: 1,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      controller.dispatch(
+        { playerId: "blue-operative", hostAuthority: false },
+        envelope(controller.getSnapshot()!.revision, {
+          type: "nominate_card",
+          cardId: converted.id,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      controller.dispatch(
+        { playerId: "blue-operative", hostAuthority: false },
+        envelope(controller.getSnapshot()!.revision, {
+          type: "confirm_reveal",
+          cardId: converted.id,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: true });
+
+    const persisted = structuredClone(storage.snapshot!);
+    expect(persisted.game!.board.cards[converted.id]).toMatchObject({
+      owner: "neutral",
+      revealed: true,
+    });
+    expect(persisted.eliminationConversions[converted.id]).toBe(eliminatedTeam);
+    persisted.publicHistory = [];
+    const convertedIndex = persisted.game!.board.order.indexOf(converted.id);
+    const swapIndex = convertedIndex === 0 ? 1 : 0;
+    [
+      persisted.game!.board.order[convertedIndex],
+      persisted.game!.board.order[swapIndex],
+    ] = [
+      persisted.game!.board.order[swapIndex]!,
+      persisted.game!.board.order[convertedIndex]!,
+    ];
+    const reloaded = new PersistentRoomController(
+      new RawRoomStorage(persisted),
+      () => INITIALIZED_AT,
+    );
+
+    await reloaded.load();
+
     expect(reloaded.getSnapshot()).toEqual(persisted);
   });
 
@@ -839,6 +926,7 @@ describe("RoomDurableObject persistence", () => {
       teamCount: 2,
       configuredTeams: ["red", "blue"],
       initialOwners: null,
+      eliminationConversions: {},
     });
     expect(storage.raw).toMatchObject({
       schemaVersion: 1,
@@ -858,6 +946,7 @@ describe("RoomDurableObject persistence", () => {
       teamCount: 2,
       configuredTeams: ["red", "blue"],
       initialOwners: null,
+      eliminationConversions: {},
       revision: 1,
       locked: true,
     });
@@ -1017,6 +1106,7 @@ describe("RoomDurableObject persistence", () => {
     expect(serialized).not.toContain("processedCommands");
     expect(serialized).not.toContain("connectionTickets");
     expect(serialized).not.toContain('"hazard"');
+    expect(serialized).not.toContain("eliminationConversions");
     expect(
       firstProjection.board?.cards.every((card) => !("owner" in card)),
     ).toBe(true);

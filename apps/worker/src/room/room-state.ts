@@ -28,6 +28,7 @@ export interface RoomState {
   teamCount: TeamCount;
   configuredTeams: TeamId[];
   initialOwners: Record<CardId, Ownership> | null;
+  eliminationConversions: Record<CardId, TeamId>;
   code: RoomCode;
   inviteUrl: string;
   revision: number;
@@ -81,6 +82,7 @@ export function createLobbyState(input: CreateLobbyStateInput): RoomState {
     teamCount,
     configuredTeams: configuredTeams(teamCount),
     initialOwners: null,
+    eliminationConversions: {},
     code: input.code,
     inviteUrl: input.inviteUrl,
     revision: 0,

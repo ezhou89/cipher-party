@@ -294,6 +294,7 @@ const snapshot = z
     teamCount: TeamCountSchema,
     configuredTeams: z.array(TeamIdSchema),
     initialOwners: z.record(id, owner).nullable(),
+    eliminationConversions: z.record(id, TeamIdSchema),
     ...sharedRoomShape,
     startingTeam: TeamIdSchema,
     ...sharedAuthorityShape,
@@ -408,6 +409,7 @@ function validReferences(state: RoomState): boolean {
 
 type PersistedGame = NonNullable<RoomState["game"]>;
 type InitialOwners = NonNullable<RoomState["initialOwners"]>;
+type EliminationConversions = RoomState["eliminationConversions"];
 type BoardSpec = ReturnType<typeof classicBoardSpec>;
 
 function validBoardMetadata(
@@ -483,20 +485,38 @@ function validEliminatedTeams(state: RoomState, value: PersistedGame): boolean {
 function validBoardOwnershipChanges(
   value: PersistedGame,
   initialOwners: InitialOwners,
+  eliminationConversions: EliminationConversions,
 ): boolean {
   const { board: gameBoard } = value;
   const eliminated = new Set(value.eliminatedTeams);
+  if (
+    Object.keys(eliminationConversions).some(
+      (cardId) => !Object.hasOwn(gameBoard.cards, cardId),
+    )
+  ) {
+    return false;
+  }
   for (const cardId of gameBoard.order) {
     const cardValue = gameBoard.cards[cardId]!;
     const originalOwner = initialOwners[cardId];
-    if (cardValue.owner === originalOwner) continue;
+    const convertedBy = eliminationConversions[cardId];
+    if (convertedBy !== undefined) {
+      if (
+        convertedBy !== originalOwner ||
+        !eliminated.has(convertedBy) ||
+        cardValue.owner !== "neutral"
+      ) {
+        return false;
+      }
+      continue;
+    }
     if (
       originalOwner === undefined ||
-      cardValue.owner !== "neutral" ||
-      cardValue.revealed ||
-      originalOwner === "neutral" ||
-      originalOwner === "hazard" ||
-      !eliminated.has(originalOwner)
+      cardValue.owner !== originalOwner ||
+      (originalOwner !== "neutral" &&
+        originalOwner !== "hazard" &&
+        eliminated.has(originalOwner) &&
+        !cardValue.revealed)
     ) {
       return false;
     }
@@ -513,7 +533,11 @@ function validBoard(state: RoomState): boolean {
   if (!validBoardReferences(value, spec, initialOwners)) return false;
   if (!validInitialOwnership(state, value, spec, initialOwners)) return false;
   if (!validEliminatedTeams(state, value)) return false;
-  return validBoardOwnershipChanges(value, initialOwners);
+  return validBoardOwnershipChanges(
+    value,
+    initialOwners,
+    state.eliminationConversions,
+  );
 }
 
 function allTargetsRevealed(
@@ -622,15 +646,18 @@ function validGamePhase(value: NonNullable<RoomState["game"]>): boolean {
   return value.guessesRemaining > 0;
 }
 
+function validLobbyWithoutGame(state: RoomState): boolean {
+  return (
+    state.initialOwners === null &&
+    Object.keys(state.eliminationConversions).length === 0 &&
+    state.phase === "lobby" &&
+    state.publicHistory.length === 0
+  );
+}
+
 function validRoomGame(state: RoomState): boolean {
   const value = state.game;
-  if (value === null) {
-    return (
-      state.initialOwners === null &&
-      state.phase === "lobby" &&
-      state.publicHistory.length === 0
-    );
-  }
+  if (value === null) return validLobbyWithoutGame(state);
   if (
     state.phase === "lobby" ||
     (state.phase === "complete") !== (value.phase === "board_complete") ||
@@ -691,6 +718,7 @@ function normalizeLegacySnapshot(
     protocolVersion: 2,
     teamCount: 2,
     configuredTeams: ["red", "blue"],
+    eliminationConversions: {},
     initialOwners:
       value.game === null
         ? null
