@@ -438,7 +438,7 @@ At this intermediate boundary, the Worker typecheck may still report v2 adoption
 
 **Files:**
 
-- Modify: `apps/worker/src/room/room-session.ts`, `apps/worker/src/room/room-durable-object.ts` only if v2 initialization types require it (the Task 4 board-start provenance seam must be preserved); `apps/worker/src/room/room-snapshot.ts` only for cohesive complexity extraction; `scripts/complexity-baseline.json` for stale exemption removal
+- Modify: `apps/worker/src/room/room-session.ts`, `apps/worker/src/room/room-durable-object.ts` for v2 initialization and spectator-admission capacity (the Task 4 board-start provenance seam must be preserved); `apps/worker/src/room/room-snapshot.ts` only for cohesive complexity extraction; `scripts/complexity-baseline.json` for stale exemption removal
 - Test: `apps/worker/src/room/room-session.test.ts`, `apps/worker/test/room-durable-object.test.ts`
 
 **Interfaces:**
@@ -498,7 +498,7 @@ expect(session.snapshot().publicHistory.at(-1)?.revision).toBe(
 );
 ```
 
-Also test inactive-team assignment rejection, balanced 2/3/4 randomization, spectator-capacity reservation when a hazard can eliminate the largest team, any active opposing clue-giver challenge, rejected actions from eliminated seats, and all remaining-team turn rotations.
+Also test inactive-team assignment rejection, balanced 2/3/4 randomization, spectator-capacity reservation at start and on late spectator admission before a hazard, any active opposing clue-giver challenge, rejected actions from eliminated seats, and all remaining-team turn rotations.
 
 - [ ] **Step 2: Run the focused room tests and verify the RED failure.**
 
@@ -512,7 +512,7 @@ Add the host-only `set_team_count` branch in the unlocked lobby. Reject a reduct
 
 - [ ] **Step 4: Implement dynamic authorization and projection source.**
 
-Reject gameplay commands when the actor’s team is eliminated. Pass configured team metadata, grid dimensions, elimination state, and revealed-only summaries to `projectRoomForSeat`. Convert affected active seats to the existing spectator representation in the same state mutation as hazard elimination; do not add campaign restoration in this slice.
+Reject gameplay commands when the actor’s team is eliminated. Pass configured team metadata, grid dimensions, elimination state, and revealed-only summaries to `projectRoomForSeat`. Convert affected active seats to the existing spectator representation in the same state mutation as hazard elimination; do not add campaign restoration in this slice. Enforce the outstanding largest-team spectator reservation in every spectator-producing join or role transition while a board has no elimination; release the reservation after a hazard elimination or board completion.
 
 - [ ] **Step 5: Connect `applyGameActionWithEvent` and history atomically.**
 
