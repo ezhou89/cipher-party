@@ -622,11 +622,11 @@ git commit -m "feat: render dynamic multi-team classic UI"
 - Consumes: v2 room/projection contract and dynamic UI from Tasks 3–6.
 - Produces: preserved two-team privacy/convergence coverage, four-team browser hazard coverage, and reproducible human-session procedures.
 
-- [ ] **Step 1: Update observer fixtures to protocol v2 without weakening privacy checks.**
+- [x] **Step 1: Update observer fixtures to protocol v2 without weakening privacy checks.**
 
 Change synthetic projections/envelopes to v2, permit `eliminatedTeam` only on public hazard reveal entries, and keep raw-frame auditing rules that reject hidden ownership, ownership maps, and target totals on public roles.
 
-- [ ] **Step 2: Keep the existing two-team end-to-end test green.**
+- [x] **Step 2: Keep the existing two-team end-to-end test green.**
 
 Run:
 
@@ -636,19 +636,19 @@ pnpm exec playwright test e2e/connected-classic.spec.ts
 
 Expected: the existing five-seat two-team flow still completes, including refresh recovery, privacy assertions, mobile geometry, pause/resume, and final convergence.
 
-- [ ] **Step 3: Add the four-team browser flow.**
+- [x] **Step 3: Add the four-team browser flow.**
 
 Create eight isolated observed seats (two per team), select four teams in the host lobby, assign one clue-giver and one operative per team, start the 6 × 6 board, use a fixed test seed/fixture to identify the hazard from the clue-giver-only key inside the test process, and nominate it from the active operative. Assert one revision, one composite history entry, eliminated-team spectator projections, next-team rotation, public convergence, and absence of hidden ownership in all operative/spectator frames.
 
-- [ ] **Step 4: Add responsive screenshot assertions.**
+- [x] **Step 4: Add responsive screenshot assertions.**
 
 Capture public-role screenshots for lobby, active 6 × 6 board, and post-elimination state at exact 320 × 780 and 1280 × 900. Assert board bounding boxes remain within the viewport, no horizontal page scroll occurs, and the four-team HUD does not obscure the board.
 
-- [ ] **Step 5: Write separate human runbook coverage.**
+- [x] **Step 5: Write separate human runbook coverage.**
 
 Leave the existing four-human two-team runbook intact as the regression gate. Add `multi-team-playtest.md` requiring eight active participants/devices, one window per participant, staging attestation, a facilitator-controlled fixed card pool/seed or clue-giver-directed hazard, measured setup/first-clue/board duration, elimination comprehension, turn-skip clarity, recovery, mobile layout observations, and convergence across all eight profiles.
 
-- [ ] **Step 6: Run browser tests and commit.**
+- [x] **Step 6: Run browser tests and commit.**
 
 ```bash
 pnpm exec playwright test e2e/connected-classic.spec.ts e2e/multi-team.spec.ts

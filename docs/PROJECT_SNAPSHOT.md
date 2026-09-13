@@ -1,16 +1,16 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 38
+**Snapshot revision:** 39
 
 **Last updated:** 2026-09-12
 
-**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–6 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, and the projection-driven React UI) are implemented and review-clean through `3205d9b`; browser acceptance and human gates are intentionally pending. Staging remains the previously deployed two-team regression reference; no multi-team deployment was made. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean through `3789aea`; the release handoff and human gates are intentionally pending. Staging remains the previously deployed two-team regression reference; no multi-team deployment was made. The four-human playtest remains NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
 **Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Begin Task 7 (browser flows, responsive screenshots, privacy regression, and human runbooks) of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow implementation and fresh verification.
+**Next execution:** Begin Task 8 (full verification, snapshot, and release handoff) of docs/superpowers/plans/2026-09-12-multi-team-classic.md. The current two-team staging build remains the regression reference; the existing four-human gate and the new eight-player four-team gate follow the release handoff and explicit deployment authorization.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
@@ -67,10 +67,10 @@ The current runtime does not yet deliver the pack builder, image uploads, AI sug
 
 ## Work ledger
 
-- **Last accepted task:** Task 6 — dynamic React lobby/game surface and responsive accessibility at `3205d9b`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
-- **Current task:** Tasks 1–6 accepted; preparing Task 7.
-- **Next task:** Execute Task 7 (browser flows, responsive screenshots, privacy regression, and human runbooks) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md`.
-- **Current blockers:** Hosted CI has no configured repository/provider; the real four-human two-team session has not been run; the eight-player four-team session cannot run until implementation and deployment are authorized. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
+- **Last accepted task:** Task 7 — browser flows, privacy regression, responsive screenshots, and separate human runbook at `3789aea`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
+- **Current task:** Tasks 1–7 accepted; preparing Task 8.
+- **Next task:** Execute Task 8 (full verification, snapshot, and release handoff) from `docs/superpowers/plans/2026-09-12-multi-team-classic.md`.
+- **Current blockers:** Hosted CI has no configured repository/provider; the real four-human two-team and eight-player four-team staging sessions have not been run; no multi-team deployment is authorized by this plan. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
 - **Audit baseline:** 510 tracked runtime functions; classic mean 3.36, maximum 34, and exactly the approved baseline exceptions above 20 after Task 6's UI work. The >20-function gate is green and inline waivers cannot suppress inventory. Do not treat historical release evidence below as a fresh passing gate on the current workspace until Task 8 reruns it.
 
 ## Current hardening evidence
@@ -93,6 +93,7 @@ The current runtime does not yet deliver the pack builder, image uploads, AI sug
 - Task 4 (`28a5eefd`, implementation `633da50`) adds strict v2 room state, side-effect-free v1 normalization, exact geometry/distribution and post-hazard invariants, spectator-only eliminated seats, immutable server-only `initialOwners` provenance, and the minimal board-start writer seam. Focused snapshot coverage passed **66/66**; applicable Durable Object coverage passed **20/20**; game-core/protocol suites and typechecks passed. Task 5 resolved the four downstream room-session adoption errors; no Task 4-owned errors remain.
 - Task 5 (`078293c`, implementation `1523afa`) completes Worker v2 room-session adoption with host-selected 2/3/4-team lobby configuration, dynamic authorization and projections, atomic hazard elimination/history, spectator conversion, and the 16-spectator elimination-capacity reservation (including late join/role-transition enforcement). It preserves server-only `initialOwners` provenance and removes stale complexity exemptions while keeping the >20-function gate green. The prescribed Worker suite passed **295/295** (300 tests including direct focus), Worker typecheck passed, and the complexity gate passed (495 functions; mean 3.37; approved baseline exceptions only). Task review and the reservation fix re-review are clean; staging remains unchanged.
 - Task 6 (`3205d9b`, implementation `af6f37a`) renders the React lobby and game surface from v2 projections for 2/3/4 configured teams, including dynamic 5×5/5×6/6×6 geometry, eliminated-team/seat status, public-safe announcements, nomination/reveal confirmation, Escape/focus behavior, native-scroll fallback, and responsive/forced-colors styling. The authorized room-socket seam updates only stale v2 fixtures and post-schema exact-optional typing. Web coverage passed **168/168** with 91.25% statements / 87.95% branches; typecheck, build, targeted lint/format, complexity (510 functions; mean 3.36), and diff checks passed. Review found the forced-colors contrast defect; fix `3205d9b` remapped authored colors to system colors and added a light forced-colors Chromium regression, then passed scoped re-review. Staging remains unchanged.
+- Task 7 (`3789aea`, implementation `9abbbfb`) migrates the browser observer to protocol v2 without weakening recursive privacy checks, adds an isolated eight-seat/four-team 6×6 hazard flow with one revision/composite history entry, eliminated-seat spectator conversion, next-team rotation, convergence, and public-role audits, and captures lobby/active/eliminated screenshots at exact 320×780 and 1280×900 sizes. It preserves the two-team flow and adds a separate eight-person staging runbook while leaving both human gates pending. Combined Chromium/WebKit Playwright coverage passed **46/46** after the nested `eliminatedTeam` audit fix; full `pnpm run check` passed **818 tests**, complexity and diff checks passed, and all 12 screenshots were visually inspected. Staging remains unchanged.
 
 ## Historical integration evidence
 
