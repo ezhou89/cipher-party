@@ -1,7 +1,9 @@
 import {
   chooseStartingTeam,
   configuredTeams,
+  type CardId,
   type ClassicGameState,
+  type Ownership,
   type PlayerId,
   type RoomCode,
   type SeatRole,
@@ -25,6 +27,7 @@ export interface RoomState {
   protocolVersion: 2;
   teamCount: TeamCount;
   configuredTeams: TeamId[];
+  initialOwners: Record<CardId, Ownership> | null;
   code: RoomCode;
   inviteUrl: string;
   revision: number;
@@ -77,6 +80,7 @@ export function createLobbyState(input: CreateLobbyStateInput): RoomState {
     protocolVersion: 2,
     teamCount,
     configuredTeams: configuredTeams(teamCount),
+    initialOwners: null,
     code: input.code,
     inviteUrl: input.inviteUrl,
     revision: 0,

@@ -91,6 +91,7 @@ function legacySnapshot(state: RoomState): unknown {
   legacy.protocolVersion = 1;
   delete legacy.teamCount;
   delete legacy.configuredTeams;
+  delete legacy.initialOwners;
   const game = legacy.game as {
     board: Record<string, unknown>;
     eliminatedTeams?: unknown;
@@ -505,6 +506,7 @@ describe("RoomDurableObject persistence", () => {
       protocolVersion: 2,
       teamCount: 2,
       configuredTeams: ["red", "blue"],
+      initialOwners: null,
     });
     expect(storage.raw).toMatchObject({
       schemaVersion: 1,
@@ -523,6 +525,7 @@ describe("RoomDurableObject persistence", () => {
       protocolVersion: 2,
       teamCount: 2,
       configuredTeams: ["red", "blue"],
+      initialOwners: null,
       revision: 1,
       locked: true,
     });

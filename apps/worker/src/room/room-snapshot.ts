@@ -2,8 +2,6 @@ import {
   TEAM_IDS,
   classicBoardSpec,
   configuredTeams,
-  createSeededRandom,
-  shuffled,
   type Ownership,
   type TeamId,
 } from "@cipher-party/game-core";
@@ -295,6 +293,7 @@ const snapshot = z
     protocolVersion: z.literal(2),
     teamCount: TeamCountSchema,
     configuredTeams: z.array(TeamIdSchema),
+    initialOwners: z.record(id, owner).nullable(),
     ...sharedRoomShape,
     startingTeam: TeamIdSchema,
     ...sharedAuthorityShape,
@@ -313,6 +312,21 @@ function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
     left.length === right.length &&
     left.every((value, index) => value === right[index])
   );
+}
+
+function ownershipCounts(
+  values: readonly Ownership[],
+): Record<Ownership, number> {
+  const counts: Record<Ownership, number> = {
+    red: 0,
+    blue: 0,
+    green: 0,
+    yellow: 0,
+    neutral: 0,
+    hazard: 0,
+  };
+  for (const value of values) counts[value] += 1;
+  return counts;
 }
 
 function validHistory(state: RoomState): boolean {
@@ -392,22 +406,6 @@ function validReferences(state: RoomState): boolean {
   return validHistory(state);
 }
 
-function originalOwnership(state: RoomState): Ownership[] {
-  const value = state.game!;
-  const spec = classicBoardSpec(state.teamCount);
-  return shuffled<Ownership>(
-    [
-      ...Array<Ownership>(spec.startingTargets).fill(value.board.startingTeam),
-      ...state.configuredTeams
-        .filter((teamId) => teamId !== value.board.startingTeam)
-        .flatMap((teamId) => Array<Ownership>(spec.otherTargets).fill(teamId)),
-      ...Array<Ownership>(spec.neutralCards).fill("neutral"),
-      "hazard",
-    ],
-    createSeededRandom(`${state.boardSeed}/board-0/ownership`),
-  );
-}
-
 function validBoard(state: RoomState): boolean {
   const value = state.game;
   if (value === null) return true;
@@ -419,6 +417,7 @@ function validBoard(state: RoomState): boolean {
     gameBoard.rows !== spec.rows ||
     gameBoard.columns !== spec.columns ||
     gameBoard.order.length !== spec.cardCount ||
+    state.initialOwners === null ||
     !state.configuredTeams.includes(gameBoard.startingTeam) ||
     !unique(gameBoard.order) ||
     Object.keys(gameBoard.cards).length !== spec.cardCount
@@ -429,7 +428,24 @@ function validBoard(state: RoomState): boolean {
     !gameBoard.order.every(
       (key) =>
         Object.hasOwn(gameBoard.cards, key) && gameBoard.cards[key]!.id === key,
-    )
+    ) ||
+    Object.keys(state.initialOwners).length !== spec.cardCount ||
+    !gameBoard.order.every((key) => Object.hasOwn(state.initialOwners!, key))
+  ) {
+    return false;
+  }
+  const initialCounts = ownershipCounts(Object.values(state.initialOwners));
+  for (const teamId of TEAM_IDS) {
+    const expected = !state.configuredTeams.includes(teamId)
+      ? 0
+      : teamId === gameBoard.startingTeam
+        ? spec.startingTargets
+        : spec.otherTargets;
+    if (initialCounts[teamId] !== expected) return false;
+  }
+  if (
+    initialCounts.neutral !== spec.neutralCards ||
+    initialCounts.hazard !== spec.hazardCards
   ) {
     return false;
   }
@@ -444,12 +460,12 @@ function validBoard(state: RoomState): boolean {
   }
 
   const eliminated = new Set(value.eliminatedTeams);
-  const originalOwners = originalOwnership(state);
-  for (const [index, cardId] of gameBoard.order.entries()) {
+  for (const cardId of gameBoard.order) {
     const cardValue = gameBoard.cards[cardId]!;
-    const originalOwner = originalOwners[index]!;
+    const originalOwner = state.initialOwners[cardId];
     if (cardValue.owner === originalOwner) continue;
     if (
+      originalOwner === undefined ||
       cardValue.owner !== "neutral" ||
       cardValue.revealed ||
       originalOwner === "neutral" ||
@@ -542,7 +558,11 @@ function validGamePhase(value: NonNullable<RoomState["game"]>): boolean {
 function validRoomGame(state: RoomState): boolean {
   const value = state.game;
   if (value === null) {
-    return state.phase === "lobby" && state.publicHistory.length === 0;
+    return (
+      state.initialOwners === null &&
+      state.phase === "lobby" &&
+      state.publicHistory.length === 0
+    );
   }
   if (
     state.phase === "lobby" ||
@@ -604,6 +624,14 @@ function normalizeLegacySnapshot(
     protocolVersion: 2,
     teamCount: 2,
     configuredTeams: ["red", "blue"],
+    initialOwners:
+      value.game === null
+        ? null
+        : Object.fromEntries(
+            Object.entries(value.game.board.cards).map(
+              ([cardId, cardValue]) => [cardId, cardValue.owner],
+            ),
+          ),
     game:
       value.game === null
         ? null

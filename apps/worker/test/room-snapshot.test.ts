@@ -28,6 +28,14 @@ function lobby(): RoomState {
   });
 }
 
+function initialOwnersFor(
+  game: NonNullable<RoomState["game"]>,
+): Record<string, (typeof game.board.cards)[string]["owner"]> {
+  return Object.fromEntries(
+    Object.values(game.board.cards).map((card) => [card.id, card.owner]),
+  );
+}
+
 function fourTeamState(): RoomState {
   const state = lobby();
   const teams = ["red", "blue", "green", "yellow"] as const;
@@ -60,6 +68,7 @@ function fourTeamState(): RoomState {
       teamCount: 4,
     }),
   );
+  state.initialOwners = initialOwnersFor(state.game);
   return state;
 }
 
@@ -79,6 +88,7 @@ function threeTeamState(): RoomState {
       teamCount: 3,
     }),
   );
+  state.initialOwners = initialOwnersFor(state.game);
   return state;
 }
 
@@ -88,6 +98,7 @@ function legacyV1State(state: RoomState): unknown {
   legacy.protocolVersion = 1;
   delete legacy.teamCount;
   delete legacy.configuredTeams;
+  delete legacy.initialOwners;
   const game = legacy.game as {
     board: Record<string, unknown>;
     eliminatedTeams?: unknown;
@@ -169,6 +180,13 @@ async function generatedStates(
     });
   }
   const session = RoomSession.from(initial);
+  function persistedSnapshot(): RoomState {
+    const state = session.snapshot();
+    if (state.game !== null && state.initialOwners === null) {
+      state.initialOwners = initialOwnersFor(state.game);
+    }
+    return state;
+  }
   let sequence = 0;
   async function command(command: ClientCommand, playerId = "host") {
     const envelope: CommandEnvelope = {
@@ -198,7 +216,7 @@ async function generatedStates(
   }
   const states = [lobby(), session.snapshot()];
   await command({ type: "start_board" });
-  states.push(session.snapshot());
+  states.push(persistedSnapshot());
   const team = session.snapshot().game!.activeTeam;
   const targets = Object.values(session.snapshot().game!.board.cards).filter(
     (card) => card.owner === team,
@@ -211,15 +229,15 @@ async function generatedStates(
     },
     team === "red" ? "host" : "blue-clue",
   );
-  states.push(session.snapshot());
+  states.push(persistedSnapshot());
   await command({ type: "pause_room" });
-  states.push(session.snapshot());
+  states.push(persistedSnapshot());
   await command({ type: "resume_room" });
   await command(
     { type: "challenge_clue" },
     team === "red" ? "blue-clue" : "host",
   );
-  states.push(session.snapshot());
+  states.push(persistedSnapshot());
   await command({ type: "resolve_challenge", decision: "accept" });
   const hazard = Object.values(session.snapshot().game!.board.cards).find(
     (card) => card.owner === "hazard",
@@ -227,10 +245,10 @@ async function generatedStates(
   const operative = team === "red" ? "red-operative" : "blue-operative";
   for (const card of completion === "targets" ? targets : [hazard]) {
     await command({ type: "nominate_card", cardId: card.id }, operative);
-    states.push(session.snapshot());
+    states.push(persistedSnapshot());
     await command({ type: "confirm_reveal", cardId: card.id }, operative);
   }
-  states.push(session.snapshot());
+  states.push(persistedSnapshot());
   return states;
 }
 
@@ -247,6 +265,10 @@ function boundary(value: unknown) {
 }
 
 describe("strict v1/v2 snapshot storage boundary", () => {
+  it("initializes ownership provenance as null before a board", () => {
+    expect(lobby()).toHaveProperty("initialOwners", null);
+  });
+
   it("parses a generated four-team v2 snapshot", () => {
     const state = fourTeamState();
 
@@ -258,6 +280,7 @@ describe("strict v1/v2 snapshot storage boundary", () => {
       protocolVersion: 2,
       teamCount: 4,
       configuredTeams: ["red", "blue", "green", "yellow"],
+      initialOwners: initialOwnersFor(state.game!),
       game: {
         board: { teamCount: 4, rows: 6, columns: 6 },
         eliminatedTeams: [],
@@ -278,7 +301,9 @@ describe("strict v1/v2 snapshot storage boundary", () => {
   });
 
   it("normalizes a complete valid v1 two-team snapshot to v2", async () => {
-    const legacy = legacyV1State((await generatedStates())[3]!);
+    const source = (await generatedStates())[3]!;
+    const expectedInitialOwners = initialOwnersFor(source.game!);
+    const legacy = legacyV1State(source);
 
     const normalized = parseRoomSnapshot(legacy);
 
@@ -286,6 +311,7 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     expect(normalized.protocolVersion).toBe(2);
     expect(normalized.teamCount).toBe(2);
     expect(normalized.configuredTeams).toEqual(["red", "blue"]);
+    expect(normalized.initialOwners).toEqual(expectedInitialOwners);
     expect(normalized.game?.board).toMatchObject({
       teamCount: 2,
       configuredTeams: ["red", "blue"],
@@ -353,6 +379,65 @@ describe("strict v1/v2 snapshot storage boundary", () => {
     revealedTarget.owner = "neutral";
     expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
   });
+
+  it("rejects a revealed eliminated-team target rewritten through an order permutation", () => {
+    const state = eliminatedFourTeamState(true);
+    state.revision = 101;
+    state.publicHistory = [];
+    const eliminatedTeam = state.game!.eliminatedTeams[0]!;
+    const revealedTarget = Object.values(state.game!.board.cards).find(
+      (card) => card.owner === eliminatedTeam && card.revealed,
+    )!;
+    const unrevealedNeutral = Object.values(state.game!.board.cards).find(
+      (card) => card.owner === "neutral" && !card.revealed,
+    )!;
+    const targetIndex = state.game!.board.order.indexOf(revealedTarget.id);
+    const neutralIndex = state.game!.board.order.indexOf(unrevealedNeutral.id);
+
+    revealedTarget.owner = "neutral";
+    [
+      state.game!.board.order[targetIndex],
+      state.game!.board.order[neutralIndex],
+    ] = [
+      state.game!.board.order[neutralIndex]!,
+      state.game!.board.order[targetIndex]!,
+    ];
+
+    expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
+  });
+
+  it.each([
+    [
+      "a missing card ID",
+      (state: RoomState) => {
+        delete state.initialOwners![state.game!.board.order[0]!];
+      },
+    ],
+    [
+      "an extra card ID",
+      (state: RoomState) => {
+        state.initialOwners!["extra-card"] = "neutral";
+      },
+    ],
+    [
+      "a forged matching ownership distribution",
+      (state: RoomState) => {
+        const neutral = Object.values(state.game!.board.cards).find(
+          (card) => card.owner === "neutral",
+        )!;
+        neutral.owner = "red";
+        state.initialOwners![neutral.id] = "red";
+      },
+    ],
+  ] as Array<[string, (state: RoomState) => void]>)(
+    "rejects initial ownership provenance with %s",
+    (_name, mutate) => {
+      const state = fourTeamState();
+      mutate(state);
+
+      expect(() => parseRoomSnapshot(state)).toThrow(InvalidRoomSnapshotError);
+    },
+  );
 
   it.each([
     [
