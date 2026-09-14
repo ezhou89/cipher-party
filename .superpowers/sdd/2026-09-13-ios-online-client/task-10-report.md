@@ -2,10 +2,10 @@
 
 ## Status
 
-The final integration fix wave is implemented and awaiting scoped re-review.
-Task 9 mixed-room/interruption acceptance and the Task 10 final-review checkbox
-remain pending. The original Task 10 documentation-only evidence below is
-historical; the appended final-fix section records the subsequent code changes.
+The final integration fix wave and scoped code-review gate are complete through
+the latest reviewed HEAD. Task 9 mixed-room/interruption acceptance remains
+pending. The original Task 10 documentation-only evidence below is historical;
+the appended final-fix section records the subsequent code changes.
 
 Base: `e821b400e1f54c36d3db0a75f7ea2c390dcd35c2`
 Commit: `72e0180a8a629600691b86977d85b1683c44121f`
@@ -130,14 +130,15 @@ camera/share/lifecycle/accessibility pass. If an alternate Worker origin is
 used, update the canonical origin, invite/QR origin, associated domain, and
 AASA together.
 
-The snapshot is revision 16. The plan marks Task 10 Steps 1–4 complete and
-leaves Step 5 for coordinator/final review.
+The historical snapshot was revision 16. The current snapshot is revision 18;
+the plan marks Task 10 Steps 1–5 complete for implementation and code review,
+while Task 9's physical acceptance steps remain open.
 
 ## Final whole-branch review fix wave
 
 Base: `72e0180bd10ea95131a92311256529c6e2a8a57e`. All eight Important findings
-were addressed in one coordinated wave; final scoped review remains pending.
-Fix-wave commit: `8ccf5da` (`fix: wire native room recovery and lifecycle`).
+were addressed through the coordinated fix commits `8ccf5da`, `adc93ec`,
+`81641c2`, `de8aeac`, and `ff69185`.
 
 - `RoomEntryService` reads room-scoped Keychain credentials before any join
   request. Saved host/player credentials are returned unchanged, even with an
@@ -166,7 +167,7 @@ Fix-wave commit: `8ccf5da` (`fix: wire native room recovery and lifecycle`).
   fresh state. Semantic projection rejection invalidates freshness, and a valid
   replacement clears the error. No raw frame data is retained in the event.
 - Task 9 Steps 1–2 are reopened with their actual staging/device blockers.
-  Snapshot revision 17 explicitly says the plan is incomplete. The README's
+  Snapshot revision 18 explicitly says the plan is incomplete. The README's
   simulator UUID is now a discovered destination variable. The stale spec
   review status and two full-diff whitespace findings were also corrected.
 
@@ -220,4 +221,6 @@ The configured staging host still requires Worker routing and Apple App ID/team
 setup. Actual mixed iOS/browser gameplay, physical network interruption,
 signed Universal Links/camera, and final device/accessibility visual checks
 remain pending. Component/root-flow tests do not claim those acceptance steps.
-Task 10 Step 5 and the final plan remain uncompleted pending scoped review.
+Task 10 Step 5 is complete after the final scoped code-review gate. The plan
+remains incomplete only because Task 9 Steps 1–2 still require staging,
+mixed-client, interruption, and signed-device evidence.

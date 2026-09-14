@@ -1,14 +1,14 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 17
+**Snapshot revision:** 18
 
 **Last updated:** 2026-09-14
 
-**Project state:** Browser Task 11 remains complete. Native iOS implementation
-has undergone a final integration fix wave and awaits scoped re-review.
-Task 9's actual mixed-room and device/network interruption checks remain open;
-component tests are not substitutes for those acceptance checks. The iOS plan
-is not complete.
+**Project state:** Browser Task 11 remains complete. The native iOS online
+client implementation and final code-review gate are complete through the
+latest reviewed HEAD. Task 9's actual mixed-room and device/network
+interruption checks remain open; component tests are not substitutes for those
+acceptance checks. The iOS plan is not complete.
 
 **Active milestone:** Milestone 1 — Connected Classic, with the approved native
 iOS online companion extension
@@ -81,17 +81,16 @@ Cloudflare room authority; no nearby/offline match is included.
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 8 — native Classic board play.
-  Task 9's component/security checks have evidence; mixed-room and interruption
-  smoke acceptance remains pending.
+- **Last accepted implementation task:** Task 10 — native iOS release-readiness
+  implementation and final code-review gate. Task 9's component/security
+  checks have evidence; mixed-room and interruption smoke acceptance remains
+  pending.
 - **Native iOS spec commit:** `9c1d68a` — native iOS online-client design.
-- **Current task:** Final integration fixes: restore saved seats without
-  replacing host credentials, serialize root lifecycle/leave/room switching,
-  expose explicit pending-action recovery, gate lobby actions and show safe
-  server errors, allow Debug loopback WebSockets, and invalidate unsafe updates.
-- **Next task:** Scoped final re-review and the pending mixed-room/interruption
-  acceptance checks; then decide whether to open a PR from
-  `feature/ios-online-client`.
+- **Current task:** Native iOS handoff with the implementation and final review
+  complete; preserve the open staging/device acceptance blockers.
+- **Next task:** Route the Cipher Party Worker at `oddlyuseful.studio`, then run
+  the pending mixed-room/interruption and signed-device checks before deciding
+  whether to open a PR from `feature/ios-online-client`.
 - **Deployment follow-ups:** `https://oddlyuseful.studio` currently serves the
   unrelated studio site (`/api/health` returned 404), so no staging create/join
   or signed Universal Link smoke is claimed. A registered Apple App ID/team,

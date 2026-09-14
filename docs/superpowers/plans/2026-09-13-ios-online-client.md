@@ -490,7 +490,7 @@ kept beside the existing web and worker apps; it is not a second repository.
 - [x] **Step 4: Update the snapshot.** Increment the revision, record accepted
   iOS tasks and exact passing commands, leave the browser plan pointer intact,
   and list any remaining signing/AASA or environment blocker.
-- [ ] **Step 5: Request code review before merge.** Use the repository review
+- [x] **Step 5: Request code review before merge.** Use the repository review
   checklist, then decide whether to open a PR from `feature/ios-online-client`.
 
 ## Execution order and gates
