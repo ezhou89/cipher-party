@@ -1,0 +1,66 @@
+{
+  "protocolVersion": 1,
+  "revision": 11,
+  "code": "ABC234",
+  "inviteUrl": "https://oddlyuseful.studio/room/ABC234",
+  "roomPhase": "playing",
+  "locked": true,
+  "viewRole": "operative",
+  "viewer": {
+    "playerId": "player-host",
+    "teamId": "blue",
+    "role": "operative",
+    "isHost": true
+  },
+  "permissions": {
+    "configure": true,
+    "moderate": true,
+    "submitClue": false,
+    "challengeClue": false,
+    "nominate": false,
+    "confirmReveal": false,
+    "endTurn": false,
+    "resolveChallenge": true,
+    "pause": true,
+    "resume": false
+  },
+  "seats": [
+    {
+      "playerId": "player-host",
+      "displayName": "Host",
+      "teamId": "blue",
+      "role": "operative",
+      "connected": true
+    }
+  ],
+  "publicHistory": [
+    {
+      "revision": 9,
+      "at": "2026-09-13T12:04:00Z",
+      "type": "challenge_resolved",
+      "decision": "accept"
+    },
+    {
+      "revision": 10,
+      "at": "2026-09-13T12:05:00Z",
+      "type": "clue_challenged",
+      "teamId": "blue"
+    }
+  ],
+  "board": {
+    "order": ["café", "moon", "river", "hazard"],
+    "cards": [
+      { "id": "café", "label": "Café", "revealed": false },
+      { "id": "moon", "label": "Moon", "revealed": false },
+      { "id": "river", "label": "River", "revealed": false },
+      { "id": "hazard", "label": "Hazard", "revealed": false }
+    ],
+    "activeTeam": "blue",
+    "phase": "challenged",
+    "clue": { "word": "Océan", "count": 1 },
+    "guessesRemaining": 1,
+    "nomination": null,
+    "winner": null,
+    "completionReason": null
+  }
+}

@@ -8,8 +8,9 @@
   },
   "scripts": {
     "build": "pnpm --filter @cipher-party/game-core run build && pnpm --filter @cipher-party/protocol run build && pnpm --filter @cipher-party/web run build && pnpm --filter @cipher-party/worker run build",
-    "check": "pnpm run check:docs && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "check": "pnpm run check:docs && pnpm run check:ios-protocol-fixtures && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "check:docs": "node scripts/check-project-docs.mjs",
+    "check:ios-protocol-fixtures": "node scripts/validate-ios-protocol-fixtures.mjs",
     "dev": "concurrently -k -n worker,web \"pnpm --filter @cipher-party/worker run dev\" \"pnpm --filter @cipher-party/web run dev\"",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

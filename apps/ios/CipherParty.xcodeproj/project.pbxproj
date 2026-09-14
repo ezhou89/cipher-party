@@ -7,6 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A20000000000000000000001 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000101 /* ProtocolModels.swift */; };
+		A20000000000000000000002 /* ProtocolModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000102 /* ProtocolModelTests.swift */; };
+		A20000000000000000000010 /* projection-lobby-unassigned.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000110 /* projection-lobby-unassigned.json */; };
+		A20000000000000000000011 /* projection-operative.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000111 /* projection-operative.json */; };
+		A20000000000000000000012 /* projection-clue-giver.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000112 /* projection-clue-giver.json */; };
+		A20000000000000000000013 /* projection-spectator.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000113 /* projection-spectator.json */; };
+		A20000000000000000000014 /* projection-challenged.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000114 /* projection-challenged.json */; };
+		A20000000000000000000015 /* projection-paused.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000115 /* projection-paused.json */; };
+		A20000000000000000000016 /* projection-complete.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000116 /* projection-complete.json */; };
+		A20000000000000000000017 /* command-envelopes.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000117 /* command-envelopes.json */; };
+		A20000000000000000000018 /* server-messages.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000118 /* server-messages.json */; };
 		24F0E7BD80A5CCC0485A5E1E /* CipherPartyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */; };
 		26A8A4A4E40021D7DE7F62EE /* EntryFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47B8A10A874CB95A3AD4A3B2 /* EntryFlowUITests.swift */; };
 		45043CAC9F8FECEB0170439B /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C516C880061C90BC300B6C /* AppEnvironment.swift */; };
@@ -31,6 +42,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000101 /* ProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000102 /* ProtocolModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModelTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000110 /* projection-lobby-unassigned.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-lobby-unassigned.json"; sourceTree = "<group>"; };
+		A20000000000000000000111 /* projection-operative.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-operative.json"; sourceTree = "<group>"; };
+		A20000000000000000000112 /* projection-clue-giver.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-clue-giver.json"; sourceTree = "<group>"; };
+		A20000000000000000000113 /* projection-spectator.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-spectator.json"; sourceTree = "<group>"; };
+		A20000000000000000000114 /* projection-challenged.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-challenged.json"; sourceTree = "<group>"; };
+		A20000000000000000000115 /* projection-paused.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-paused.json"; sourceTree = "<group>"; };
+		A20000000000000000000116 /* projection-complete.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-complete.json"; sourceTree = "<group>"; };
+		A20000000000000000000117 /* command-envelopes.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "command-envelopes.json"; sourceTree = "<group>"; };
+		A20000000000000000000118 /* server-messages.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "server-messages.json"; sourceTree = "<group>"; };
 		2342BA98870BAB9E7AAC41B9 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CipherPartyApp.swift; sourceTree = "<group>"; };
 		341230857A7520F4618036B1 /* CipherParty.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CipherParty.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -44,6 +66,30 @@
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		A20000000000000000000201 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000101 /* ProtocolModels.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000202 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000110 /* projection-lobby-unassigned.json */,
+				A20000000000000000000111 /* projection-operative.json */,
+				A20000000000000000000112 /* projection-clue-giver.json */,
+				A20000000000000000000113 /* projection-spectator.json */,
+				A20000000000000000000114 /* projection-challenged.json */,
+				A20000000000000000000115 /* projection-paused.json */,
+				A20000000000000000000116 /* projection-complete.json */,
+				A20000000000000000000117 /* command-envelopes.json */,
+				A20000000000000000000118 /* server-messages.json */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
 		2895E27F06AF548CCE7FE070 /* Configurations */ = {
 			isa = PBXGroup;
 			children = (
@@ -67,6 +113,8 @@
 			isa = PBXGroup;
 			children = (
 				9D78FE72A497BBD6CA569145 /* AppEnvironmentTests.swift */,
+				A20000000000000000000102 /* ProtocolModelTests.swift */,
+				A20000000000000000000202 /* Fixtures */,
 			);
 			path = CipherPartyTests;
 			sourceTree = "<group>";
@@ -94,6 +142,7 @@
 			children = (
 				F3C516C880061C90BC300B6C /* AppEnvironment.swift */,
 				324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */,
+				A20000000000000000000201 /* Networking */,
 			);
 			path = CipherParty;
 			sourceTree = "<group>";
@@ -160,6 +209,7 @@
 			buildConfigurationList = 3B840ECF3EDB79F12E6BACCE /* Build configuration list for PBXNativeTarget "CipherPartyTests" */;
 			buildPhases = (
 				45816CFAC06A16C327782611 /* Sources */,
+				A20000000000000000000301 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -208,6 +258,25 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		A20000000000000000000301 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000000000000000000010 /* projection-lobby-unassigned.json in Resources */,
+				A20000000000000000000011 /* projection-operative.json in Resources */,
+				A20000000000000000000012 /* projection-clue-giver.json in Resources */,
+				A20000000000000000000013 /* projection-spectator.json in Resources */,
+				A20000000000000000000014 /* projection-challenged.json in Resources */,
+				A20000000000000000000015 /* projection-paused.json in Resources */,
+				A20000000000000000000016 /* projection-complete.json in Resources */,
+				A20000000000000000000017 /* command-envelopes.json in Resources */,
+				A20000000000000000000018 /* server-messages.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		3FBCF0132F96C56D4944494E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -215,6 +284,7 @@
 			files = (
 				45043CAC9F8FECEB0170439B /* AppEnvironment.swift in Sources */,
 				24F0E7BD80A5CCC0485A5E1E /* CipherPartyApp.swift in Sources */,
+				A20000000000000000000001 /* ProtocolModels.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -223,6 +293,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5F07714CA339ED23563B9038 /* AppEnvironmentTests.swift in Sources */,
+				A20000000000000000000002 /* ProtocolModelTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

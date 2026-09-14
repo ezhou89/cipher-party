@@ -1,0 +1,38 @@
+{
+  "protocolVersion": 1,
+  "revision": 2,
+  "code": "ABC234",
+  "inviteUrl": "https://oddlyuseful.studio/room/ABC234",
+  "roomPhase": "lobby",
+  "locked": false,
+  "viewRole": "unassigned",
+  "viewer": {
+    "playerId": "player-unassigned",
+    "teamId": null,
+    "role": "unassigned",
+    "isHost": false
+  },
+  "permissions": {
+    "configure": false,
+    "moderate": false,
+    "submitClue": false,
+    "challengeClue": false,
+    "nominate": false,
+    "confirmReveal": false,
+    "endTurn": false,
+    "resolveChallenge": false,
+    "pause": false,
+    "resume": false
+  },
+  "seats": [
+    {
+      "playerId": "player-unassigned",
+      "displayName": "Élodie",
+      "teamId": null,
+      "role": "unassigned",
+      "connected": true
+    }
+  ],
+  "publicHistory": [],
+  "board": null
+}

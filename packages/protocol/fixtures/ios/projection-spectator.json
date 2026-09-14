@@ -1,0 +1,62 @@
+{
+  "protocolVersion": 1,
+  "revision": 8,
+  "code": "ABC234",
+  "inviteUrl": "https://oddlyuseful.studio/room/ABC234",
+  "roomPhase": "playing",
+  "locked": true,
+  "viewRole": "spectator",
+  "viewer": {
+    "playerId": "player-spectator",
+    "teamId": null,
+    "role": "spectator",
+    "isHost": false
+  },
+  "permissions": {
+    "configure": false,
+    "moderate": false,
+    "submitClue": false,
+    "challengeClue": false,
+    "nominate": false,
+    "confirmReveal": false,
+    "endTurn": false,
+    "resolveChallenge": false,
+    "pause": false,
+    "resume": false
+  },
+  "seats": [
+    {
+      "playerId": "player-spectator",
+      "displayName": "Zoë",
+      "teamId": null,
+      "role": "spectator",
+      "connected": true
+    }
+  ],
+  "publicHistory": [
+    {
+      "revision": 6,
+      "at": "2026-09-13T12:00:00Z",
+      "type": "clue_submitted",
+      "teamId": "red",
+      "word": "Élan",
+      "count": 2
+    }
+  ],
+  "board": {
+    "order": ["café", "moon", "river", "hazard"],
+    "cards": [
+      { "id": "café", "label": "Café", "revealed": true, "owner": "red" },
+      { "id": "moon", "label": "Moon", "revealed": false },
+      { "id": "river", "label": "River", "revealed": false },
+      { "id": "hazard", "label": "Hazard", "revealed": false }
+    ],
+    "activeTeam": "red",
+    "phase": "guess",
+    "clue": { "word": "Élan", "count": 2 },
+    "guessesRemaining": 2,
+    "nomination": null,
+    "winner": null,
+    "completionReason": null
+  }
+}

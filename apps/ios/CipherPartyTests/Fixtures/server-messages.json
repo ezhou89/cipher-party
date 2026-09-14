@@ -1,0 +1,92 @@
+[
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000001",
+    "result": { "ok": true, "revision": 22 }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000002",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "invalid_command",
+      "message": "Command is invalid"
+    }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000003",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "unauthorized",
+      "message": "Seat is not authorized"
+    }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000004",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "wrong_phase",
+      "message": "Room phase does not allow this command"
+    }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000005",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "stale_revision",
+      "message": "Projection revision is stale"
+    }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000006",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "storage_failed",
+      "message": "Room storage failed"
+    }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000007",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "room_locked",
+      "message": "Room is locked"
+    }
+  },
+  {
+    "type": "command_result",
+    "commandId": "20000000-0000-4000-8000-000000000008",
+    "result": {
+      "ok": false,
+      "revision": 22,
+      "code": "room_full",
+      "message": "Room is full"
+    }
+  },
+  {
+    "type": "error",
+    "code": "invalid_message",
+    "message": "Message did not match protocol"
+  },
+  {
+    "type": "error",
+    "code": "ticket_expired",
+    "message": "Ticket expired"
+  },
+  {
+    "type": "error",
+    "code": "internal_error",
+    "message": "Internal error"
+  }
+]

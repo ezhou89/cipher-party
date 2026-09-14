@@ -1,0 +1,94 @@
+[
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000001",
+    "expectedRevision": 1,
+    "command": { "type": "randomize_teams" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000002",
+    "expectedRevision": 2,
+    "command": {
+      "type": "assign_seat",
+      "playerId": "player-1",
+      "teamId": "red"
+    }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000003",
+    "expectedRevision": 3,
+    "command": {
+      "type": "set_role",
+      "playerId": "player-1",
+      "role": "clue-giver"
+    }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000004",
+    "expectedRevision": 4,
+    "command": { "type": "lock_room", "locked": true }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000005",
+    "expectedRevision": 5,
+    "command": { "type": "start_board" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000006",
+    "expectedRevision": 6,
+    "command": { "type": "submit_clue", "word": "Élan", "count": 2 }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000007",
+    "expectedRevision": 7,
+    "command": { "type": "challenge_clue" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000008",
+    "expectedRevision": 8,
+    "command": { "type": "resolve_challenge", "decision": "accept" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000009",
+    "expectedRevision": 9,
+    "command": { "type": "nominate_card", "cardId": "café" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000010",
+    "expectedRevision": 10,
+    "command": { "type": "clear_nomination" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000011",
+    "expectedRevision": 11,
+    "command": { "type": "confirm_reveal", "cardId": "café" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000012",
+    "expectedRevision": 12,
+    "command": { "type": "end_turn" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000013",
+    "expectedRevision": 13,
+    "command": { "type": "pause_room" }
+  },
+  {
+    "protocolVersion": 1,
+    "commandId": "10000000-0000-4000-8000-000000000014",
+    "expectedRevision": 14,
+    "command": { "type": "resume_room" }
+  }
+]
