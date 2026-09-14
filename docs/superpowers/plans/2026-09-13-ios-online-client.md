@@ -414,18 +414,18 @@ kept beside the existing web and worker apps; it is not a second repository.
   clue-giver controls map to submit clue and challenge; pause/resume and
   completion actions follow permissions.
 
-- [ ] **Step 1: Add failing projection/view tests.** Assert the key is absent
+- [x] **Step 1: Add failing projection/view tests.** Assert the key is absent
   from unauthorized view models, card ordering is stable, and every button is
   gated by projection permissions and current phase.
-- [ ] **Step 2: Implement the responsive card grid.** Use SwiftUI lazy layout,
+- [x] **Step 2: Implement the responsive card grid.** Use SwiftUI lazy layout,
   readable word typography, semantic labels, and the existing colorblind-safe
   hue/glyph/texture/label indicators.
-- [ ] **Step 3: Implement clue and guess interactions.** Validate clue word/count
+- [x] **Step 3: Implement clue and guess interactions.** Validate clue word/count
   locally only for immediate feedback, send the typed command, and render the
   server result/revision as authoritative.
-- [ ] **Step 4: Implement challenged, paused, and complete states.** Preserve
+- [x] **Step 4: Implement challenged, paused, and complete states.** Preserve
   public history and winner/completion messaging without deriving hidden state.
-- [ ] **Step 5: Verify UI/accessibility tests.** Exercise all four role views,
+- [x] **Step 5: Verify UI/accessibility tests.** Exercise all four role views,
   VoiceOver labels, text scaling, dark mode, and read-only cached presentation.
 
 ## Task 9: Mixed-client integration, resilience, and security hardening
