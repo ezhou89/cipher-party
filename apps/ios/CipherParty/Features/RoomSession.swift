@@ -110,6 +110,14 @@ actor UUIDRoomCommandIDGenerator: RoomCommandIDGenerating {
     func next() -> UUID { UUID() }
 }
 
+private struct RoomCommandSubmission: Sendable {
+    let token: UInt64
+    let sessionGeneration: UInt64
+    let command: ClassicCommand
+    let permission: RoomCommandPermission
+    let retryingCommandID: UUID?
+}
+
 @MainActor
 @Observable
 final class RoomSession {
@@ -131,6 +139,9 @@ final class RoomSession {
     @ObservationIgnored private let clock: any RoomSessionClock
     @ObservationIgnored private let commandIDGenerator: any RoomCommandIDGenerating
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var activeSubmission: RoomCommandSubmission?
+    @ObservationIgnored private var nextSubmissionToken: UInt64 = 0
+    @ObservationIgnored private var sessionGeneration: UInt64 = 0
     private var projectionIsFresh = false
     @ObservationIgnored private var leaving = false
 
@@ -193,6 +204,8 @@ final class RoomSession {
 
     func leave() async {
         leaving = true
+        sessionGeneration &+= 1
+        activeSubmission = nil
         eventTask?.cancel()
         eventTask = nil
         await socket.close()
@@ -282,7 +295,7 @@ final class RoomSession {
         try await send(
             pendingCommand.command,
             requiring: permission(for: pendingCommand.command),
-            replacingRetry: true
+            retryingCommandID: pendingCommand.commandId
         )
     }
 
@@ -290,7 +303,7 @@ final class RoomSession {
         guard let pendingCommand else { return }
         switch pendingCommand.delivery {
         case .unknownDelivery, .retryAvailable:
-            self.pendingCommand = nil
+            clearPendingCommand()
         case .awaitingResult, .awaitingProjection:
             break
         }
@@ -299,25 +312,30 @@ final class RoomSession {
     private func send(
         _ command: ClassicCommand,
         requiring permission: RoomCommandPermission,
-        replacingRetry: Bool = false
+        retryingCommandID: UUID? = nil
     ) async throws {
-        guard let projection else {
-            throw RoomSessionIntentError.noCurrentProjection
+        let submission = try reserveSubmission(
+            command,
+            requiring: permission,
+            retryingCommandID: retryingCommandID
+        )
+        let commandID = await commandIDGenerator.next()
+
+        let currentProjection: RoomProjection
+        do {
+            currentProjection = try validate(submission)
+        } catch {
+            if activeSubmission?.token == submission.token {
+                activeSubmission = nil
+            }
+            throw error
         }
-        guard connectionState == .connected, projectionIsFresh else {
-            throw RoomSessionIntentError.notConnected
-        }
-        if pendingCommand != nil && !replacingRetry {
-            throw RoomSessionIntentError.commandInFlight
-        }
-        guard isAllowed(permission, by: projection.base.permissions) else {
-            throw RoomSessionIntentError.permissionDenied(permission)
-        }
+        activeSubmission = nil
 
         let envelope = CommandEnvelope(
-            commandId: await commandIDGenerator.next(),
-            expectedRevision: projection.revision,
-            command: command
+            commandId: commandID,
+            expectedRevision: currentProjection.revision,
+            command: submission.command
         )
         pendingCommand = PendingRoomCommand(
             envelope: envelope,
@@ -330,22 +348,106 @@ final class RoomSession {
         do {
             try await socket.send(envelope)
         } catch let error as RoomSocketSendError {
+            guard submission.sessionGeneration == sessionGeneration, !leaving else {
+                throw RoomSessionIntentError.notConnected
+            }
+            guard pendingCommand?.commandId == commandID else {
+                throw RoomSessionIntentError.sendFailed
+            }
             switch error {
             case .transport:
                 pendingCommand?.delivery = .unknownDelivery
                 projectionIsFresh = false
                 connectionState = .disconnected(.unavailablePath)
             case .notConnected, .encoding:
-                pendingCommand = nil
+                clearPendingCommand()
             }
             lastError = .send
             throw RoomSessionIntentError.sendFailed
         } catch {
+            guard submission.sessionGeneration == sessionGeneration, !leaving else {
+                throw RoomSessionIntentError.notConnected
+            }
+            guard pendingCommand?.commandId == commandID else {
+                throw RoomSessionIntentError.sendFailed
+            }
             pendingCommand?.delivery = .unknownDelivery
             projectionIsFresh = false
             lastError = .send
             throw RoomSessionIntentError.sendFailed
         }
+    }
+
+    private func reserveSubmission(
+        _ command: ClassicCommand,
+        requiring permission: RoomCommandPermission,
+        retryingCommandID: UUID?
+    ) throws -> RoomCommandSubmission {
+        guard activeSubmission == nil else {
+            throw RoomSessionIntentError.commandInFlight
+        }
+        guard let projection else {
+            throw RoomSessionIntentError.noCurrentProjection
+        }
+        guard connectionState == .connected, projectionIsFresh else {
+            throw RoomSessionIntentError.notConnected
+        }
+        if let retryingCommandID {
+            guard
+                pendingCommand?.commandId == retryingCommandID,
+                pendingCommand?.delivery == .retryAvailable
+            else {
+                throw RoomSessionIntentError.retryUnavailable
+            }
+        } else if pendingCommand != nil {
+            throw RoomSessionIntentError.commandInFlight
+        }
+        guard isAllowed(permission, by: projection.base.permissions) else {
+            throw RoomSessionIntentError.permissionDenied(permission)
+        }
+
+        nextSubmissionToken &+= 1
+        let submission = RoomCommandSubmission(
+            token: nextSubmissionToken,
+            sessionGeneration: sessionGeneration,
+            command: command,
+            permission: permission,
+            retryingCommandID: retryingCommandID
+        )
+        activeSubmission = submission
+        return submission
+    }
+
+    private func validate(_ submission: RoomCommandSubmission) throws -> RoomProjection {
+        guard submission.sessionGeneration == sessionGeneration, !leaving else {
+            throw RoomSessionIntentError.notConnected
+        }
+        guard activeSubmission?.token == submission.token else {
+            if submission.retryingCommandID != nil {
+                throw RoomSessionIntentError.retryUnavailable
+            }
+            throw RoomSessionIntentError.commandInFlight
+        }
+        guard let projection else {
+            throw RoomSessionIntentError.noCurrentProjection
+        }
+        guard connectionState == .connected, projectionIsFresh else {
+            throw RoomSessionIntentError.notConnected
+        }
+        if let retryingCommandID = submission.retryingCommandID {
+            guard
+                pendingCommand?.commandId == retryingCommandID,
+                pendingCommand?.delivery == .retryAvailable
+            else {
+                throw RoomSessionIntentError.retryUnavailable
+            }
+        } else if pendingCommand != nil {
+            throw RoomSessionIntentError.commandInFlight
+        }
+        guard isAllowed(submission.permission, by: projection.base.permissions) else {
+            throw RoomSessionIntentError.permissionDenied(submission.permission)
+        }
+        return projection
     }
 
     private func receive(_ event: RoomSocketEvent) async {
@@ -458,8 +560,16 @@ final class RoomSession {
             pending.delivery = .retryAvailable
             pendingCommand = pending
         } else {
-            pendingCommand = nil
+            clearPendingCommand()
         }
+    }
+
+    private func clearPendingCommand() {
+        guard let pendingCommand else { return }
+        if activeSubmission?.retryingCommandID == pendingCommand.commandId {
+            activeSubmission = nil
+        }
+        self.pendingCommand = nil
     }
 
     private func markConnectionUncertain() {

@@ -86,6 +86,65 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertEqual(sentCount, 1)
     }
 
+    func testConcurrentIntentCannotPassGateWhileFirstCommandIDIsSuspended() async throws {
+        let generator = SuspendedCommandIDGenerator(
+            ids: [Self.commandA, Self.commandB],
+            suspendingRequest: 1
+        )
+        let harness = makeHarness(commandIDGenerator: generator)
+        try await connect(harness, projection: projection(named: "projection-operative"))
+
+        let firstIntent = Task { @MainActor in
+            try await harness.session.nominateCard("moon")
+        }
+        try await waitUntil { generator.isSuspended }
+
+        let secondIntent = Task { @MainActor in
+            try await harness.session.endTurn()
+        }
+        await Task.yield()
+        generator.resume()
+
+        let firstError = await capturedError(from: firstIntent)
+        let secondError = await capturedError(from: secondIntent)
+        XCTAssertNil(firstError)
+        XCTAssertEqual(
+            secondError as? RoomSessionIntentError,
+            .commandInFlight
+        )
+        let sent = await harness.socket.sentCommands()
+        XCTAssertEqual(sent.map(\.commandId), [Self.commandA])
+    }
+
+    func testPermissionIsRevalidatedAfterCommandIDPreparation() async throws {
+        let generator = SuspendedCommandIDGenerator(
+            ids: [Self.commandA],
+            suspendingRequest: 1
+        )
+        let harness = makeHarness(commandIDGenerator: generator)
+        try await connect(harness, projection: projection(named: "projection-operative"))
+
+        let intent = Task { @MainActor in
+            try await harness.session.nominateCard("moon")
+        }
+        try await waitUntil { generator.isSuspended }
+        await harness.socket.emit(
+            .message(.projection(try projection(named: "projection-spectator", revision: 9)))
+        )
+        try await waitUntil { harness.session.projection?.revision == 9 }
+
+        generator.resume()
+
+        let intentError = await capturedError(from: intent)
+        XCTAssertEqual(
+            intentError as? RoomSessionIntentError,
+            .permissionDenied(.nominate)
+        )
+        let sent = await harness.socket.sentCommands()
+        XCTAssertTrue(sent.isEmpty)
+        XCTAssertNil(harness.session.pendingCommand)
+    }
+
     func testEveryTypedIntentMapsToItsProtocolCommand() async throws {
         let ids = (1...14).map { index in
             UUID(uuidString: String(format: "40000000-0000-4000-8000-%012d", index))!
@@ -233,6 +292,90 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertEqual(harness.session.pendingCommand?.delivery, .awaitingResult)
     }
 
+    func testCancelDuringRetryPreparationPreventsTheRetryFromSending() async throws {
+        let generator = SuspendedCommandIDGenerator(
+            ids: [Self.commandA, Self.commandB],
+            suspendingRequest: 2
+        )
+        let harness = makeHarness(commandIDGenerator: generator)
+        try await connect(harness, projection: projection(named: "projection-operative"))
+        try await harness.session.nominateCard("moon")
+        try await prepareRetry(harness)
+
+        let retry = Task { @MainActor in
+            try await harness.session.retryPendingCommand()
+        }
+        try await waitUntil { generator.isSuspended }
+        harness.session.cancelPendingCommand()
+        generator.resume()
+
+        let retryError = await capturedError(from: retry)
+        XCTAssertEqual(
+            retryError as? RoomSessionIntentError,
+            .retryUnavailable
+        )
+        let sent = await harness.socket.sentCommands()
+        XCTAssertEqual(sent.map(\.commandId), [Self.commandA])
+        XCTAssertNil(harness.session.pendingCommand)
+    }
+
+    func testLateResultDuringRetryPreparationPreventsTheRetryFromSending() async throws {
+        let generator = SuspendedCommandIDGenerator(
+            ids: [Self.commandA, Self.commandB],
+            suspendingRequest: 2
+        )
+        let harness = makeHarness(commandIDGenerator: generator)
+        try await connect(harness, projection: projection(named: "projection-operative"))
+        try await harness.session.nominateCard("moon")
+        try await prepareRetry(harness)
+
+        let retry = Task { @MainActor in
+            try await harness.session.retryPendingCommand()
+        }
+        try await waitUntil { generator.isSuspended }
+        await harness.socket.emit(
+            .message(.commandResult(commandId: Self.commandA, result: .success(revision: 9)))
+        )
+        try await waitUntil { harness.session.pendingCommand == nil }
+        generator.resume()
+
+        let retryError = await capturedError(from: retry)
+        XCTAssertEqual(
+            retryError as? RoomSessionIntentError,
+            .retryUnavailable
+        )
+        let sent = await harness.socket.sentCommands()
+        XCTAssertEqual(sent.map(\.commandId), [Self.commandA])
+        XCTAssertNil(harness.session.pendingCommand)
+    }
+
+    func testLeaveDuringCommandPreparationPreventsSendAndPendingStateRestoration() async throws {
+        let generator = SuspendedCommandIDGenerator(
+            ids: [Self.commandA],
+            suspendingRequest: 1
+        )
+        let harness = makeHarness(commandIDGenerator: generator)
+        try await connect(harness, projection: projection(named: "projection-operative"))
+
+        let intent = Task { @MainActor in
+            try await harness.session.nominateCard("moon")
+        }
+        try await waitUntil { generator.isSuspended }
+        await harness.session.leave()
+        generator.resume()
+
+        let intentError = await capturedError(from: intent)
+        XCTAssertEqual(
+            intentError as? RoomSessionIntentError,
+            .notConnected
+        )
+        let sent = await harness.socket.sentCommands()
+        XCTAssertTrue(sent.isEmpty)
+        XCTAssertEqual(harness.session.connectionState, .idle)
+        XCTAssertNil(harness.session.pendingCommand)
+        XCTAssertNil(harness.session.lastError)
+    }
+
     func testDefinitiveCommandErrorsClearWhenCurrentRevisionProvesRejection() async throws {
         for (index, code) in [CommandErrorCode.unauthorized, .wrongPhase].enumerated() {
             let commandID = index == 0 ? Self.commandA : Self.commandB
@@ -329,9 +472,29 @@ final class RoomSessionTests: XCTestCase {
         }
     }
 
+    private func prepareRetry(_ harness: Harness) async throws {
+        await harness.socket.emit(.reconnecting(attempt: 1, delay: 0.5))
+        try await waitUntil { harness.session.pendingCommand?.delivery == .unknownDelivery }
+        await harness.socket.emit(.open)
+        await harness.socket.emit(
+            .message(.projection(try projection(named: "projection-operative", revision: 9)))
+        )
+        try await waitUntil { harness.session.pendingCommand?.delivery == .retryAvailable }
+    }
+
+    private func capturedError(from task: Task<Void, Error>) async -> Error? {
+        do {
+            try await task.value
+            return nil
+        } catch {
+            return error
+        }
+    }
+
     private func makeHarness(
         cached: CachedRoomProjection? = nil,
-        commandIDs: [UUID] = []
+        commandIDs: [UUID] = [],
+        commandIDGenerator: (any RoomCommandIDGenerating)? = nil
     ) -> Harness {
         let socket = FakeRoomSessionSocket()
         let cache = FakeProjectionCache(cached: cached)
@@ -342,7 +505,7 @@ final class RoomSessionTests: XCTestCase {
             credentialStore: store,
             cache: cache,
             clock: FixedRoomSessionClock(date: Self.now),
-            commandIDGenerator: SequenceCommandIDGenerator(ids: commandIDs)
+            commandIDGenerator: commandIDGenerator ?? SequenceCommandIDGenerator(ids: commandIDs)
         )
         return Harness(session: session, socket: socket, cache: cache, store: store)
     }
@@ -482,6 +645,59 @@ private actor SequenceCommandIDGenerator: RoomCommandIDGenerating {
     func next() -> UUID {
         precondition(!ids.isEmpty, "Test requested more command IDs than provided")
         return ids.removeFirst()
+    }
+}
+
+private final class CommandIDSuspensionGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var suspended = false
+    private var resumed = false
+
+    var isSuspended: Bool {
+        condition.withLock { suspended }
+    }
+
+    func suspend() {
+        condition.lock()
+        suspended = true
+        condition.broadcast()
+        while !resumed {
+            condition.wait()
+        }
+        condition.unlock()
+    }
+
+    func resume() {
+        condition.withLock {
+            resumed = true
+            condition.broadcast()
+        }
+    }
+}
+
+private actor SuspendedCommandIDGenerator: RoomCommandIDGenerating {
+    private var ids: [UUID]
+    private let suspendingRequest: Int
+    private var requestCount = 0
+    nonisolated private let gate = CommandIDSuspensionGate()
+
+    init(ids: [UUID], suspendingRequest: Int) {
+        self.ids = ids
+        self.suspendingRequest = suspendingRequest
+    }
+
+    nonisolated var isSuspended: Bool { gate.isSuspended }
+
+    nonisolated func resume() { gate.resume() }
+
+    func next() -> UUID {
+        precondition(!ids.isEmpty, "Test requested more command IDs than provided")
+        requestCount += 1
+        let id = ids.removeFirst()
+        if requestCount == suspendingRequest {
+            gate.suspend()
+        }
+        return id
     }
 }
 
