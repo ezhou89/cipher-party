@@ -81,8 +81,8 @@ protocol RoomSessionSocket: Actor {
     func events() -> AsyncStream<RoomSocketEvent>
     func start()
     func close() async
-    func didEnterBackground() async
-    func willEnterForeground()
+    func didEnterBackground() async -> UInt64
+    func willEnterForeground() -> UInt64
     func send(_ command: CommandEnvelope) async throws
 }
 
@@ -142,6 +142,10 @@ final class RoomSession {
     private var activeSubmission: RoomCommandSubmission?
     @ObservationIgnored private var nextSubmissionToken: UInt64 = 0
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
+    @ObservationIgnored private var minimumSocketGeneration: UInt64 = 0
+    @ObservationIgnored private var activeSocketGeneration: UInt64?
+    @ObservationIgnored private var socketIsOpen = false
+    @ObservationIgnored private var requiresForegroundOpen = false
     private var projectionIsFresh = false
     @ObservationIgnored private var leaving = false
     @ObservationIgnored private var isInBackground = false
@@ -201,25 +205,41 @@ final class RoomSession {
     func didEnterBackground() async {
         prepareForBackground()
         if case .failed = connectionState { return }
-        await socket.didEnterBackground()
+        let socketGeneration = await socket.didEnterBackground()
+        minimumSocketGeneration = max(minimumSocketGeneration, socketGeneration)
     }
 
     // Called synchronously by the scene owner before any queued lifecycle work.
     func prepareForBackground() {
+        sessionGeneration &+= 1
         isInBackground = true
+        socketIsOpen = false
+        requiresForegroundOpen = true
+        if let activeSocketGeneration {
+            minimumSocketGeneration = max(minimumSocketGeneration, activeSocketGeneration &+ 1)
+        }
         markConnectionUncertain()
         projection = projection?.redacted()
     }
 
     func willEnterForeground() async {
-        isInBackground = false
-        if case .failed = connectionState { return }
+        if case .failed = connectionState {
+            isInBackground = false
+            return
+        }
         if connectionState != .idle {
             connectionState = .connecting
             projectionIsFresh = false
             lastError = nil
         }
-        await socket.willEnterForeground()
+        socketIsOpen = false
+        let socketGeneration = await socket.willEnterForeground()
+        // Keep the barrier closed while asking the transport to start. Any
+        // queued events from before background are still delivered in order,
+        // but cannot become current until this new generation opens.
+        minimumSocketGeneration = max(minimumSocketGeneration, socketGeneration)
+        activeSocketGeneration = nil
+        isInBackground = false
     }
 
     func leave() async {
@@ -472,32 +492,45 @@ final class RoomSession {
 
     private func receive(_ event: RoomSocketEvent) async {
         guard !leaving else { return }
-        switch event {
+        guard accepts(event) else { return }
+        switch event.kind {
         case .connecting:
             connectionState = .connecting
             projectionIsFresh = false
         case .open:
+            socketIsOpen = true
+            requiresForegroundOpen = false
+            activeSocketGeneration = event.generation
             connectionState = .connected
             projectionIsFresh = false
         case let .reconnecting(attempt, delay):
+            socketIsOpen = false
             connectionState = .reconnecting(attempt: attempt, delay: delay)
             markConnectionUncertain()
         case let .message(message):
-            await receive(message)
+            await receive(message, socketGeneration: event.generation)
         case .incompatibleMessage:
+            socketIsOpen = false
             markConnectionUncertain()
             lastError = .connection(.incompatibleResponse)
         case let .terminalFailure(failure):
+            socketIsOpen = false
             connectionState = .failed(failure)
             markConnectionUncertain()
             lastError = .connection(failure)
         case let .closed(reason):
+            socketIsOpen = false
             connectionState = reason == .userInitiated ? .idle : .disconnected(reason)
             markConnectionUncertain()
         }
     }
 
-    private func receive(_ message: ServerMessage) async {
+    private func receive(_ message: ServerMessage, socketGeneration: UInt64?) async {
+        guard socketIsOpen, !requiresForegroundOpen else { return }
+        if let socketGeneration,
+           activeSocketGeneration != socketGeneration {
+            return
+        }
         switch message {
         case let .projection(serverProjection):
             await receive(serverProjection)
@@ -605,6 +638,46 @@ final class RoomSession {
         pendingCommand = pending
         if lastError == nil {
             lastError = .connectionLost
+        }
+    }
+
+    private func accepts(_ event: RoomSocketEvent) -> Bool {
+        if isInBackground {
+            // A transport close is still useful while the scene is covered:
+            // it records the connection transition without allowing a queued
+            // socket open or message to restore usable state.
+            guard case .closed = event.kind else { return false }
+        }
+
+        if let eventGeneration = event.generation {
+            guard eventGeneration >= minimumSocketGeneration else { return false }
+            switch event.kind {
+            case .open:
+                return true
+            case .message:
+                return socketIsOpen && activeSocketGeneration == eventGeneration
+            case .connecting, .reconnecting, .incompatibleMessage, .terminalFailure, .closed:
+                // Connection lifecycle events can be emitted before an open
+                // event (for example, a terminal ticket failure). A newer
+                // generation may replace the active one, but an older
+                // generation must never change current state.
+                guard let activeSocketGeneration else { return true }
+                return eventGeneration >= activeSocketGeneration
+            }
+        }
+
+        // Legacy/test transports do not expose a generation. They still pass
+        // through the same foreground barrier by requiring an explicit open
+        // event before messages can update projection state.
+        switch event.kind {
+        case .connecting:
+            return true
+        case .open:
+            return true
+        case .terminalFailure, .closed, .reconnecting, .incompatibleMessage:
+            return true
+        case .message:
+            return socketIsOpen && !requiresForegroundOpen
         }
     }
 

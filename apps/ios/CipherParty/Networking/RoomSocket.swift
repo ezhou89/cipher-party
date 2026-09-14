@@ -1,13 +1,76 @@
 import Foundation
 
-enum RoomSocketEvent: Equatable, Sendable {
-    case connecting
-    case open
-    case reconnecting(attempt: Int, delay: TimeInterval)
-    case message(ServerMessage)
-    case incompatibleMessage
-    case terminalFailure(RoomSocketFailure)
-    case closed(RoomSocketCloseReason)
+struct RoomSocketEvent: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case connecting
+        case open
+        case reconnecting(attempt: Int, delay: TimeInterval)
+        case message(ServerMessage)
+        case incompatibleMessage
+        case terminalFailure(RoomSocketFailure)
+        case closed(RoomSocketCloseReason)
+    }
+
+    /// A nil generation is reserved for lifecycle events emitted before the
+    /// first socket attempt and for test transports that do not model socket
+    /// generations. URLSession-backed events always carry a generation.
+    let kind: Kind
+    let generation: UInt64?
+
+    private init(kind: Kind, generation: UInt64?) {
+        self.kind = kind
+        self.generation = generation
+    }
+
+    static var connecting: Self { Self(kind: .connecting, generation: nil) }
+    static func connecting(generation: UInt64) -> Self {
+        Self(kind: .connecting, generation: generation)
+    }
+
+    static var open: Self { Self(kind: .open, generation: nil) }
+    static func open(generation: UInt64) -> Self {
+        Self(kind: .open, generation: generation)
+    }
+
+    static func reconnecting(attempt: Int, delay: TimeInterval) -> Self {
+        Self(kind: .reconnecting(attempt: attempt, delay: delay), generation: nil)
+    }
+
+    static func reconnecting(attempt: Int, delay: TimeInterval, generation: UInt64) -> Self {
+        Self(kind: .reconnecting(attempt: attempt, delay: delay), generation: generation)
+    }
+
+    static func message(_ message: ServerMessage) -> Self {
+        Self(kind: .message(message), generation: nil)
+    }
+
+    static func message(_ message: ServerMessage, generation: UInt64) -> Self {
+        Self(kind: .message(message), generation: generation)
+    }
+
+    static var incompatibleMessage: Self {
+        Self(kind: .incompatibleMessage, generation: nil)
+    }
+
+    static func incompatibleMessage(generation: UInt64) -> Self {
+        Self(kind: .incompatibleMessage, generation: generation)
+    }
+
+    static func terminalFailure(_ failure: RoomSocketFailure) -> Self {
+        Self(kind: .terminalFailure(failure), generation: nil)
+    }
+
+    static func terminalFailure(_ failure: RoomSocketFailure, generation: UInt64) -> Self {
+        Self(kind: .terminalFailure(failure), generation: generation)
+    }
+
+    static func closed(_ reason: RoomSocketCloseReason) -> Self {
+        Self(kind: .closed(reason), generation: nil)
+    }
+
+    static func closed(_ reason: RoomSocketCloseReason, generation: UInt64) -> Self {
+        Self(kind: .closed(reason), generation: generation)
+    }
 }
 
 enum RoomSocketFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -200,6 +263,7 @@ actor RoomSocket {
         started = false
         terminal = false
         generation &+= 1
+        let closeGeneration = generation
         lifecycleTask?.cancel()
         lifecycleTask = nil
         pathTask?.cancel()
@@ -208,27 +272,31 @@ actor RoomSocket {
         connection = nil
         connectionIsOpen = false
         await openConnection?.close(code: .normalClosure)
-        continuation.yield(.closed(.userInitiated))
+        continuation.yield(.closed(.userInitiated, generation: closeGeneration))
     }
 
-    func didEnterBackground() async {
-        guard started, foreground else { return }
+    func didEnterBackground() async -> UInt64 {
+        guard started, foreground else { return generation }
         foreground = false
         generation &+= 1
+        let backgroundGeneration = generation
         lifecycleTask?.cancel()
         lifecycleTask = nil
         let openConnection = connection
         connection = nil
         connectionIsOpen = false
         await openConnection?.close(code: .goingAway)
-        continuation.yield(.closed(.background))
+        continuation.yield(.closed(.background, generation: backgroundGeneration))
+        return backgroundGeneration
     }
 
-    func willEnterForeground() {
-        guard started, !foreground, !terminal else { return }
+    @discardableResult
+    func willEnterForeground() -> UInt64 {
+        guard started, !foreground, !terminal else { return generation }
         foreground = true
         pathStatus = pathMonitor.currentStatus()
         launchConnectionLoopIfPossible()
+        return generation
     }
 
     func send(_ command: CommandEnvelope) async throws {
@@ -271,19 +339,21 @@ actor RoomSocket {
                 return
             }
             generation &+= 1
+            let unavailableGeneration = generation
             lifecycleTask?.cancel()
             lifecycleTask = nil
             let openConnection = connection
             connection = nil
             connectionIsOpen = false
             await openConnection?.close(code: .goingAway)
-            continuation.yield(.closed(.unavailablePath))
+            continuation.yield(.closed(.unavailablePath, generation: unavailableGeneration))
         case .usable:
             launchConnectionLoopIfPossible()
         }
     }
 
-    private func launchConnectionLoopIfPossible() {
+    @discardableResult
+    private func launchConnectionLoopIfPossible() -> UInt64? {
         guard
             started,
             foreground,
@@ -291,17 +361,18 @@ actor RoomSocket {
             pathStatus == .usable,
             lifecycleTask == nil
         else {
-            return
+            return nil
         }
 
         generation &+= 1
         let loopGeneration = generation
         if attemptedConnection {
-            continuation.yield(.reconnecting(attempt: 0, delay: 0))
+            continuation.yield(.reconnecting(attempt: 0, delay: 0, generation: loopGeneration))
         }
         lifecycleTask = Task { [weak self] in
             await self?.runConnectionLoop(generation: loopGeneration)
         }
+        return loopGeneration
     }
 
     private func runConnectionLoop(generation loopGeneration: UInt64) async {
@@ -330,7 +401,7 @@ actor RoomSocket {
                 try await candidate.connect()
                 try ensureCurrent(generation: loopGeneration)
                 connectionIsOpen = true
-                continuation.yield(.open)
+                continuation.yield(.open(generation: loopGeneration))
                 consecutiveFailures = 0
                 try await receiveMessages(from: candidate, generation: loopGeneration)
                 throw RoomWebSocketTransportError.transport
@@ -347,13 +418,13 @@ actor RoomSocket {
 
                 if let failure = terminalFailure(for: error) {
                     terminal = true
-                    continuation.yield(.terminalFailure(failure))
+                    continuation.yield(.terminalFailure(failure, generation: loopGeneration))
                     finishLoop(generation: loopGeneration)
                     return
                 }
 
                 guard pathStatus == .usable else {
-                    continuation.yield(.closed(.unavailablePath))
+                    continuation.yield(.closed(.unavailablePath, generation: loopGeneration))
                     finishLoop(generation: loopGeneration)
                     return
                 }
@@ -363,7 +434,11 @@ actor RoomSocket {
                     min(consecutiveFailures - 1, Self.retryDelays.count - 1)
                 ]
                 continuation.yield(
-                    .reconnecting(attempt: consecutiveFailures, delay: delay)
+                    .reconnecting(
+                        attempt: consecutiveFailures,
+                        delay: delay,
+                        generation: loopGeneration
+                    )
                 )
                 do {
                     try await clock.sleep(for: delay)
@@ -393,13 +468,13 @@ actor RoomSocket {
             }
 
             guard let message = try? decoder.decode(ServerMessage.self, from: data) else {
-                continuation.yield(.incompatibleMessage)
+                continuation.yield(.incompatibleMessage(generation: loopGeneration))
                 throw AttemptError.incompatibleMessage
             }
             if message.serverErrorCode == .ticketExpired {
                 throw AttemptError.ticketRejected
             }
-            continuation.yield(.message(message))
+            continuation.yield(.message(message, generation: loopGeneration))
         }
     }
 

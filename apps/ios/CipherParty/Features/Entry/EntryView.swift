@@ -31,11 +31,13 @@ final class RoomFlow {
     private(set) var session: RoomSession?
     private(set) var roomCode: String?
     private(set) var cleanupFailed = false
+    private(set) var pendingCleanupRoomCodes: [String] = []
     private(set) var transitions = 0
     var isTransitioning: Bool { transitions > 0 }
     @ObservationIgnored private let makeSession: (SeatCredentials) -> RoomSession
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var sceneIsActive = true
+    @ObservationIgnored private var pendingCleanupSessions: [RoomSession] = []
 
     init(makeSession: @escaping (SeatCredentials) -> RoomSession) {
         self.makeSession = makeSession
@@ -62,6 +64,27 @@ final class RoomFlow {
         await enqueue { [self] in await cleanUpCurrentSession() }.value
     }
 
+    func retryCleanup() async {
+        transitions += 1
+        defer { transitions -= 1 }
+        await enqueue { [self] in
+            var remainingSessions: [RoomSession] = []
+            var remainingCodes: [String] = []
+            for (index, pending) in pendingCleanupSessions.enumerated() {
+                await pending.leave()
+                if pending.lastError == .leaveCleanup {
+                    remainingSessions.append(pending)
+                    if index < pendingCleanupRoomCodes.count {
+                        remainingCodes.append(pendingCleanupRoomCodes[index])
+                    }
+                }
+            }
+            pendingCleanupSessions = remainingSessions
+            pendingCleanupRoomCodes = remainingCodes
+            cleanupFailed = !remainingSessions.isEmpty
+        }.value
+    }
+
     func sceneChanged(isActive: Bool) {
         guard sceneIsActive != isActive else { return }
         sceneIsActive = isActive
@@ -79,8 +102,15 @@ final class RoomFlow {
 
     private func cleanUpCurrentSession() async {
         let previous = session
+        let previousCode = roomCode
         await previous?.leave()
-        cleanupFailed = previous?.lastError == .leaveCleanup
+        if previous?.lastError == .leaveCleanup, let previous {
+            pendingCleanupSessions.append(previous)
+            if let previousCode {
+                pendingCleanupRoomCodes.append(previousCode)
+            }
+        }
+        cleanupFailed = !pendingCleanupSessions.isEmpty
         session = nil
         roomCode = nil
     }
@@ -135,6 +165,15 @@ struct EntryView: View {
             Group {
                 if let roomSession = flow.session, let activeRoomCode = flow.roomCode {
                     RoomSessionHandoffView(code: activeRoomCode, session: roomSession)
+                        .overlay(alignment: .top) {
+                            if flow.cleanupFailed {
+                                PendingRoomCleanupView {
+                                    Task { await flow.retryCleanup() }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 8)
+                            }
+                        }
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Leave room", role: .destructive) {
@@ -228,9 +267,9 @@ struct EntryView: View {
             .frame(maxWidth: 320)
 
             if flow.cleanupFailed {
-                Text("Some saved room data could not be removed. Return to that room and leave again to retry cleanup.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                PendingRoomCleanupView {
+                    Task { await flow.retryCleanup() }
+                }
             }
 
             Spacer()
@@ -359,6 +398,25 @@ private struct RoomSessionHandoffView: View {
             }
         }
         .navigationBarBackButtonHidden()
+    }
+}
+
+private struct PendingRoomCleanupView: View {
+    let retry: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Cleanup for a previous room is pending.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+            Button("Retry cleanup", action: retry)
+                .font(.footnote.weight(.semibold))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityIdentifier("room.pendingCleanup")
     }
 }
 

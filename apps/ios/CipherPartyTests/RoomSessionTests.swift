@@ -94,11 +94,56 @@ final class RoomSessionTests: XCTestCase {
         await flow.leave()
     }
 
+    func testQueuedPreBackgroundProjectionIsIgnoredUntilPostForegroundProjection() async throws {
+        let harness = makeHarness()
+        let flow = RoomFlow { _ in harness.session }
+        await flow.open(SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host"))
+        await harness.socket.emit(.open(generation: 1))
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 8)), generation: 1))
+        try await waitUntil { harness.session.projection?.revision == 8 && !harness.session.isStale }
+
+        await harness.socket.holdEvents()
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 12)), generation: 1))
+        flow.sceneChanged(isActive: false)
+        flow.sceneChanged(isActive: true)
+        await flow.waitForTransitions()
+        await harness.socket.releaseEvents()
+        for _ in 0..<40 { await Task.yield() }
+
+        XCTAssertEqual(harness.session.projection?.revision, 8)
+        XCTAssertTrue(harness.session.isStale)
+
+        await harness.socket.emit(.open(generation: 2))
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 13)), generation: 2))
+        try await waitUntil { harness.session.projection?.revision == 13 && !harness.session.isStale }
+    }
+
+    func testFailedPriorRoomCleanupRemainsVisibleAndCanRetryWhileNewRoomIsActive() async throws {
+        let first = makeHarness(cacheDeleteFailures: 1)
+        let second = makeHarness()
+        let flow = RoomFlow { $0.code == "ABC234" ? first.session : second.session }
+
+        await flow.open(SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host"))
+        await flow.open(SeatCredentials(code: "K7M2X9", playerId: "guest", seatToken: "seat", hostToken: nil))
+
+        XCTAssertTrue(flow.session === second.session)
+        XCTAssertTrue(flow.cleanupFailed)
+        XCTAssertEqual(flow.pendingCleanupRoomCodes, ["ABC234"])
+
+        await flow.retryCleanup()
+
+        XCTAssertFalse(flow.cleanupFailed)
+        XCTAssertEqual(flow.pendingCleanupRoomCodes, [])
+        XCTAssertTrue(flow.session === second.session)
+        let deletedCodes = await first.cache.deletedCodes()
+        XCTAssertEqual(deletedCodes, ["ABC234"])
+    }
+
     func testTerminalFailureSurvivesSceneChangesAndStillAllowsRootLeave() async throws {
         let harness = makeHarness()
         let flow = RoomFlow { _ in harness.session }
         await flow.open(SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host"))
-        await harness.socket.emit(.terminalFailure(.authentication))
+        await harness.socket.emit(.terminalFailure(.authentication, generation: 2))
         try await waitUntil { harness.session.connectionState == .failed(.authentication) }
         flow.sceneChanged(isActive: false)
         flow.sceneChanged(isActive: true)
@@ -168,6 +213,7 @@ final class RoomSessionTests: XCTestCase {
         }
         XCTAssertTrue(harness.session.isStale)
 
+        await harness.socket.emit(.open)
         let challenged = try projection(named: "projection-challenged")
         await harness.socket.emit(.message(.projection(challenged)))
         try await waitUntil { harness.session.projection?.revision == 11 }
@@ -635,11 +681,13 @@ final class RoomSessionTests: XCTestCase {
     private func makeHarness(
         cached: CachedRoomProjection? = nil,
         commandIDs: [UUID] = [],
-        commandIDGenerator: (any RoomCommandIDGenerating)? = nil
+        commandIDGenerator: (any RoomCommandIDGenerating)? = nil,
+        cacheDeleteFailures: Int = 0,
+        credentialDeleteFailures: Int = 0
     ) -> Harness {
         let socket = FakeRoomSessionSocket()
-        let cache = FakeProjectionCache(cached: cached)
-        let store = FakeRoomCredentialStore()
+        let cache = FakeProjectionCache(cached: cached, deleteFailures: cacheDeleteFailures)
+        let store = FakeRoomCredentialStore(deleteFailures: credentialDeleteFailures)
         let session = RoomSession(
             code: "ABC234",
             socket: socket,
@@ -721,6 +769,9 @@ private actor FakeRoomSessionSocket: RoomSessionSocket {
     private var backgrounds = 0
     private var foregrounds = 0
     private var lifecycle: [String] = []
+    private var generation: UInt64 = 0
+    private var holdsEvents = false
+    private var heldEvents: [RoomSocketEvent] = []
 
     init() {
         let pair = AsyncStream<RoomSocketEvent>.makeStream()
@@ -731,11 +782,36 @@ private actor FakeRoomSessionSocket: RoomSessionSocket {
     func events() -> AsyncStream<RoomSocketEvent> { stream }
     func start() {}
     func close() { closes += 1 }
-    func didEnterBackground() { backgrounds += 1; lifecycle.append("background") }
-    func willEnterForeground() { foregrounds += 1; lifecycle.append("foreground") }
+    func didEnterBackground() -> UInt64 {
+        backgrounds += 1
+        generation &+= 1
+        lifecycle.append("background")
+        return generation
+    }
+
+    func willEnterForeground() -> UInt64 {
+        foregrounds += 1
+        generation &+= 1
+        lifecycle.append("foreground")
+        return generation
+    }
     func lifecycleEvents() -> [String] { lifecycle }
     func send(_ command: CommandEnvelope) { sent.append(command) }
-    func emit(_ event: RoomSocketEvent) { continuation.yield(event) }
+    func holdEvents() { holdsEvents = true }
+
+    func releaseEvents() {
+        holdsEvents = false
+        heldEvents.forEach { continuation.yield($0) }
+        heldEvents.removeAll()
+    }
+
+    func emit(_ event: RoomSocketEvent) {
+        if holdsEvents {
+            heldEvents.append(event)
+        } else {
+            continuation.yield(event)
+        }
+    }
     func sentCommands() -> [CommandEnvelope] { sent }
     func closeCount() -> Int { closes }
     func backgroundCount() -> Int { backgrounds }
@@ -744,11 +820,13 @@ private actor FakeRoomSessionSocket: RoomSessionSocket {
 
 private actor FakeProjectionCache: ProjectionCaching {
     private let cached: CachedRoomProjection?
+    private var remainingDeleteFailures: Int
     private var saved: [CachedRoomProjection] = []
     private var deletions: [String] = []
 
-    init(cached: CachedRoomProjection?) {
+    init(cached: CachedRoomProjection?, deleteFailures: Int = 0) {
         self.cached = cached
+        remainingDeleteFailures = deleteFailures
     }
 
     func load(code: String) -> CachedRoomProjection? { cached }
@@ -762,15 +840,37 @@ private actor FakeProjectionCache: ProjectionCaching {
         )
     }
 
-    func delete(code: String) { deletions.append(code) }
+    func delete(code: String) throws {
+        if remainingDeleteFailures > 0 {
+            remainingDeleteFailures -= 1
+            throw TestCleanupError.failed
+        }
+        deletions.append(code)
+    }
     func savedProjections() -> [CachedRoomProjection] { saved }
     func deletedCodes() -> [String] { deletions }
 }
 
 private actor FakeRoomCredentialStore: RoomCredentialDeleting {
+    private var remainingDeleteFailures: Int
     private var deletions: [String] = []
-    func delete(code: String) { deletions.append(code) }
+
+    init(deleteFailures: Int = 0) {
+        remainingDeleteFailures = deleteFailures
+    }
+
+    func delete(code: String) throws {
+        if remainingDeleteFailures > 0 {
+            remainingDeleteFailures -= 1
+            throw TestCleanupError.failed
+        }
+        deletions.append(code)
+    }
     func deletedCodes() -> [String] { deletions }
+}
+
+private enum TestCleanupError: Error {
+    case failed
 }
 
 private struct FixedRoomSessionClock: RoomSessionClock {

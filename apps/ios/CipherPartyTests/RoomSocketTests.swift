@@ -31,7 +31,7 @@ final class RoomSocketTests: XCTestCase {
         let sleeps = await harness.clock.recordedSleeps()
         let ticketRequests = await harness.tickets.requestCount()
         let urls = await harness.factory.requestedURLs()
-        XCTAssertEqual(Array(events.prefix(3)), [.connecting, .open, .message(expected)])
+        XCTAssertEqual(Array(events.prefix(3)).map(\.kind), [.connecting, .open, .message(expected)])
         XCTAssertEqual(closeCodes, [.normalClosure])
         XCTAssertEqual(sleeps, [])
         XCTAssertEqual(ticketRequests, 1)
@@ -137,7 +137,7 @@ final class RoomSocketTests: XCTestCase {
 
         let events = await recorder.snapshot()
         let receives = await connection.receiveCount()
-        XCTAssertTrue(events.contains(.incompatibleMessage))
+        XCTAssertTrue(events.contains { $0.kind == .incompatibleMessage })
         XCTAssertEqual(receives, 1)
         XCTAssertFalse(String(describing: events).contains("raw-frame-secret"))
         await harness.socket.close()
@@ -501,11 +501,11 @@ private actor EventRecorder {
     }
 
     func contains(_ event: RoomSocketEvent) -> Bool {
-        values.contains(event)
+        values.contains { $0.kind == event.kind }
     }
 
     func openCount() -> Int {
-        values.filter { $0 == .open }.count
+        values.filter { $0.kind == .open }.count
     }
 }
 
