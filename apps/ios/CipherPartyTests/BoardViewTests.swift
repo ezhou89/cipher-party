@@ -102,6 +102,22 @@ final class BoardViewTests: XCTestCase {
         XCTAssertFalse(staleOperative.controls.hasAnyAction)
     }
 
+    func testPendingCommandMakesCardsReadOnlyWithoutChangingProjectionState() throws {
+        let operative = try BoardPresentation(
+            projection: RoomProjection(
+                serverProjection: fixtureProjection(named: "projection-operative")
+            ),
+            connectionState: .connected,
+            isStale: false,
+            lastUpdated: nil,
+            isCommandPending: true
+        )
+
+        XCTAssertTrue(operative.controls.canNominate)
+        XCTAssertTrue(operative.cards.allSatisfy { !$0.isSelectable })
+        XCTAssertEqual(operative.projection.revision, 8)
+    }
+
     func testClueValidationNormalizesLocalInputWithoutChangingServerState() {
         XCTAssertEqual(
             ClueComposerValidation.validate(word: "  Élan  ", count: 2),
@@ -115,6 +131,24 @@ final class BoardViewTests: XCTestCase {
             ClueComposerValidation.validate(word: "Moon", count: 0),
             .invalid("Clue count must be an integer between 1 and 9.")
         )
+    }
+
+    func testBoardActionErrorsAreTypedAndDoNotEchoServerDetails() {
+        XCTAssertEqual(
+            BoardActionErrorPresentation.message(
+                for: .commandRejected(
+                    code: .staleRevision,
+                    message: "internal detail that must not be shown"
+                )
+            ),
+            "The room changed before the action was confirmed. Wait for the latest board."
+        )
+        XCTAssertEqual(
+            BoardActionErrorPresentation.message(for: .connectionLost),
+            "The connection was lost before the server confirmed the action."
+        )
+        XCTAssertNil(BoardActionErrorPresentation.message(for: .success(revision: 9)))
+        XCTAssertNil(BoardActionErrorPresentation.message(for: .cache))
     }
 
     func testUnassignedAndCachedBoardViewsHaveNoHiddenOrInteractiveState() throws {

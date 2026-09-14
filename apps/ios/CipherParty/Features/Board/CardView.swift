@@ -61,6 +61,14 @@ struct CardView: View {
         .padding(10)
         .background(backgroundColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
+            if let ownership = card.owner ?? card.keyOwner {
+                OwnershipTexture(ownership: ownership)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(borderColor, lineWidth: card.isNominated ? 3 : 1)
         }
@@ -101,6 +109,54 @@ struct CardView: View {
             return .accentColor
         }
         return Color.secondary.opacity(0.35)
+    }
+}
+
+private struct OwnershipTexture: View {
+    let ownership: Ownership
+
+    var body: some View {
+        Canvas { context, size in
+            let textureColor = Color.primary.opacity(0.18)
+            switch ownership {
+            case .red:
+                for x in stride(from: -size.height, through: size.width, by: 14) {
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: size.height))
+                    path.addLine(to: CGPoint(x: x + size.height, y: 0))
+                    context.stroke(path, with: .color(textureColor), lineWidth: 2)
+                }
+            case .blue:
+                for x in stride(from: 6, through: size.width, by: 12) {
+                    for y in stride(from: 6, through: size.height, by: 12) {
+                        context.fill(
+                            Path(ellipseIn: CGRect(x: x - 1.5, y: y - 1.5, width: 3, height: 3)),
+                            with: .color(textureColor)
+                        )
+                    }
+                }
+            case .neutral:
+                for x in stride(from: 0, through: size.width, by: 14) {
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: size.height))
+                    context.stroke(path, with: .color(textureColor), lineWidth: 1)
+                }
+                for y in stride(from: 0, through: size.height, by: 14) {
+                    var path = Path()
+                    path.move(to: CGPoint(x: 0, y: y))
+                    path.addLine(to: CGPoint(x: size.width, y: y))
+                    context.stroke(path, with: .color(textureColor), lineWidth: 1)
+                }
+            case .hazard:
+                for x in stride(from: -size.height, through: size.width, by: 16) {
+                    var path = Path()
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x + size.height, y: size.height))
+                    context.stroke(path, with: .color(textureColor), lineWidth: 3)
+                }
+            }
+        }
     }
 }
 

@@ -84,7 +84,8 @@ struct BoardPresentation: Equatable, Sendable {
         projection: RoomProjection,
         connectionState: RoomConnectionState,
         isStale: Bool,
-        lastUpdated: Date?
+        lastUpdated: Date?,
+        isCommandPending: Bool = false
     ) {
         self.projection = projection
         role = projection.viewRole
@@ -150,7 +151,7 @@ struct BoardPresentation: Equatable, Sendable {
                 card: card,
                 keyOwner: visibleKey?[cardID],
                 isNominated: board.nomination?.cardId == cardID,
-                isSelectable: canNominate && !card.revealed
+                isSelectable: canNominate && !isCommandPending && !card.revealed
             )
         }
     }
@@ -185,6 +186,7 @@ enum ClueComposerValidation {
 @MainActor
 struct BoardView: View {
     let session: RoomSession
+    @State private var localActionError: String?
 
     var body: some View {
         Group {
@@ -194,7 +196,8 @@ struct BoardView: View {
                         projection: projection,
                         connectionState: session.connectionState,
                         isStale: session.isStale,
-                        lastUpdated: session.lastUpdated
+                        lastUpdated: session.lastUpdated,
+                        isCommandPending: session.pendingCommand != nil
                     )
                 )
             } else {
@@ -213,6 +216,10 @@ struct BoardView: View {
                     isStale: session.isStale,
                     lastUpdated: session.lastUpdated
                 )
+
+                if let actionError = localActionError ?? boardActionErrorMessage {
+                    BoardActionErrorView(message: actionError)
+                }
 
                 boardHeader(presentation)
 
@@ -347,14 +354,101 @@ struct BoardView: View {
         .accessibilityIdentifier("board.header")
     }
 
+    private var boardActionErrorMessage: String? {
+        guard let error = session.lastError else { return nil }
+        if case .commandRejected(_, _) = error {
+            guard let result = session.lastCommandResult else {
+                return BoardActionErrorPresentation.message(for: error)
+            }
+            return BoardActionErrorPresentation.message(for: result)
+        }
+        return BoardActionErrorPresentation.message(for: error)
+    }
+
     private func dispatch(_ operation: @escaping @MainActor () async throws -> Void) {
         Task { @MainActor in
             do {
                 try await operation()
+                localActionError = nil
+            } catch let error as RoomSessionIntentError {
+                localActionError = error.description
             } catch {
-                // RoomSession retains a typed lastError; board state remains server-authored.
+                localActionError = "The room action could not be completed. Wait for the latest update and try again."
             }
         }
+    }
+
+}
+
+enum BoardActionErrorPresentation {
+    static func message(for result: CommandResult) -> String? {
+        switch result {
+        case .success:
+            return nil
+        case let .failure(_, code, _):
+            return commandMessage(for: code)
+        }
+    }
+
+    static func message(for error: RoomSessionError) -> String? {
+        switch error {
+        case let .commandRejected(code, _):
+            return commandMessage(for: code)
+        case let .connection(failure):
+            return failure.description
+        case .connectionLost:
+            return "The connection was lost before the server confirmed the action."
+        case let .server(code, _):
+            switch code {
+            case .invalidMessage:
+                return "The room could not understand the latest update."
+            case .ticketExpired:
+                return "The room connection expired. Reconnecting before actions resume."
+            case .internalError:
+                return "The room encountered a server error. Try again after it reconnects."
+            }
+        case .unsafeProjection:
+            return "The latest room update could not be trusted. Actions are paused."
+        case .send:
+            return "The room action could not be sent. Actions are paused until it reconnects."
+        case .cache, .leaveCleanup:
+            return nil
+        }
+    }
+
+    private static func commandMessage(for code: CommandErrorCode) -> String {
+        switch code {
+        case .invalidCommand:
+            return "The room rejected that action. Check the current board and try again."
+        case .unauthorized:
+            return "You no longer have permission for that action."
+        case .wrongPhase:
+            return "The room phase changed. Wait for the latest board."
+        case .staleRevision:
+            return "The room changed before the action was confirmed. Wait for the latest board."
+        case .storageFailed:
+            return "The server could not save that action. Try again when connected."
+        case .roomLocked:
+            return "The room is locked and cannot accept that action."
+        case .roomFull:
+            return "The room is full and cannot accept that action."
+        }
+    }
+}
+
+private struct BoardActionErrorView: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("board.actionError")
     }
 }
 
