@@ -247,6 +247,271 @@ final class ProtocolModelTests: XCTestCase {
         }
     }
 
+    func testRejectsOmittedRequiredNullableFieldsAndAcceptsExplicitNull() throws {
+        var lobby = try projectionObject(named: "projection-lobby-unassigned")
+        lobby.removeValue(forKey: "board")
+        assertProjectionDecodeFails(lobby)
+
+        lobby = try projectionObject(named: "projection-lobby-unassigned")
+        var viewer = try XCTUnwrap(lobby["viewer"] as? [String: Any])
+        viewer.removeValue(forKey: "teamId")
+        lobby["viewer"] = viewer
+        assertProjectionDecodeFails(lobby)
+
+        lobby = try projectionObject(named: "projection-lobby-unassigned")
+        var seats = try XCTUnwrap(lobby["seats"] as? [[String: Any]])
+        seats[0].removeValue(forKey: "teamId")
+        lobby["seats"] = seats
+        assertProjectionDecodeFails(lobby)
+
+        for field in ["clue", "nomination", "winner", "completionReason"] {
+            var projection = try projectionObject(named: "projection-operative")
+            var board = try XCTUnwrap(projection["board"] as? [String: Any])
+            board.removeValue(forKey: field)
+            projection["board"] = board
+            assertProjectionDecodeFails(projection)
+        }
+
+        var projection = try projectionObject(named: "projection-operative")
+        var board = try XCTUnwrap(projection["board"] as? [String: Any])
+        var cards = try XCTUnwrap(board["cards"] as? [[String: Any]])
+        cards[1]["owner"] = NSNull()
+        board["cards"] = cards
+        projection["board"] = board
+        assertProjectionDecodeFails(projection)
+
+        var assignSeat = validCommandEnvelope(command: [
+            "type": "assign_seat",
+            "playerId": "player-1",
+            "teamId": NSNull()
+        ])
+        XCTAssertNoThrow(try decodeCommandEnvelope(assignSeat))
+        var command = try XCTUnwrap(assignSeat["command"] as? [String: Any])
+        command.removeValue(forKey: "teamId")
+        assignSeat["command"] = command
+        XCTAssertThrowsError(try decodeCommandEnvelope(assignSeat))
+    }
+
+    func testRejectsUnknownFieldsAtEveryStrictSchemaBoundary() throws {
+        let projectionMutations: [([String: Any]) throws -> [String: Any]] = [
+            { object in
+                var copy = object
+                copy["future"] = true
+                return copy
+            },
+            { object in
+                var copy = object
+                var viewer = try XCTUnwrap(copy["viewer"] as? [String: Any])
+                viewer["future"] = true
+                copy["viewer"] = viewer
+                return copy
+            },
+            { object in
+                var copy = object
+                var permissions = try XCTUnwrap(copy["permissions"] as? [String: Any])
+                permissions["future"] = true
+                copy["permissions"] = permissions
+                return copy
+            },
+            { object in
+                var copy = object
+                var seats = try XCTUnwrap(copy["seats"] as? [[String: Any]])
+                seats[0]["future"] = true
+                copy["seats"] = seats
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                board["future"] = true
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                var cards = try XCTUnwrap(board["cards"] as? [[String: Any]])
+                cards[0]["future"] = true
+                board["cards"] = cards
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                var clue = try XCTUnwrap(board["clue"] as? [String: Any])
+                clue["future"] = true
+                board["clue"] = clue
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                var nomination = try XCTUnwrap(board["nomination"] as? [String: Any])
+                nomination["future"] = true
+                board["nomination"] = nomination
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var history = try XCTUnwrap(copy["publicHistory"] as? [[String: Any]])
+                history[0]["future"] = true
+                copy["publicHistory"] = history
+                return copy
+            },
+            { object in
+                var copy = object
+                var history = try XCTUnwrap(copy["publicHistory"] as? [[String: Any]])
+                history[0]["decision"] = "accept"
+                copy["publicHistory"] = history
+                return copy
+            }
+        ]
+
+        let base = try projectionObject(named: "projection-operative")
+        for mutation in projectionMutations {
+            assertProjectionDecodeFails(try mutation(base))
+        }
+
+        var envelope = validCommandEnvelope(command: ["type": "randomize_teams"])
+        envelope["future"] = true
+        XCTAssertThrowsError(try decodeCommandEnvelope(envelope))
+
+        envelope = validCommandEnvelope(command: ["type": "randomize_teams", "future": true])
+        XCTAssertThrowsError(try decodeCommandEnvelope(envelope))
+
+        envelope = validCommandEnvelope(command: ["type": "randomize_teams", "playerId": "p1"])
+        XCTAssertThrowsError(try decodeCommandEnvelope(envelope))
+
+        let strictMessages: [[String: Any]] = [
+            ["type": "error", "code": "invalid_message", "message": "bad", "future": true],
+            [
+                "type": "command_result",
+                "commandId": "10000000-0000-4000-8000-000000000001",
+                "result": ["ok": true, "revision": 1, "future": true]
+            ],
+            [
+                "type": "command_result",
+                "commandId": "10000000-0000-4000-8000-000000000001",
+                "result": ["ok": true, "revision": 1, "code": "unauthorized"]
+            ],
+            [
+                "type": "error",
+                "code": "invalid_message",
+                "message": "bad",
+                "result": ["ok": true, "revision": 1]
+            ]
+        ]
+        for message in strictMessages {
+            XCTAssertThrowsError(
+                try JSONDecoder().decode(ServerMessage.self, from: jsonData(message))
+            )
+        }
+    }
+
+    func testRejectsValuesOutsideTheZodNumericAndStringContract() throws {
+        let projectionMutations: [([String: Any]) throws -> [String: Any]] = [
+            { object in var copy = object; copy["revision"] = -1; return copy },
+            { object in var copy = object; copy["code"] = ""; return copy },
+            { object in var copy = object; copy["inviteUrl"] = ""; return copy },
+            { object in
+                var copy = object
+                var viewer = try XCTUnwrap(copy["viewer"] as? [String: Any])
+                viewer["playerId"] = ""
+                copy["viewer"] = viewer
+                return copy
+            },
+            { object in
+                var copy = object
+                var seats = try XCTUnwrap(copy["seats"] as? [[String: Any]])
+                seats[0]["displayName"] = ""
+                copy["seats"] = seats
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                board["guessesRemaining"] = -1
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                board["order"] = [""]
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                var cards = try XCTUnwrap(board["cards"] as? [[String: Any]])
+                cards[0]["id"] = ""
+                board["cards"] = cards
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var board = try XCTUnwrap(copy["board"] as? [String: Any])
+                var clue = try XCTUnwrap(board["clue"] as? [String: Any])
+                clue["count"] = 0
+                board["clue"] = clue
+                copy["board"] = board
+                return copy
+            },
+            { object in
+                var copy = object
+                var history = try XCTUnwrap(copy["publicHistory"] as? [[String: Any]])
+                history[0]["revision"] = -1
+                copy["publicHistory"] = history
+                return copy
+            }
+        ]
+
+        let base = try projectionObject(named: "projection-operative")
+        for mutation in projectionMutations {
+            assertProjectionDecodeFails(try mutation(base))
+        }
+
+        let invalidEnvelopes: [[String: Any]] = [
+            validCommandEnvelope(expectedRevision: -1, command: ["type": "randomize_teams"]),
+            validCommandEnvelope(command: [
+                "type": "assign_seat", "playerId": "", "teamId": NSNull()
+            ]),
+            validCommandEnvelope(command: ["type": "nominate_card", "cardId": ""]),
+            validCommandEnvelope(command: ["type": "submit_clue", "word": "", "count": 1]),
+            validCommandEnvelope(command: ["type": "submit_clue", "word": "valid", "count": 0]),
+            validCommandEnvelope(command: ["type": "submit_clue", "word": "valid", "count": 10]),
+            validCommandEnvelope(command: ["type": "submit_clue", "word": "two words", "count": 1])
+        ]
+        for envelope in invalidEnvelopes {
+            XCTAssertThrowsError(try decodeCommandEnvelope(envelope))
+        }
+
+        let normalized = try decodeCommandEnvelope(
+            validCommandEnvelope(command: [
+                "type": "submit_clue",
+                "word": "  E\u{301}lan  ",
+                "count": 1
+            ])
+        )
+        XCTAssertEqual(normalized.command, .submitClue(word: "Élan", count: 1))
+
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(
+                ServerMessage.self,
+                from: jsonData([
+                    "type": "command_result",
+                    "commandId": "10000000-0000-4000-8000-000000000001",
+                    "result": ["ok": true, "revision": -1]
+                ])
+            )
+        )
+    }
+
     private func fixtureData(named name: String) throws -> Data {
         let url = try XCTUnwrap(
             Bundle(for: Self.self).url(forResource: name, withExtension: "json"),
@@ -267,6 +532,42 @@ final class ProtocolModelTests: XCTestCase {
         board["phase"] = value
         object["board"] = board
         return try JSONSerialization.data(withJSONObject: object)
+    }
+
+    private func projectionObject(named name: String) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: fixtureData(named: name)) as? [String: Any])
+    }
+
+    private func validCommandEnvelope(
+        expectedRevision: Int = 0,
+        command: [String: Any]
+    ) -> [String: Any] {
+        [
+            "protocolVersion": 1,
+            "commandId": "10000000-0000-4000-8000-000000000001",
+            "expectedRevision": expectedRevision,
+            "command": command
+        ]
+    }
+
+    private func decodeCommandEnvelope(_ object: [String: Any]) throws -> CommandEnvelope {
+        try JSONDecoder().decode(CommandEnvelope.self, from: jsonData(object))
+    }
+
+    private func assertProjectionDecodeFails(
+        _ object: [String: Any],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertThrowsError(
+            try JSONDecoder().decode(ClientProjection.self, from: jsonData(object)),
+            file: file,
+            line: line
+        )
+    }
+
+    private func jsonData(_ object: Any) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object)
     }
 
     private func decodeTopLevelProtocolValue(from data: Data) throws {

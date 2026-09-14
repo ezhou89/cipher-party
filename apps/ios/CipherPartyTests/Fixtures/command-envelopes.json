@@ -12,7 +12,7 @@
     "command": {
       "type": "assign_seat",
       "playerId": "player-1",
-      "teamId": "red"
+      "teamId": null
     }
   },
   {

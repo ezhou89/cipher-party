@@ -5,6 +5,9 @@ enum ProtocolDecodingError: Error, Equatable, Sendable, CustomStringConvertible 
     case unsupportedProtocolVersion(Int)
     case hiddenKeyInUnauthorizedProjection(role: SeatRole)
     case publicHistoryLimitExceeded(actual: Int, maximum: Int)
+    case missingRequiredField(String)
+    case unexpectedFields([String])
+    case invalidValue(field: String, constraint: String)
 
     var description: String {
         switch self {
@@ -16,8 +19,131 @@ enum ProtocolDecodingError: Error, Equatable, Sendable, CustomStringConvertible 
             return "Hidden key is not allowed for \(role.rawValue) projections"
         case let .publicHistoryLimitExceeded(actual, maximum):
             return "Public history contains \(actual) entries; maximum is \(maximum)"
+        case let .missingRequiredField(field):
+            return "Missing required protocol field: \(field)"
+        case let .unexpectedFields(fields):
+            return "Unexpected protocol fields: \(fields.joined(separator: ", "))"
+        case let .invalidValue(field, constraint):
+            return "Invalid protocol value for \(field): expected \(constraint)"
         }
     }
+}
+
+private struct ProtocolCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        intValue = nil
+    }
+
+    init?(intValue: Int) {
+        stringValue = String(intValue)
+        self.intValue = intValue
+    }
+}
+
+private extension Decoder {
+    func validateProtocolKeys<Key>(
+        _: Key.Type,
+        allowed: [Key]? = nil,
+        required: [Key]? = nil
+    ) throws where Key: CodingKey & CaseIterable {
+        let container = try container(keyedBy: ProtocolCodingKey.self)
+        let allowedKeys = allowed ?? Array(Key.allCases)
+        let allowedNames = Set(allowedKeys.map(\.stringValue))
+        let actualNames = Set(container.allKeys.map(\.stringValue))
+        let unexpected = actualNames.subtracting(allowedNames).sorted()
+        guard unexpected.isEmpty else {
+            throw ProtocolDecodingError.unexpectedFields(unexpected)
+        }
+
+        let requiredNames = Set((required ?? allowedKeys).map(\.stringValue))
+        if let missing = requiredNames.subtracting(actualNames).sorted().first {
+            throw ProtocolDecodingError.missingRequiredField(missing)
+        }
+    }
+
+    func requireProtocolKeys<Key>(_ required: [Key]) throws where Key: CodingKey {
+        let container = try container(keyedBy: ProtocolCodingKey.self)
+        let actualNames = Set(container.allKeys.map(\.stringValue))
+        let requiredNames = Set(required.map(\.stringValue))
+        if let missing = requiredNames.subtracting(actualNames).sorted().first {
+            throw ProtocolDecodingError.missingRequiredField(missing)
+        }
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeRequiredNullable<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T? {
+        guard contains(key) else {
+            throw ProtocolDecodingError.missingRequiredField(key.stringValue)
+        }
+        if try decodeNil(forKey: key) {
+            return nil
+        }
+        return try decode(type, forKey: key)
+    }
+
+    func decodeOptionalNonNull<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T? {
+        guard contains(key) else { return nil }
+        guard try !decodeNil(forKey: key) else {
+            throw ProtocolDecodingError.invalidValue(
+                field: key.stringValue,
+                constraint: "a non-null value when present"
+            )
+        }
+        return try decode(type, forKey: key)
+    }
+}
+
+private func requireNonEmpty(_ value: String, field: String) throws -> String {
+    guard !value.isEmpty else {
+        throw ProtocolDecodingError.invalidValue(field: field, constraint: "a non-empty string")
+    }
+    return value
+}
+
+private func requireNonnegative(_ value: Int, field: String) throws -> Int {
+    guard value >= 0 else {
+        throw ProtocolDecodingError.invalidValue(field: field, constraint: "a nonnegative integer")
+    }
+    return value
+}
+
+private func requireRange(
+    _ value: Int,
+    field: String,
+    minimum: Int,
+    maximum: Int? = nil
+) throws -> Int {
+    let inRange = value >= minimum && (maximum.map { value <= $0 } ?? true)
+    guard inRange else {
+        let constraint = maximum.map { "an integer from \(minimum) through \($0)" }
+            ?? "an integer of at least \(minimum)"
+        throw ProtocolDecodingError.invalidValue(field: field, constraint: constraint)
+    }
+    return value
+}
+
+private func normalizedClueWord(_ value: String, field: String) throws -> String {
+    let normalized = value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .precomposedStringWithCanonicalMapping
+    guard !normalized.isEmpty,
+          normalized.count <= 40,
+          normalized.range(
+              of: #"^[\p{L}\p{M}\p{N}'’-]+$"#,
+              options: .regularExpression
+          ) != nil
+    else {
+        throw ProtocolDecodingError.invalidValue(
+            field: field,
+            constraint: "1 through 40 letter, mark, number, apostrophe, or hyphen graphemes"
+        )
+    }
+    return normalized
 }
 
 protocol StrictProtocolString: RawRepresentable, Codable, Sendable
@@ -108,12 +234,28 @@ struct SeatSummary: Codable, Equatable, Sendable {
     let role: SeatRole
     let connected: Bool
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case playerId
         case displayName
         case teamId
         case role
         case connected
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        playerId = try requireNonEmpty(
+            container.decode(String.self, forKey: .playerId),
+            field: CodingKeys.playerId.rawValue
+        )
+        displayName = try requireNonEmpty(
+            container.decode(String.self, forKey: .displayName),
+            field: CodingKeys.displayName.rawValue
+        )
+        teamId = try container.decodeRequiredNullable(TeamID.self, forKey: .teamId)
+        role = try container.decode(SeatRole.self, forKey: .role)
+        connected = try container.decode(Bool.self, forKey: .connected)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -136,11 +278,23 @@ struct ViewerContext: Codable, Equatable, Sendable {
     let role: SeatRole
     let isHost: Bool
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case playerId
         case teamId
         case role
         case isHost
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        playerId = try requireNonEmpty(
+            container.decode(String.self, forKey: .playerId),
+            field: CodingKeys.playerId.rawValue
+        )
+        teamId = try container.decodeRequiredNullable(TeamID.self, forKey: .teamId)
+        role = try container.decode(SeatRole.self, forKey: .role)
+        isHost = try container.decode(Bool.self, forKey: .isHost)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -167,6 +321,34 @@ struct ProjectionPermissions: Codable, Equatable, Sendable {
     let resolveChallenge: Bool
     let pause: Bool
     let resume: Bool
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case configure
+        case moderate
+        case submitClue
+        case challengeClue
+        case nominate
+        case confirmReveal
+        case endTurn
+        case resolveChallenge
+        case pause
+        case resume
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        configure = try container.decode(Bool.self, forKey: .configure)
+        moderate = try container.decode(Bool.self, forKey: .moderate)
+        submitClue = try container.decode(Bool.self, forKey: .submitClue)
+        challengeClue = try container.decode(Bool.self, forKey: .challengeClue)
+        nominate = try container.decode(Bool.self, forKey: .nominate)
+        confirmReveal = try container.decode(Bool.self, forKey: .confirmReveal)
+        endTurn = try container.decode(Bool.self, forKey: .endTurn)
+        resolveChallenge = try container.decode(Bool.self, forKey: .resolveChallenge)
+        pause = try container.decode(Bool.self, forKey: .pause)
+        resume = try container.decode(Bool.self, forKey: .resume)
+    }
 }
 
 struct PublicCard: Codable, Equatable, Sendable {
@@ -174,16 +356,75 @@ struct PublicCard: Codable, Equatable, Sendable {
     let label: String
     let revealed: Bool
     let owner: Ownership?
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case id
+        case label
+        case revealed
+        case owner
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            required: [.id, .label, .revealed]
+        )
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try requireNonEmpty(
+            container.decode(String.self, forKey: .id),
+            field: CodingKeys.id.rawValue
+        )
+        label = try container.decode(String.self, forKey: .label)
+        revealed = try container.decode(Bool.self, forKey: .revealed)
+        owner = try container.decodeOptionalNonNull(Ownership.self, forKey: .owner)
+    }
 }
 
 struct Clue: Codable, Equatable, Sendable {
     let word: String
     let count: Int
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case word
+        case count
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        word = try requireNonEmpty(
+            container.decode(String.self, forKey: .word),
+            field: CodingKeys.word.rawValue
+        )
+        count = try requireRange(
+            container.decode(Int.self, forKey: .count),
+            field: CodingKeys.count.rawValue,
+            minimum: 1
+        )
+    }
 }
 
 struct Nomination: Codable, Equatable, Sendable {
     let playerId: String
     let cardId: String
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case playerId
+        case cardId
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        playerId = try requireNonEmpty(
+            container.decode(String.self, forKey: .playerId),
+            field: CodingKeys.playerId.rawValue
+        )
+        cardId = try requireNonEmpty(
+            container.decode(String.self, forKey: .cardId),
+            field: CodingKeys.cardId.rawValue
+        )
+    }
 }
 
 struct PublicBoardProjection: Codable, Equatable, Sendable {
@@ -197,7 +438,7 @@ struct PublicBoardProjection: Codable, Equatable, Sendable {
     let winner: TeamID?
     let completionReason: CompletionReason?
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case order
         case cards
         case activeTeam
@@ -207,6 +448,29 @@ struct PublicBoardProjection: Codable, Equatable, Sendable {
         case nomination
         case winner
         case completionReason
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        order = try container.decode([String].self, forKey: .order)
+        for cardId in order {
+            _ = try requireNonEmpty(cardId, field: CodingKeys.order.rawValue)
+        }
+        cards = try container.decode([PublicCard].self, forKey: .cards)
+        activeTeam = try container.decode(TeamID.self, forKey: .activeTeam)
+        phase = try container.decode(PlayPhase.self, forKey: .phase)
+        clue = try container.decodeRequiredNullable(Clue.self, forKey: .clue)
+        guessesRemaining = try requireNonnegative(
+            container.decode(Int.self, forKey: .guessesRemaining),
+            field: CodingKeys.guessesRemaining.rawValue
+        )
+        nomination = try container.decodeRequiredNullable(Nomination.self, forKey: .nomination)
+        winner = try container.decodeRequiredNullable(TeamID.self, forKey: .winner)
+        completionReason = try container.decodeRequiredNullable(
+            CompletionReason.self,
+            forKey: .completionReason
+        )
     }
 
     func encode(to encoder: Encoder) throws {
@@ -260,7 +524,7 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
     case roomPaused(revision: Int, at: String)
     case roomResumed(revision: Int, at: String)
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case revision
         case at
         case type
@@ -287,17 +551,53 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(EntryType.self, forKey: .type)
-        let revision = try container.decode(Int.self, forKey: .revision)
-        let at = try container.decode(String.self, forKey: .at)
+        let variantKeys: [CodingKeys]
+        switch type {
+        case .clueSubmitted:
+            variantKeys = [.revision, .at, .type, .teamId, .word, .count]
+        case .clueChallenged:
+            variantKeys = [.revision, .at, .type, .teamId]
+        case .challengeResolved:
+            variantKeys = [.revision, .at, .type, .decision]
+        case .cardRevealed:
+            variantKeys = [.revision, .at, .type, .teamId, .cardId, .owner]
+        case .turnEnded:
+            variantKeys = [.revision, .at, .type, .teamId]
+        case .roomPaused, .roomResumed:
+            variantKeys = [.revision, .at, .type]
+        }
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            allowed: variantKeys,
+            required: variantKeys
+        )
+        let revision = try requireNonnegative(
+            container.decode(Int.self, forKey: .revision),
+            field: CodingKeys.revision.rawValue
+        )
+        let at = try requireNonEmpty(
+            container.decode(String.self, forKey: .at),
+            field: CodingKeys.at.rawValue
+        )
 
         switch type {
         case .clueSubmitted:
+            let word = try requireNonEmpty(
+                container.decode(String.self, forKey: .word),
+                field: CodingKeys.word.rawValue
+            )
+            let count = try requireRange(
+                container.decode(Int.self, forKey: .count),
+                field: CodingKeys.count.rawValue,
+                minimum: 1,
+                maximum: 9
+            )
             self = try .clueSubmitted(
                 revision: revision,
                 at: at,
                 teamId: container.decode(TeamID.self, forKey: .teamId),
-                word: container.decode(String.self, forKey: .word),
-                count: container.decode(Int.self, forKey: .count)
+                word: word,
+                count: count
             )
         case .clueChallenged:
             self = try .clueChallenged(
@@ -316,7 +616,10 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
                 revision: revision,
                 at: at,
                 teamId: container.decode(TeamID.self, forKey: .teamId),
-                cardId: container.decode(String.self, forKey: .cardId),
+                cardId: requireNonEmpty(
+                    container.decode(String.self, forKey: .cardId),
+                    field: CodingKeys.cardId.rawValue
+                ),
                 owner: container.decode(Ownership.self, forKey: .owner)
             )
         case .turnEnded:
@@ -392,7 +695,7 @@ struct ProjectionBase: Codable, Equatable, Sendable {
     let publicHistory: [PublicHistoryEntry]
     let board: PublicBoardProjection?
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case protocolVersion
         case revision
         case code
@@ -407,6 +710,7 @@ struct ProjectionBase: Codable, Equatable, Sendable {
     }
 
     init(from decoder: Decoder) throws {
+        try decoder.requireProtocolKeys(Array(CodingKeys.allCases))
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decode(Int.self, forKey: .protocolVersion)
         guard version == 1 else {
@@ -422,16 +726,25 @@ struct ProjectionBase: Codable, Equatable, Sendable {
         }
 
         protocolVersion = version
-        revision = try container.decode(Int.self, forKey: .revision)
-        code = try container.decode(String.self, forKey: .code)
-        inviteUrl = try container.decode(String.self, forKey: .inviteUrl)
+        revision = try requireNonnegative(
+            container.decode(Int.self, forKey: .revision),
+            field: CodingKeys.revision.rawValue
+        )
+        code = try requireNonEmpty(
+            container.decode(String.self, forKey: .code),
+            field: CodingKeys.code.rawValue
+        )
+        inviteUrl = try requireNonEmpty(
+            container.decode(String.self, forKey: .inviteUrl),
+            field: CodingKeys.inviteUrl.rawValue
+        )
         roomPhase = try container.decode(RoomPhase.self, forKey: .roomPhase)
         locked = try container.decode(Bool.self, forKey: .locked)
         viewer = try container.decode(ViewerContext.self, forKey: .viewer)
         permissions = try container.decode(ProjectionPermissions.self, forKey: .permissions)
         seats = try container.decode([SeatSummary].self, forKey: .seats)
         publicHistory = history
-        board = try container.decodeIfPresent(PublicBoardProjection.self, forKey: .board)
+        board = try container.decodeRequiredNullable(PublicBoardProjection.self, forKey: .board)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -460,7 +773,18 @@ enum ClientProjection: Codable, Equatable, Sendable {
     case spectator(ProjectionBase)
     case unassigned(ProjectionBase)
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case protocolVersion
+        case revision
+        case code
+        case inviteUrl
+        case roomPhase
+        case locked
+        case viewer
+        case permissions
+        case seats
+        case publicHistory
+        case board
         case viewRole
         case key
     }
@@ -501,6 +825,28 @@ enum ClientProjection: Codable, Equatable, Sendable {
                 value: rawRole
             )
         }
+
+        let baseKeys: [CodingKeys] = [
+            .protocolVersion,
+            .revision,
+            .code,
+            .inviteUrl,
+            .roomPhase,
+            .locked,
+            .viewer,
+            .permissions,
+            .seats,
+            .publicHistory,
+            .board,
+            .viewRole
+        ]
+        let allowedKeys = baseKeys + [.key]
+        let requiredKeys = role == .clueGiver ? allowedKeys : baseKeys
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            allowed: allowedKeys,
+            required: requiredKeys
+        )
 
         let base = try ProjectionBase(from: decoder)
         switch role {
@@ -575,7 +921,7 @@ enum ClassicCommand: Codable, Equatable, Sendable {
     case pauseRoom
     case resumeRoom
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case type
         case playerId
         case teamId
@@ -608,17 +954,53 @@ enum ClassicCommand: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(CommandType.self, forKey: .type) {
+        let type = try container.decode(CommandType.self, forKey: .type)
+        let variantKeys: [CodingKeys]
+        switch type {
+        case .randomizeTeams,
+             .startBoard,
+             .challengeClue,
+             .clearNomination,
+             .endTurn,
+             .pauseRoom,
+             .resumeRoom:
+            variantKeys = [.type]
+        case .assignSeat:
+            variantKeys = [.type, .playerId, .teamId]
+        case .setRole:
+            variantKeys = [.type, .playerId, .role]
+        case .lockRoom:
+            variantKeys = [.type, .locked]
+        case .submitClue:
+            variantKeys = [.type, .word, .count]
+        case .resolveChallenge:
+            variantKeys = [.type, .decision]
+        case .nominateCard, .confirmReveal:
+            variantKeys = [.type, .cardId]
+        }
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            allowed: variantKeys,
+            required: variantKeys
+        )
+
+        switch type {
         case .randomizeTeams:
             self = .randomizeTeams
         case .assignSeat:
             self = try .assignSeat(
-                playerId: container.decode(String.self, forKey: .playerId),
-                teamId: container.decodeIfPresent(TeamID.self, forKey: .teamId)
+                playerId: requireNonEmpty(
+                    container.decode(String.self, forKey: .playerId),
+                    field: CodingKeys.playerId.rawValue
+                ),
+                teamId: container.decodeRequiredNullable(TeamID.self, forKey: .teamId)
             )
         case .setRole:
             self = try .setRole(
-                playerId: container.decode(String.self, forKey: .playerId),
+                playerId: requireNonEmpty(
+                    container.decode(String.self, forKey: .playerId),
+                    field: CodingKeys.playerId.rawValue
+                ),
                 role: container.decode(SeatRole.self, forKey: .role)
             )
         case .lockRoom:
@@ -627,8 +1009,16 @@ enum ClassicCommand: Codable, Equatable, Sendable {
             self = .startBoard
         case .submitClue:
             self = try .submitClue(
-                word: container.decode(String.self, forKey: .word),
-                count: container.decode(Int.self, forKey: .count)
+                word: normalizedClueWord(
+                    container.decode(String.self, forKey: .word),
+                    field: CodingKeys.word.rawValue
+                ),
+                count: requireRange(
+                    container.decode(Int.self, forKey: .count),
+                    field: CodingKeys.count.rawValue,
+                    minimum: 1,
+                    maximum: 9
+                )
             )
         case .challengeClue:
             self = .challengeClue
@@ -637,11 +1027,21 @@ enum ClassicCommand: Codable, Equatable, Sendable {
                 decision: container.decode(ChallengeDecision.self, forKey: .decision)
             )
         case .nominateCard:
-            self = try .nominateCard(cardId: container.decode(String.self, forKey: .cardId))
+            self = try .nominateCard(
+                cardId: requireNonEmpty(
+                    container.decode(String.self, forKey: .cardId),
+                    field: CodingKeys.cardId.rawValue
+                )
+            )
         case .clearNomination:
             self = .clearNomination
         case .confirmReveal:
-            self = try .confirmReveal(cardId: container.decode(String.self, forKey: .cardId))
+            self = try .confirmReveal(
+                cardId: requireNonEmpty(
+                    container.decode(String.self, forKey: .cardId),
+                    field: CodingKeys.cardId.rawValue
+                )
+            )
         case .endTurn:
             self = .endTurn
         case .pauseRoom:
@@ -703,7 +1103,7 @@ struct CommandEnvelope: Codable, Equatable, Sendable {
         self.command = command
     }
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case protocolVersion
         case commandId
         case expectedRevision
@@ -711,6 +1111,7 @@ struct CommandEnvelope: Codable, Equatable, Sendable {
     }
 
     init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decode(Int.self, forKey: .protocolVersion)
         guard version == 1 else {
@@ -718,7 +1119,10 @@ struct CommandEnvelope: Codable, Equatable, Sendable {
         }
         protocolVersion = version
         commandId = try container.decode(UUID.self, forKey: .commandId)
-        expectedRevision = try container.decode(Int.self, forKey: .expectedRevision)
+        expectedRevision = try requireNonnegative(
+            container.decode(Int.self, forKey: .expectedRevision),
+            field: CodingKeys.expectedRevision.rawValue
+        )
         command = try container.decode(ClassicCommand.self, forKey: .command)
     }
 }
@@ -739,7 +1143,7 @@ enum CommandResult: Codable, Equatable, Sendable {
     case success(revision: Int)
     case failure(revision: Int, code: CommandErrorCode, message: String)
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case ok
         case revision
         case code
@@ -748,8 +1152,20 @@ enum CommandResult: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let revision = try container.decode(Int.self, forKey: .revision)
-        if try container.decode(Bool.self, forKey: .ok) {
+        let succeeded = try container.decode(Bool.self, forKey: .ok)
+        let variantKeys: [CodingKeys] = succeeded
+            ? [.ok, .revision]
+            : [.ok, .revision, .code, .message]
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            allowed: variantKeys,
+            required: variantKeys
+        )
+        let revision = try requireNonnegative(
+            container.decode(Int.self, forKey: .revision),
+            field: CodingKeys.revision.rawValue
+        )
+        if succeeded {
             self = .success(revision: revision)
         } else {
             self = try .failure(
@@ -796,7 +1212,7 @@ enum ServerMessage: Codable, Equatable, Sendable {
     case commandResult(commandId: UUID, result: CommandResult)
     case error(code: ServerErrorCode, message: String)
 
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case type
         case projection
         case commandId
@@ -807,7 +1223,23 @@ enum ServerMessage: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        switch try container.decode(MessageType.self, forKey: .type) {
+        let type = try container.decode(MessageType.self, forKey: .type)
+        let variantKeys: [CodingKeys]
+        switch type {
+        case .projection:
+            variantKeys = [.type, .projection]
+        case .commandResult:
+            variantKeys = [.type, .commandId, .result]
+        case .error:
+            variantKeys = [.type, .code, .message]
+        }
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            allowed: variantKeys,
+            required: variantKeys
+        )
+
+        switch type {
         case .projection:
             self = try .projection(container.decode(ClientProjection.self, forKey: .projection))
         case .commandResult:

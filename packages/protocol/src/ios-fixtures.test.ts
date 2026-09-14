@@ -56,6 +56,22 @@ describe("iOS protocol fixtures", () => {
     }
   });
 
+  it("covers the required nullable assign_seat teamId field", () => {
+    const fixtures = loadJSON("command-envelopes.json");
+    expect(Array.isArray(fixtures)).toBe(true);
+    if (!Array.isArray(fixtures)) return;
+
+    expect(fixtures).toContainEqual(
+      expect.objectContaining({
+        command: {
+          type: "assign_seat",
+          playerId: expect.any(String),
+          teamId: null
+        }
+      })
+    );
+  });
+
   it("validates command successes, command failures, and transport errors", () => {
     const fixtures = loadJSON("server-messages.json");
     expect(Array.isArray(fixtures)).toBe(true);

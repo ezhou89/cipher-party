@@ -217,3 +217,174 @@ Result: exit 0, no whitespace errors.
 
 - Repository-wide runtime tests remain affected by host Vitest worker-pool startup resets/timeouts. This does not reproduce as a Task 2 fixture, protocol, lint, typecheck, Swift compile, or Swift test failure, and no affected web/Worker source was changed.
 - Simulator infrastructure was unstable: one single-test worker launch stalled, a recovered full focused arm64 run passed all 11 tests, and a final repeat could not connect to CoreSimulatorService and was interrupted. Future CI should use a healthy, booted explicit simulator destination for predictable execution.
+
+## Review follow-up: strict Swift/Zod decoding parity
+
+### Findings addressed
+
+- Required nullable properties now distinguish omission from explicit JSON `null`. Swift rejects an omitted projection `board`, seat/viewer `teamId`, board `clue`, `nomination`, `winner`, or `completionReason`, and `assign_seat.teamId`; explicit `null` remains valid where the Zod schema uses `.nullable()`.
+- The optional `PublicCard.owner` retains Zod `.optional()` semantics: omission is valid, but explicit `null` is rejected.
+- Every Swift object corresponding to a Zod `.strict()` schema now rejects unknown keys. Discriminated union variants also reject keys that belong to a different known variant, such as `playerId` on `randomize_teams`, `decision` on `clue_submitted`, or `code` on a successful command result.
+- Swift now enforces the remaining modeled Zod bounds: nonnegative revisions and guess counts; nonempty IDs, room code, invite URL, display names, timestamps, clue/history words; board clue minimum count; history and submitted-clue counts from 1 through 9; and command clue character/grapheme rules.
+- Submitted clue words now mirror the TypeScript transform by trimming and NFC-normalizing before validation.
+- The canonical `assign_seat` fixture now uses `"teamId": null`, so the required-nullable command case is covered by both TypeScript fixture validation and Swift fixture round-tripping.
+
+### Review TDD evidence
+
+Swift RED, before production changes:
+
+```text
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj \
+  -scheme CipherParty \
+  -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=A2F34315-5495-46DD-874E-F8248399991F,arch=arm64' \
+  -derivedDataPath /tmp/cipher-party-ios-task2-review \
+  -parallel-testing-enabled NO \
+  -only-testing:CipherPartyTests/ProtocolModelTests/testRejectsOmittedRequiredNullableFieldsAndAcceptsExplicitNull \
+  -only-testing:CipherPartyTests/ProtocolModelTests/testRejectsUnknownFieldsAtEveryStrictSchemaBoundary \
+  -only-testing:CipherPartyTests/ProtocolModelTests/testRejectsValuesOutsideTheZodNumericAndStringContract \
+  test
+```
+
+```text
+Executed 3 tests, with 39 failures (0 unexpected)
+** TEST FAILED **
+```
+
+The failures were the intended behavior gap: omitted nullable keys, unknown keys, and invalid bounds all decoded successfully.
+
+Swift GREEN, after strict decoding and value validation:
+
+```text
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet \
+  -project apps/ios/CipherParty.xcodeproj \
+  -scheme CipherParty \
+  -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=A2F34315-5495-46DD-874E-F8248399991F,arch=arm64' \
+  -derivedDataPath /tmp/cipher-party-ios-task2-review \
+  -parallel-testing-enabled NO \
+  -only-testing:CipherPartyTests/ProtocolModelTests/testRejectsOmittedRequiredNullableFieldsAndAcceptsExplicitNull \
+  -only-testing:CipherPartyTests/ProtocolModelTests/testRejectsUnknownFieldsAtEveryStrictSchemaBoundary \
+  -only-testing:CipherPartyTests/ProtocolModelTests/testRejectsValuesOutsideTheZodNumericAndStringContract \
+  test
+```
+
+```text
+Process exited 0
+```
+
+Fixture RED, before changing the canonical nullable command fixture:
+
+```text
+pnpm --filter @cipher-party/protocol exec vitest run src/ios-fixtures.test.ts
+```
+
+```text
+Test Files  1 failed (1)
+Tests       1 failed | 23 passed (24)
+```
+
+The new assertion correctly failed because the only `assign_seat` fixture still used `"teamId": "red"`.
+
+Fixture GREEN, after changing both byte-identical fixture copies to explicit `null`:
+
+```text
+pnpm --filter @cipher-party/protocol exec vitest run src/ios-fixtures.test.ts
+```
+
+```text
+Test Files  1 passed (1)
+Tests       24 passed (24)
+```
+
+### Review verification evidence
+
+Compile-only Swift verification:
+
+```text
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -quiet \
+  -project apps/ios/CipherParty.xcodeproj \
+  -scheme CipherParty \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/cipher-party-ios-task2-review-build \
+  -only-testing:CipherPartyTests/ProtocolModelTests \
+  build-for-testing
+```
+
+```text
+Process exited 0
+```
+
+The command emitted only pre-existing Swift 6 actor-isolation warnings from `CipherPartyUITests/EntryFlowUITests.swift`, which was not changed in Task 2.
+
+Full focused Swift test class:
+
+```text
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj \
+  -scheme CipherParty \
+  -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=A2F34315-5495-46DD-874E-F8248399991F,arch=arm64' \
+  -derivedDataPath /tmp/cipher-party-ios-task2-review \
+  -parallel-testing-enabled NO \
+  -only-testing:CipherPartyTests/ProtocolModelTests \
+  test
+```
+
+```text
+Executed 14 tests, with 0 failures (0 unexpected)
+** TEST SUCCEEDED **
+```
+
+Canonical fixture validator:
+
+```text
+node scripts/validate-ios-protocol-fixtures.mjs
+```
+
+```text
+Test Files  1 passed (1)
+Tests       24 passed (24)
+Process exited 0
+```
+
+Full protocol package:
+
+```text
+pnpm --filter @cipher-party/protocol test
+```
+
+```text
+Test Files  4 passed (4)
+Tests       46 passed (46)
+Process exited 0
+```
+
+Static checks:
+
+```text
+pnpm run lint
+pnpm run typecheck
+```
+
+```text
+eslint .: Process exited 0
+All four workspace typecheck scripts: Done
+```
+
+An exploratory `xcrun swift-format lint --strict` invocation exited 1 because the repository has no `.swift-format` configuration and Xcode's default rules require two-space indentation plus style rewrites that conflict with the existing iOS source convention. It reported style warnings rather than compiler diagnostics; no repository acceptance script invokes this unconfigured formatter. The Xcode compile and test commands above are clean apart from the pre-existing UI-test actor warnings.
+
+### Review self-review
+
+- Rechecked every `.strict()` object in `projections.ts`, `commands.ts`, and `transport.ts` against a corresponding dynamic-key validation point in Swift.
+- Rechecked required-versus-nullable-versus-optional behavior for every optional Swift property.
+- Rechecked each numeric and nonempty-string Zod constraint against Swift validation, including discriminated history and command variants.
+- Confirmed validation errors name fields and constraints but never include raw frames or rejected secret values.
+- Confirmed the iOS and protocol command fixtures remain byte-identical and both schema/test suites decode the nullable assignment.
+- Confirmed the review changes remain within protocol model, protocol fixture, test, and report scope.
+
+### Review concerns
+
+- No new functional concerns. The earlier repository-wide Vitest host-resource concern remains historical; review-focused lint, typecheck, TypeScript tests, fixture parity, Swift compilation, and all 14 Swift model tests pass.
