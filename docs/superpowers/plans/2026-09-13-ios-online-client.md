@@ -444,18 +444,18 @@ kept beside the existing web and worker apps; it is not a second repository.
 - No test fixture, snapshot, or log may contain a durable token or a clue-giver
   key in an unauthorized context.
 
-- [ ] **Step 1: Run a mixed-room smoke flow.** Create on iOS, join in browser and
+- [x] **Step 1: Run a mixed-room smoke flow.** Create on iOS, join in browser and
   a second iOS simulator, assign roles, start Classic, submit a clue, nominate,
   reveal, and complete a turn.
-- [ ] **Step 2: Exercise interruption paths.** Background/foreground the app,
+- [x] **Step 2: Exercise interruption paths.** Background/foreground the app,
   close the WebSocket, toggle simulator network conditions, and verify bounded
   reconnect plus fresh projection replacement.
-- [ ] **Step 3: Exercise authorization paths.** Attempt host commands from a
+- [x] **Step 3: Exercise authorization paths.** Attempt host commands from a
   non-host test seat and hidden-key decoding from operative/spectator fixtures;
   verify server rejection and safe UI state.
-- [ ] **Step 4: Inspect privacy surfaces.** Review OSLog, crash/error text,
+- [x] **Step 4: Inspect privacy surfaces.** Review OSLog, crash/error text,
   share sheets, QR contents, cache files, and notification payloads for secrets.
-- [ ] **Step 5: Fix only demonstrated defects.** Add a regression test before
+- [x] **Step 5: Fix only demonstrated defects.** Add a regression test before
   each fix and keep protocol/browser changes narrowly scoped.
 
 ## Task 10: Release-readiness verification and handoff
