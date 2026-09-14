@@ -189,20 +189,20 @@ kept beside the existing web and worker apps; it is not a second repository.
   them through the existing Zod schemas; Swift validates the same bytes through
   `Codable`.
 
-- [ ] **Step 1: Add fixture assertions first.** Add a test/script that loads
+- [x] **Step 1: Add fixture assertions first.** Add a test/script that loads
   lobby, operative, clue-giver, spectator, challenged, paused, and complete
   fixtures and fails until the fixture set is valid under the TypeScript schemas.
-- [ ] **Step 2: Capture safe fixtures.** Include a clue-giver key only in the
+- [x] **Step 2: Capture safe fixtures.** Include a clue-giver key only in the
   clue-giver fixture; assert that operative, spectator, and unassigned fixtures
   have no `key` field. Include command successes, stale revisions, unauthorized,
   wrong phase, ticket expiry, and room-full errors.
-- [ ] **Step 3: Implement strict Swift decoding.** Use explicit discriminator
+- [x] **Step 3: Implement strict Swift decoding.** Use explicit discriminator
   enums and `Decodable` implementations. Unknown message/role/phase values must
   throw a recoverable protocol error without logging the raw frame.
-- [ ] **Step 4: Add round-trip and boundary tests.** Verify protocol version 1,
+- [x] **Step 4: Add round-trip and boundary tests.** Verify protocol version 1,
   NFC Unicode strings, optional card ownership, maximum public history, and
   absence of hidden key fields in unauthorized models.
-- [ ] **Step 5: Run both validators.** Execute the fixture script, the package
+- [x] **Step 5: Run both validators.** Execute the fixture script, the package
   protocol tests, and the focused Swift tests before committing.
 
 ## Task 3: Implement HTTP bootstrap and Keychain credentials
