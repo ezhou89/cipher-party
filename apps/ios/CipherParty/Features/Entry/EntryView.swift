@@ -201,8 +201,12 @@ private struct RoomSessionHandoffView: View {
 
     var body: some View {
         Group {
-            if session.projection != nil {
-                LobbyView(session: session)
+            if let projection = session.projection {
+                if projection.base.roomPhase == .playing || projection.base.roomPhase == .complete {
+                    BoardView(session: session)
+                } else {
+                    LobbyView(session: session)
+                }
             } else {
                 VStack(spacing: 16) {
                     ProgressView()

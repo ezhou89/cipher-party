@@ -26,6 +26,12 @@
 		A60000000000000000000005 /* InviteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000105 /* InviteRouterTests.swift */; };
 		A61000000000000000000001 /* CameraInviteScannerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */; };
 		A70000000000000000000001 /* LobbyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70000000000000000000101 /* LobbyViewTests.swift */; };
+		A80000000000000000000001 /* BoardViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000101 /* BoardViewTests.swift */; };
+		B80000000000000000000001 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000101 /* BoardView.swift */; };
+		B80000000000000000000002 /* CardGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000102 /* CardGridView.swift */; };
+		B80000000000000000000003 /* CardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000103 /* CardView.swift */; };
+		B80000000000000000000004 /* ClueComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000104 /* ClueComposerView.swift */; };
+		B80000000000000000000005 /* TurnControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000105 /* TurnControlsView.swift */; };
 		B70000000000000000000001 /* LobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000101 /* LobbyView.swift */; };
 		B70000000000000000000002 /* SeatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000102 /* SeatListView.swift */; };
 		B70000000000000000000003 /* RoomShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000103 /* RoomShareSheet.swift */; };
@@ -102,6 +108,12 @@
 		A60000000000000000000106 /* CipherParty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CipherParty.entitlements; sourceTree = "<group>"; };
 		A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraInviteScannerLifecycleTests.swift; sourceTree = "<group>"; };
 		A70000000000000000000101 /* LobbyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyViewTests.swift; sourceTree = "<group>"; };
+		A80000000000000000000101 /* BoardViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardViewTests.swift; sourceTree = "<group>"; };
+		B80000000000000000000101 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
+		B80000000000000000000102 /* CardGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGridView.swift; sourceTree = "<group>"; };
+		B80000000000000000000103 /* CardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardView.swift; sourceTree = "<group>"; };
+		B80000000000000000000104 /* ClueComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClueComposerView.swift; sourceTree = "<group>"; };
+		B80000000000000000000105 /* TurnControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnControlsView.swift; sourceTree = "<group>"; };
 		B70000000000000000000101 /* LobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyView.swift; sourceTree = "<group>"; };
 		B70000000000000000000102 /* SeatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatListView.swift; sourceTree = "<group>"; };
 		B70000000000000000000103 /* RoomShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomShareSheet.swift; sourceTree = "<group>"; };
@@ -179,6 +191,7 @@
 				A60000000000000000000105 /* InviteRouterTests.swift */,
 				A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */,
 				A70000000000000000000101 /* LobbyViewTests.swift */,
+				A80000000000000000000101 /* BoardViewTests.swift */,
 				A20000000000000000000202 /* Fixtures */,
 			);
 			path = CipherPartyTests;
@@ -231,6 +244,7 @@
 				A60000000000000000000201 /* Entry */,
 				B70000000000000000000201 /* Lobby */,
 				B70000000000000000000202 /* Connection */,
+				B80000000000000000000201 /* Board */,
 				A50000000000000000000101 /* RoomSession.swift */,
 			);
 			path = Features;
@@ -252,6 +266,18 @@
 				B70000000000000000000104 /* ConnectionBanner.swift */,
 			);
 			path = Connection;
+			sourceTree = "<group>";
+		};
+		B80000000000000000000201 /* Board */ = {
+			isa = PBXGroup;
+			children = (
+				B80000000000000000000101 /* BoardView.swift */,
+				B80000000000000000000102 /* CardGridView.swift */,
+				B80000000000000000000103 /* CardView.swift */,
+				B80000000000000000000104 /* ClueComposerView.swift */,
+				B80000000000000000000105 /* TurnControlsView.swift */,
+			);
+			path = Board;
 			sourceTree = "<group>";
 		};
 		A60000000000000000000201 /* Entry */ = {
@@ -415,6 +441,11 @@
 				B70000000000000000000002 /* SeatListView.swift in Sources */,
 				B70000000000000000000003 /* RoomShareSheet.swift in Sources */,
 				B70000000000000000000004 /* ConnectionBanner.swift in Sources */,
+				B80000000000000000000001 /* BoardView.swift in Sources */,
+				B80000000000000000000002 /* CardGridView.swift in Sources */,
+				B80000000000000000000003 /* CardView.swift in Sources */,
+				B80000000000000000000004 /* ClueComposerView.swift in Sources */,
+				B80000000000000000000005 /* TurnControlsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -432,6 +463,7 @@
 				A60000000000000000000005 /* InviteRouterTests.swift in Sources */,
 				A61000000000000000000001 /* CameraInviteScannerLifecycleTests.swift in Sources */,
 				A70000000000000000000001 /* LobbyViewTests.swift in Sources */,
+				A80000000000000000000001 /* BoardViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
