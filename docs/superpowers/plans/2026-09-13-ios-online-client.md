@@ -373,21 +373,23 @@ kept beside the existing web and worker apps; it is not a second repository.
   phase, lock status, seat connectivity, team/role assignments, and permissions.
 - Host actions dispatch only typed session intents and are hidden/disabled when
   `permissions.configure`/`moderate` is false.
-- The lobby supports mixed browser/iOS seats and a spectator entry path.
+- The lobby supports mixed browser/iOS seats and a spectator entry path through
+  the shared server-provided seat model. Protocol v1 does not expose client
+  platform, so the lobby intentionally does not claim a per-seat device label.
 
-- [ ] **Step 1: Add failing view-model/UI tests.** Assert host controls are not
+- [x] **Step 1: Add failing view-model/UI tests.** Assert host controls are not
   rendered for non-host projections, disconnected seats are labeled, and the
   invite share payload is exactly the invite URL.
-- [ ] **Step 2: Implement the lobby layout.** Use `NavigationStack`, focused
+- [x] **Step 2: Implement the lobby layout.** Use `NavigationStack`, focused
   subviews, stable accessibility identifiers, and readable cards/list rows for
   narrow phones.
-- [ ] **Step 3: Implement sharing and onboarding guidance.** Add system share,
+- [x] **Step 3: Implement sharing and onboarding guidance.** Add system share,
   copy-code, QR presentation, display-name validation, and a concise “what to do
   next” checklist for a group arriving in a room.
-- [ ] **Step 4: Add connection/offline presentation.** Show reconnecting and
+- [x] **Step 4: Add connection/offline presentation.** Show reconnecting and
   last-updated states without hiding the board or implying that local actions are
   accepted.
-- [ ] **Step 5: Verify lobby tests and simulator screenshots.** Check Dynamic
+- [x] **Step 5: Verify lobby tests and simulator screenshots.** Check Dynamic
   Type, VoiceOver labels, dark mode, and a compact iPhone viewport.
 
 ## Task 8: Implement role-safe Classic board play
