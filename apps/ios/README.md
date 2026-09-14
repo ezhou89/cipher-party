@@ -41,29 +41,87 @@ never log it.
 
 ## Verification
 
-Build the app for the simulator:
+Build the app for the simulator in each runtime configuration:
 
 ```sh
-xcodebuild \
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -project apps/ios/CipherParty.xcodeproj \
   -scheme CipherParty \
+  -configuration Debug \
   -sdk iphonesimulator \
   -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /private/tmp/cipher-party-task10-debug \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj \
+  -scheme CipherParty \
+  -configuration Staging \
+  -sdk iphonesimulator \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /private/tmp/cipher-party-task10-staging \
+  CODE_SIGNING_ALLOWED=NO \
   build
 ```
 
-Run the focused unit and UI tests on the narrowest supported simulator:
+Run the unit and UI test targets on the available narrow simulator. Pin the
+destination ID when several architecture entries or multiple runtimes are
+installed:
 
 ```sh
-xcodebuild \
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -project apps/ios/CipherParty.xcodeproj \
   -scheme CipherParty \
+  -configuration Debug \
   -sdk iphonesimulator \
-  -destination 'platform=iOS Simulator,name=iPhone SE (3rd generation)' \
-  -only-testing:CipherPartyTests/AppEnvironmentTests \
-  -only-testing:CipherPartyUITests/EntryFlowUITests \
+  -destination 'id=A2F34315-5495-46DD-874E-F8248399991F' \
+  -derivedDataPath /private/tmp/cipher-party-task10-debug \
+  CODE_SIGNING_ALLOWED=NO \
+  test
+
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj \
+  -scheme CipherParty \
+  -configuration Staging \
+  -sdk iphonesimulator \
+  -destination 'id=A2F34315-5495-46DD-874E-F8248399991F' \
+  -derivedDataPath /private/tmp/cipher-party-task10-staging \
+  CODE_SIGNING_ALLOWED=NO \
   test
 ```
+
+The current verification run passed both configurations on the iPhone SE
+(3rd generation) simulator (iOS 18.2). It also passed Debug and Staging
+`build-for-testing`. A signed device remains required for camera capture,
+Universal Link activation, share sheets, background/foreground behavior, and
+the final Dynamic Type, dark-mode, and VoiceOver visual pass.
+
+Repository checks for the current branch:
+
+```sh
+pnpm run check
+git diff --check
+```
+
+`pnpm run check` passed outside the restricted shell (including 24 protocol
+fixture tests, formatting, lint, typecheck, 22 game-core tests, 46 protocol
+tests, 53 web tests, 41 Worker tests, and the root test). The first restricted
+shell attempt failed because Wrangler could not write its log or bind its test
+port; it is not a code failure.
+
+The repository Playwright command remains an environment/configuration
+follow-up in this handoff:
+
+```sh
+pnpm run test:e2e
+```
+
+The configured web-server readiness URL uses `127.0.0.1:5173`, while Vite
+listens on `localhost:5173` in this environment. `curl
+http://localhost:5173/api/health` returned `200`, while the configured
+`127.0.0.1` URL refused the connection, so no E2E pass is claimed. Keep this
+as a test-harness follow-up rather than changing the iOS client or protocol.
 
 ## Mixed-client integration and privacy harness
 
@@ -124,11 +182,13 @@ fragments, and credential-shaped payloads; projection/cache tests reject hidden
 keys outside the clue-giver projection; API/Keychain tests assert that error
 descriptions do not contain durable credentials.
 
-The current environment can parse every Swift source with the iOS 17 target,
-but simulator execution is not deterministic here when CoreSimulatorService or
-the Observation macro service is unavailable. A signed-device run is still
-required for camera capture, Universal Link association, share-sheet behavior,
-background/foreground transitions, and VoiceOver/dark-mode visual checks.
+The current environment can build and run the native XCTest/XCUITest targets on
+the available iOS 18.2 simulator when Xcode is invoked with the full
+`DEVELOPER_DIR`. The optional XcodeBuildMCP debugger connector did not expose
+`simctl` in this session, so no debugger-plugin screenshot is claimed. A
+signed-device run is still required for camera capture, Universal Link
+association, share-sheet behavior, background/foreground transitions, and
+VoiceOver/dark-mode visual checks.
 Native `InviteRouter`, the Associated Domains entitlement, dynamic/static AASA,
 and the invite URL/QR origin are all bound to `oddlyuseful.studio`. Preferred
 staging is therefore to route the Cipher Party Worker at that host with

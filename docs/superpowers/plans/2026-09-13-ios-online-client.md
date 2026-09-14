@@ -467,17 +467,17 @@ kept beside the existing web and worker apps; it is not a second repository.
 - Modify: `docs/PROJECT_SNAPSHOT.md` after reviewed milestone completion
 - Modify: this plan checkboxes as tasks are accepted
 
-- [ ] **Step 1: Run focused iOS verification.** Build and test the Debug and
+- [x] **Step 1: Run focused iOS verification.** Build and test the Debug and
   Staging schemes with `xcodebuild`; run simulator UI smoke tests using the iOS
   debugger workflow.
-- [ ] **Step 2: Run repository verification.** Execute `pnpm run check`,
+- [x] **Step 2: Run repository verification.** Execute `pnpm run check`,
   `pnpm run test:e2e` when shared Worker/protocol behavior changed, `git diff
   --check`, and `git status --short`. If dependency installation is blocked by
   the npm registry, record the exact command/error rather than claiming success.
-- [ ] **Step 3: Review the diff for scope and secrets.** Confirm no offline
+- [x] **Step 3: Review the diff for scope and secrets.** Confirm no offline
   transport, billing, pack generation, unlicensed art, or hidden-data leakage
   slipped into the client.
-- [ ] **Step 4: Update the snapshot.** Increment the revision, record accepted
+- [x] **Step 4: Update the snapshot.** Increment the revision, record accepted
   iOS tasks and exact passing commands, leave the browser plan pointer intact,
   and list any remaining signing/AASA or environment blocker.
 - [ ] **Step 5: Request code review before merge.** Use the repository review

@@ -1,12 +1,13 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 15
+**Snapshot revision:** 16
 
-**Last updated:** 2026-09-13
+**Last updated:** 2026-09-14
 
-**Project state:** Browser Task 11 remains complete. The native iOS online-client
-design is approved, the implementation plan is committed, and implementation is
-ready to begin after execution selection.
+**Project state:** Browser Task 11 remains complete. Native iOS Tasks 1–9 are
+implemented and reviewed, and Task 10 release-readiness verification is
+complete for the local build/test surface. The native client branch is ready
+for coordinator task review and final whole-branch review.
 
 **Active milestone:** Milestone 1 — Connected Classic, with the approved native
 iOS online companion extension
@@ -46,10 +47,11 @@ Milestone 1 delivers a deployable two-team Classic game with:
 
 Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs.
 
-The iOS extension currently delivers design and planning only. Its first
-implementation slice will cover account-free create/join, QR/Universal
-Link/manual-code entry, role-safe lobby and Classic board views, Keychain seat
-credentials, and online reconnect UX. No nearby/offline match is included.
+The native iOS extension now delivers the first online implementation slice:
+account-free create/join, QR/Universal Link/manual-code entry, device-only
+Keychain credentials, role-safe lobby and Classic board views, and bounded
+online reconnect/read-only cache UX. It reuses protocol v1 and the browser's
+Cloudflare room authority; no nearby/offline match is included.
 
 ## Architecture snapshot
 
@@ -78,26 +80,39 @@ credentials, and online reconnect UX. No nearby/offline match is included.
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 11 — Role-aware Classic game board UI.
+- **Last accepted implementation task:** Task 9 — Mixed-client integration,
+  resilience, and security hardening.
 - **Native iOS spec commit:** `9c1d68a` — native iOS online-client design.
-- **Current task:** Native iOS online-client implementation plan is committed;
-  awaiting execution selection.
-- **Next task after selection:** iOS Task 1 — create the Xcode target and
-  deterministic app configuration.
-- **Blocked by:** The new worktree's `pnpm run check` attempt triggered a
-  dependency status install that could not reach the npm registry (`ENOTFOUND`).
-  This is an environment/network blocker, not a diagnosed code failure.
+- **Current task:** Task 10 release-readiness handoff is complete and ready for
+  coordinator review; its final code-review checkbox remains pending.
+- **Next task:** Final whole-branch review, then decide whether to open a PR from
+  `feature/ios-online-client`.
+- **Deployment follow-ups:** `https://oddlyuseful.studio` currently serves the
+  unrelated studio site (`/api/health` returned 404), so no staging create/join
+  or signed Universal Link smoke is claimed. A registered Apple App ID/team,
+  Worker routing at the canonical host, and a signed-device pass remain.
 
 ## Verified baseline
 
 - Design commit: ba2c612.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 11 complete: 93/93 steps verified).
-- Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test` (136 unit & component tests passing across all packages), `pnpm run build`, `git diff --check`.
-- Planning work additionally passes `git diff --check`; the branch is clean after
-  the documentation commits. iOS Xcode checks have not run because no app target
-  exists yet.
+- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1–11 complete: 93/93 steps verified).
+- Native iOS Tasks 1–9 are accepted in the implementation ledger with focused
+  Swift, Worker, browser, and fixture evidence; role-safe projections, token
+  handling, reconnect reconciliation, invite routing, lobby, board, and mixed
+  client/privacy seams are covered.
+- Passing iOS commands: Debug and Staging `xcodebuild ... build`, Debug and
+  Staging `xcodebuild ... test` on the iPhone SE (3rd generation) iOS 18.2
+  simulator, and Debug/Staging `build-for-testing` with signing disabled.
+- Passing repository commands: `pnpm run check` (24 fixture tests, 22
+  game-core tests, 46 protocol tests, 53 web tests, 41 Worker tests, root test,
+  formatting, lint, and typecheck), `node scripts/check-project-docs.mjs`, and
+  `git diff --check`.
+- `pnpm run test:e2e` was attempted but is blocked by the current Playwright
+  readiness URL using `127.0.0.1:5173` while Vite listens on
+  `localhost:5173`; no E2E pass is claimed. This is a test-harness/environment
+  follow-up, not an iOS protocol failure.
 
 ## Decisions agents must preserve
 
@@ -135,6 +150,11 @@ credentials, and online reconnect UX. No nearby/offline match is included.
 - Durable Object alarm and hibernation behavior diverging between local and deployed environments.
 - Mobile readability for later 5×6 and 6×6 boards.
 - AI and image-pack scope accidentally leaking into Milestone 1.
+- Staging deployment still needs the Cipher Party Worker routed at
+  `oddlyuseful.studio` with the matching `CANONICAL_ORIGIN`, dynamic/static AASA,
+  and registered Apple App ID/team before signed-device smoke.
+- A physical device is still needed for camera, Universal Links, share sheets,
+  background/foreground, Dynamic Type, dark mode, and VoiceOver visual evidence.
 
 ## Snapshot update protocol
 
