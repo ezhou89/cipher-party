@@ -340,20 +340,20 @@ kept beside the existing web and worker apps; it is not a second repository.
   the registered App ID; missing release association configuration fails safely
   without exposing secrets.
 
-- [ ] **Step 1: Add failing routing/QR tests.** Cover URL normalization,
+- [x] **Step 1: Add failing routing/QR tests.** Cover URL normalization,
   malformed/extra path components, query/fragment stripping, aliases O/I/L, and
   QR payload inspection with token-like values rejected.
-- [ ] **Step 2: Implement routing and QR generation.** Use Core Image for QR
+- [x] **Step 2: Implement routing and QR generation.** Use Core Image for QR
   generation and keep scanning separate from parsing. Add a manual code path for
   denied camera permission or devices without a camera.
-- [ ] **Step 3: Wire camera scanning.** Use AVFoundation metadata scanning only
+- [x] **Step 3: Wire camera scanning.** Use AVFoundation metadata scanning only
   after the user chooses **Scan invite**; stop capture after the first valid code
   and provide a clear permission fallback.
-- [ ] **Step 4: Configure app links.** Add Associated Domains and the development
+- [x] **Step 4: Configure app links.** Add Associated Domains and the development
   URL scheme. Serve and test the AASA response from the staging host once the
   Apple App ID is registered; local tests use the same route parser without
   requiring a signed device.
-- [ ] **Step 5: Verify Worker/browser compatibility.** Run Worker tests and a
+- [x] **Step 5: Verify Worker/browser compatibility.** Run Worker tests and a
   browser regression proving `/room/{code}` still falls back to the web entry
   when the native app is absent.
 
