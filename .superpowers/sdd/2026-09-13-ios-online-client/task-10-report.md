@@ -183,9 +183,9 @@ key redaction, unsafe/incompatible update recovery, safe asynchronous lobby
 errors, pending recovery, and Debug transport policy.
 
 The latest Debug and Staging XCTest/XCUITest runs passed on iPhone SE (3rd
-generation), iOS 18.2. Each configuration's final result has 124 passed (120
+generation), iOS 18.2. Each configuration's final result has 125 passed (121
 unit tests and 4 UI tests), 0 failed, 0 skipped. This supersedes the earlier
-121-test count recorded during the initial integration-fix wave.
+121-total test count recorded during the initial integration-fix wave.
 Commands, with configuration and derived-data path changed
 for Staging:
 
