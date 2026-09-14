@@ -1,0 +1,896 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A20000000000000000000001 /* ProtocolModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000101 /* ProtocolModels.swift */; };
+		A20000000000000000000002 /* ProtocolModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000102 /* ProtocolModelTests.swift */; };
+		A20000000000000000000010 /* projection-lobby-unassigned.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000110 /* projection-lobby-unassigned.json */; };
+		A20000000000000000000011 /* projection-operative.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000111 /* projection-operative.json */; };
+		A20000000000000000000012 /* projection-clue-giver.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000112 /* projection-clue-giver.json */; };
+		A20000000000000000000013 /* projection-spectator.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000113 /* projection-spectator.json */; };
+		A20000000000000000000014 /* projection-challenged.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000114 /* projection-challenged.json */; };
+		A20000000000000000000015 /* projection-paused.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000115 /* projection-paused.json */; };
+		A20000000000000000000016 /* projection-complete.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000116 /* projection-complete.json */; };
+		A20000000000000000000017 /* command-envelopes.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000117 /* command-envelopes.json */; };
+		A20000000000000000000018 /* server-messages.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000118 /* server-messages.json */; };
+		A30000000000000000000003 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000103 /* APIClientTests.swift */; };
+		A30000000000000000000004 /* SeatCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000104 /* SeatCredentialStoreTests.swift */; };
+		A40000000000000000000003 /* RoomSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000103 /* RoomSocketTests.swift */; };
+		A50000000000000000000003 /* RoomSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000103 /* RoomSessionTests.swift */; };
+		A50000000000000000000004 /* ProjectionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000104 /* ProjectionCacheTests.swift */; };
+		A60000000000000000000005 /* InviteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000105 /* InviteRouterTests.swift */; };
+		A61000000000000000000001 /* CameraInviteScannerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */; };
+		A70000000000000000000001 /* LobbyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70000000000000000000101 /* LobbyViewTests.swift */; };
+		A80000000000000000000001 /* BoardViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000101 /* BoardViewTests.swift */; };
+		B80000000000000000000001 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000101 /* BoardView.swift */; };
+		B80000000000000000000002 /* CardGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000102 /* CardGridView.swift */; };
+		B80000000000000000000003 /* CardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000103 /* CardView.swift */; };
+		B80000000000000000000004 /* ClueComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000104 /* ClueComposerView.swift */; };
+		B80000000000000000000005 /* TurnControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80000000000000000000105 /* TurnControlsView.swift */; };
+		B70000000000000000000001 /* LobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000101 /* LobbyView.swift */; };
+		B70000000000000000000002 /* SeatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000102 /* SeatListView.swift */; };
+		B70000000000000000000003 /* RoomShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000103 /* RoomShareSheet.swift */; };
+		B70000000000000000000004 /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000104 /* ConnectionBanner.swift */; };
+		A60000000000000000000001 /* InviteRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000101 /* InviteRouter.swift */; };
+		A60000000000000000000002 /* QRCodeRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000102 /* QRCodeRenderer.swift */; };
+		A60000000000000000000003 /* EntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000103 /* EntryView.swift */; };
+		A60000000000000000000004 /* JoinRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000104 /* JoinRoomView.swift */; };
+		A50000000000000000000001 /* RoomSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000101 /* RoomSession.swift */; };
+		A50000000000000000000002 /* ProjectionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000102 /* ProjectionCache.swift */; };
+		A40000000000000000000001 /* RoomSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000101 /* RoomSocket.swift */; };
+		A40000000000000000000002 /* NetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000102 /* NetworkPathMonitor.swift */; };
+		A30000000000000000000001 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000101 /* APIClient.swift */; };
+		A30000000000000000000002 /* SeatCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000102 /* SeatCredentialStore.swift */; };
+		24F0E7BD80A5CCC0485A5E1E /* CipherPartyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */; };
+		26A8A4A4E40021D7DE7F62EE /* EntryFlowUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47B8A10A874CB95A3AD4A3B2 /* EntryFlowUITests.swift */; };
+		45043CAC9F8FECEB0170439B /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C516C880061C90BC300B6C /* AppEnvironment.swift */; };
+		5F07714CA339ED23563B9038 /* AppEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D78FE72A497BBD6CA569145 /* AppEnvironmentTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4F1B218CE2B86911B3CBD5A3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4E6346769AC527DCD4BF3098 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6520DA41EA268616E95F1A33;
+			remoteInfo = CipherParty;
+		};
+		E9C95B278E12012EE071413D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4E6346769AC527DCD4BF3098 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6520DA41EA268616E95F1A33;
+			remoteInfo = CipherParty;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000101 /* ProtocolModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000102 /* ProtocolModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProtocolModelTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000110 /* projection-lobby-unassigned.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-lobby-unassigned.json"; sourceTree = "<group>"; };
+		A20000000000000000000111 /* projection-operative.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-operative.json"; sourceTree = "<group>"; };
+		A20000000000000000000112 /* projection-clue-giver.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-clue-giver.json"; sourceTree = "<group>"; };
+		A20000000000000000000113 /* projection-spectator.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-spectator.json"; sourceTree = "<group>"; };
+		A20000000000000000000114 /* projection-challenged.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-challenged.json"; sourceTree = "<group>"; };
+		A20000000000000000000115 /* projection-paused.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-paused.json"; sourceTree = "<group>"; };
+		A20000000000000000000116 /* projection-complete.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "projection-complete.json"; sourceTree = "<group>"; };
+		A20000000000000000000117 /* command-envelopes.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "command-envelopes.json"; sourceTree = "<group>"; };
+		A20000000000000000000118 /* server-messages.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "server-messages.json"; sourceTree = "<group>"; };
+		2342BA98870BAB9E7AAC41B9 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CipherPartyApp.swift; sourceTree = "<group>"; };
+		341230857A7520F4618036B1 /* CipherParty.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CipherParty.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		47B8A10A874CB95A3AD4A3B2 /* EntryFlowUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryFlowUITests.swift; sourceTree = "<group>"; };
+		5596E333045AE6F5CFF04B2C /* CipherPartyUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CipherPartyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5685CA09CB2A5E65F7FABD42 /* CipherPartyTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = CipherPartyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		87AA134498E9FEE61A8CCF28 /* Staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Staging.xcconfig; sourceTree = "<group>"; };
+		9D78FE72A497BBD6CA569145 /* AppEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironmentTests.swift; sourceTree = "<group>"; };
+		D60BDE7FBB7A8446BECFC298 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		F3C516C880061C90BC300B6C /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		A30000000000000000000103 /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		A30000000000000000000104 /* SeatCredentialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatCredentialStoreTests.swift; sourceTree = "<group>"; };
+		A40000000000000000000103 /* RoomSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSocketTests.swift; sourceTree = "<group>"; };
+		A40000000000000000000101 /* RoomSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSocket.swift; sourceTree = "<group>"; };
+		A40000000000000000000102 /* NetworkPathMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkPathMonitor.swift; sourceTree = "<group>"; };
+		A50000000000000000000103 /* RoomSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSessionTests.swift; sourceTree = "<group>"; };
+		A50000000000000000000104 /* ProjectionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectionCacheTests.swift; sourceTree = "<group>"; };
+		A50000000000000000000101 /* RoomSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSession.swift; sourceTree = "<group>"; };
+		A50000000000000000000102 /* ProjectionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectionCache.swift; sourceTree = "<group>"; };
+		A60000000000000000000105 /* InviteRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteRouterTests.swift; sourceTree = "<group>"; };
+		A60000000000000000000101 /* InviteRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteRouter.swift; sourceTree = "<group>"; };
+		A60000000000000000000102 /* QRCodeRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCodeRenderer.swift; sourceTree = "<group>"; };
+		A60000000000000000000103 /* EntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EntryView.swift; sourceTree = "<group>"; };
+		A60000000000000000000104 /* JoinRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinRoomView.swift; sourceTree = "<group>"; };
+		A60000000000000000000106 /* CipherParty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CipherParty.entitlements; sourceTree = "<group>"; };
+		A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraInviteScannerLifecycleTests.swift; sourceTree = "<group>"; };
+		A70000000000000000000101 /* LobbyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyViewTests.swift; sourceTree = "<group>"; };
+		A80000000000000000000101 /* BoardViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardViewTests.swift; sourceTree = "<group>"; };
+		B80000000000000000000101 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
+		B80000000000000000000102 /* CardGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGridView.swift; sourceTree = "<group>"; };
+		B80000000000000000000103 /* CardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardView.swift; sourceTree = "<group>"; };
+		B80000000000000000000104 /* ClueComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClueComposerView.swift; sourceTree = "<group>"; };
+		B80000000000000000000105 /* TurnControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TurnControlsView.swift; sourceTree = "<group>"; };
+		B70000000000000000000101 /* LobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyView.swift; sourceTree = "<group>"; };
+		B70000000000000000000102 /* SeatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatListView.swift; sourceTree = "<group>"; };
+		B70000000000000000000103 /* RoomShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomShareSheet.swift; sourceTree = "<group>"; };
+		B70000000000000000000104 /* ConnectionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionBanner.swift; sourceTree = "<group>"; };
+		A30000000000000000000101 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		A30000000000000000000102 /* SeatCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatCredentialStore.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		A20000000000000000000201 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000101 /* ProtocolModels.swift */,
+				A30000000000000000000101 /* APIClient.swift */,
+				A40000000000000000000101 /* RoomSocket.swift */,
+				A40000000000000000000102 /* NetworkPathMonitor.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000202 /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000110 /* projection-lobby-unassigned.json */,
+				A20000000000000000000111 /* projection-operative.json */,
+				A20000000000000000000112 /* projection-clue-giver.json */,
+				A20000000000000000000113 /* projection-spectator.json */,
+				A20000000000000000000114 /* projection-challenged.json */,
+				A20000000000000000000115 /* projection-paused.json */,
+				A20000000000000000000116 /* projection-complete.json */,
+				A20000000000000000000117 /* command-envelopes.json */,
+				A20000000000000000000118 /* server-messages.json */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		A30000000000000000000203 /* Persistence */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000102 /* SeatCredentialStore.swift */,
+				A50000000000000000000102 /* ProjectionCache.swift */,
+			);
+			path = Persistence;
+			sourceTree = "<group>";
+		};
+		2895E27F06AF548CCE7FE070 /* Configurations */ = {
+			isa = PBXGroup;
+			children = (
+				2342BA98870BAB9E7AAC41B9 /* Debug.xcconfig */,
+				D60BDE7FBB7A8446BECFC298 /* Release.xcconfig */,
+				87AA134498E9FEE61A8CCF28 /* Staging.xcconfig */,
+			);
+			path = Configurations;
+			sourceTree = "<group>";
+		};
+		388D16363A9CCC6FC09B34FC /* apps */ = {
+			isa = PBXGroup;
+			children = (
+				E74282A0FB537250DDB0E01F /* ios */,
+			);
+			name = apps;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		3F038F91EE6CD16961FC144F /* CipherPartyTests */ = {
+			isa = PBXGroup;
+			children = (
+				9D78FE72A497BBD6CA569145 /* AppEnvironmentTests.swift */,
+				A20000000000000000000102 /* ProtocolModelTests.swift */,
+				A30000000000000000000103 /* APIClientTests.swift */,
+				A30000000000000000000104 /* SeatCredentialStoreTests.swift */,
+				A40000000000000000000103 /* RoomSocketTests.swift */,
+				A50000000000000000000103 /* RoomSessionTests.swift */,
+				A50000000000000000000104 /* ProjectionCacheTests.swift */,
+				A60000000000000000000105 /* InviteRouterTests.swift */,
+				A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */,
+				A70000000000000000000101 /* LobbyViewTests.swift */,
+				A80000000000000000000101 /* BoardViewTests.swift */,
+				A20000000000000000000202 /* Fixtures */,
+			);
+			path = CipherPartyTests;
+			sourceTree = "<group>";
+		};
+		969D394883A515354F0B3C40 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				341230857A7520F4618036B1 /* CipherParty.app */,
+				5685CA09CB2A5E65F7FABD42 /* CipherPartyTests.xctest */,
+				5596E333045AE6F5CFF04B2C /* CipherPartyUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		9B00C1AE586537256FC7B88B = {
+			isa = PBXGroup;
+			children = (
+				388D16363A9CCC6FC09B34FC /* apps */,
+				969D394883A515354F0B3C40 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B1E85045D1EE1636F64B74F9 /* CipherParty */ = {
+			isa = PBXGroup;
+			children = (
+				F3C516C880061C90BC300B6C /* AppEnvironment.swift */,
+				324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */,
+				A60000000000000000000106 /* CipherParty.entitlements */,
+				A20000000000000000000201 /* Networking */,
+				A30000000000000000000203 /* Persistence */,
+				A60000000000000000000202 /* Routing */,
+				A50000000000000000000201 /* Features */,
+			);
+			path = CipherParty;
+			sourceTree = "<group>";
+		};
+		A60000000000000000000202 /* Routing */ = {
+			isa = PBXGroup;
+			children = (
+				A60000000000000000000101 /* InviteRouter.swift */,
+				A60000000000000000000102 /* QRCodeRenderer.swift */,
+			);
+			path = Routing;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000201 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A60000000000000000000201 /* Entry */,
+				B70000000000000000000201 /* Lobby */,
+				B70000000000000000000202 /* Connection */,
+				B80000000000000000000201 /* Board */,
+				A50000000000000000000101 /* RoomSession.swift */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000201 /* Lobby */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000101 /* LobbyView.swift */,
+				B70000000000000000000102 /* SeatListView.swift */,
+				B70000000000000000000103 /* RoomShareSheet.swift */,
+			);
+			path = Lobby;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000202 /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000104 /* ConnectionBanner.swift */,
+			);
+			path = Connection;
+			sourceTree = "<group>";
+		};
+		B80000000000000000000201 /* Board */ = {
+			isa = PBXGroup;
+			children = (
+				B80000000000000000000101 /* BoardView.swift */,
+				B80000000000000000000102 /* CardGridView.swift */,
+				B80000000000000000000103 /* CardView.swift */,
+				B80000000000000000000104 /* ClueComposerView.swift */,
+				B80000000000000000000105 /* TurnControlsView.swift */,
+			);
+			path = Board;
+			sourceTree = "<group>";
+		};
+		A60000000000000000000201 /* Entry */ = {
+			isa = PBXGroup;
+			children = (
+				A60000000000000000000103 /* EntryView.swift */,
+				A60000000000000000000104 /* JoinRoomView.swift */,
+			);
+			path = Entry;
+			sourceTree = "<group>";
+		};
+		DC32B4A284CA77BC3DFE9E82 /* CipherPartyUITests */ = {
+			isa = PBXGroup;
+			children = (
+				47B8A10A874CB95A3AD4A3B2 /* EntryFlowUITests.swift */,
+			);
+			path = CipherPartyUITests;
+			sourceTree = "<group>";
+		};
+		E74282A0FB537250DDB0E01F /* ios */ = {
+			isa = PBXGroup;
+			children = (
+				B1E85045D1EE1636F64B74F9 /* CipherParty */,
+				3F038F91EE6CD16961FC144F /* CipherPartyTests */,
+				DC32B4A284CA77BC3DFE9E82 /* CipherPartyUITests */,
+				2895E27F06AF548CCE7FE070 /* Configurations */,
+			);
+			path = ios;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		149D40D32DB8C8948079A70F /* CipherPartyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CDAB621340B0BAB9800FD841 /* Build configuration list for PBXNativeTarget "CipherPartyUITests" */;
+			buildPhases = (
+				DCEDC35B4AA11826B7614D12 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F338D232EFBB771F073354B4 /* PBXTargetDependency */,
+			);
+			name = CipherPartyUITests;
+			packageProductDependencies = (
+			);
+			productName = CipherPartyUITests;
+			productReference = 5596E333045AE6F5CFF04B2C /* CipherPartyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		6520DA41EA268616E95F1A33 /* CipherParty */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ED14665863447DFD4F916B13 /* Build configuration list for PBXNativeTarget "CipherParty" */;
+			buildPhases = (
+				3FBCF0132F96C56D4944494E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = CipherParty;
+			packageProductDependencies = (
+			);
+			productName = CipherParty;
+			productReference = 341230857A7520F4618036B1 /* CipherParty.app */;
+			productType = "com.apple.product-type.application";
+		};
+		99BACF6E254F8A8B207B60BA /* CipherPartyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3B840ECF3EDB79F12E6BACCE /* Build configuration list for PBXNativeTarget "CipherPartyTests" */;
+			buildPhases = (
+				45816CFAC06A16C327782611 /* Sources */,
+				A20000000000000000000301 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				60BCFC824EE64C22719C978B /* PBXTargetDependency */,
+			);
+			name = CipherPartyTests;
+			packageProductDependencies = (
+			);
+			productName = CipherPartyTests;
+			productReference = 5685CA09CB2A5E65F7FABD42 /* CipherPartyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4E6346769AC527DCD4BF3098 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					149D40D32DB8C8948079A70F = {
+						TestTargetID = 6520DA41EA268616E95F1A33;
+					};
+				};
+			};
+			buildConfigurationList = DA0B12A08F9AC58640BCA30B /* Build configuration list for PBXProject "CipherParty" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 9B00C1AE586537256FC7B88B;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 969D394883A515354F0B3C40 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				6520DA41EA268616E95F1A33 /* CipherParty */,
+				99BACF6E254F8A8B207B60BA /* CipherPartyTests */,
+				149D40D32DB8C8948079A70F /* CipherPartyUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A20000000000000000000301 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000000000000000000010 /* projection-lobby-unassigned.json in Resources */,
+				A20000000000000000000011 /* projection-operative.json in Resources */,
+				A20000000000000000000012 /* projection-clue-giver.json in Resources */,
+				A20000000000000000000013 /* projection-spectator.json in Resources */,
+				A20000000000000000000014 /* projection-challenged.json in Resources */,
+				A20000000000000000000015 /* projection-paused.json in Resources */,
+				A20000000000000000000016 /* projection-complete.json in Resources */,
+				A20000000000000000000017 /* command-envelopes.json in Resources */,
+				A20000000000000000000018 /* server-messages.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		3FBCF0132F96C56D4944494E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				45043CAC9F8FECEB0170439B /* AppEnvironment.swift in Sources */,
+				24F0E7BD80A5CCC0485A5E1E /* CipherPartyApp.swift in Sources */,
+				A20000000000000000000001 /* ProtocolModels.swift in Sources */,
+				A30000000000000000000001 /* APIClient.swift in Sources */,
+				A30000000000000000000002 /* SeatCredentialStore.swift in Sources */,
+				A40000000000000000000001 /* RoomSocket.swift in Sources */,
+				A40000000000000000000002 /* NetworkPathMonitor.swift in Sources */,
+				A50000000000000000000001 /* RoomSession.swift in Sources */,
+				A50000000000000000000002 /* ProjectionCache.swift in Sources */,
+				A60000000000000000000001 /* InviteRouter.swift in Sources */,
+				A60000000000000000000002 /* QRCodeRenderer.swift in Sources */,
+				A60000000000000000000003 /* EntryView.swift in Sources */,
+				A60000000000000000000004 /* JoinRoomView.swift in Sources */,
+				B70000000000000000000001 /* LobbyView.swift in Sources */,
+				B70000000000000000000002 /* SeatListView.swift in Sources */,
+				B70000000000000000000003 /* RoomShareSheet.swift in Sources */,
+				B70000000000000000000004 /* ConnectionBanner.swift in Sources */,
+				B80000000000000000000001 /* BoardView.swift in Sources */,
+				B80000000000000000000002 /* CardGridView.swift in Sources */,
+				B80000000000000000000003 /* CardView.swift in Sources */,
+				B80000000000000000000004 /* ClueComposerView.swift in Sources */,
+				B80000000000000000000005 /* TurnControlsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		45816CFAC06A16C327782611 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5F07714CA339ED23563B9038 /* AppEnvironmentTests.swift in Sources */,
+				A20000000000000000000002 /* ProtocolModelTests.swift in Sources */,
+				A30000000000000000000003 /* APIClientTests.swift in Sources */,
+				A30000000000000000000004 /* SeatCredentialStoreTests.swift in Sources */,
+				A40000000000000000000003 /* RoomSocketTests.swift in Sources */,
+				A50000000000000000000003 /* RoomSessionTests.swift in Sources */,
+				A50000000000000000000004 /* ProjectionCacheTests.swift in Sources */,
+				A60000000000000000000005 /* InviteRouterTests.swift in Sources */,
+				A61000000000000000000001 /* CameraInviteScannerLifecycleTests.swift in Sources */,
+				A70000000000000000000001 /* LobbyViewTests.swift in Sources */,
+				A80000000000000000000001 /* BoardViewTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DCEDC35B4AA11826B7614D12 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				26A8A4A4E40021D7DE7F62EE /* EntryFlowUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		60BCFC824EE64C22719C978B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6520DA41EA268616E95F1A33 /* CipherParty */;
+			targetProxy = 4F1B218CE2B86911B3CBD5A3 /* PBXContainerItemProxy */;
+		};
+		F338D232EFBB771F073354B4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6520DA41EA268616E95F1A33 /* CipherParty */;
+			targetProxy = E9C95B278E12012EE071413D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		00D137EB012E535F7A879F79 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = studio.oddlyuseful.cipherparty.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CipherParty.app/CipherParty";
+			};
+			name = Debug;
+		};
+		21534403BC25C1B4A948F73A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CipherParty/CipherParty.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CipherParty/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_MODULE_NAME = CipherParty;
+				PRODUCT_NAME = CipherParty;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		28E560490F23527A5DC392AB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CipherParty/CipherParty.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CipherParty/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_MODULE_NAME = CipherParty;
+				PRODUCT_NAME = CipherParty;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		3ABF77CBE4C4EE10628DA8F8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = studio.oddlyuseful.cipherparty.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CipherParty;
+			};
+			name = Debug;
+		};
+		440261F91CC45E3668998AD3 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = studio.oddlyuseful.cipherparty.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CipherParty.app/CipherParty";
+			};
+			name = Staging;
+		};
+		51A2A3F2A65612EA7476C90C /* Staging */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 87AA134498E9FEE61A8CCF28 /* Staging.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Staging;
+		};
+		57AA14A945A23430BAED2E0F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = studio.oddlyuseful.cipherparty.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CipherParty;
+			};
+			name = Release;
+		};
+		57D85997B992D680E2327EA2 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = CipherParty/CipherParty.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CipherParty/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_MODULE_NAME = CipherParty;
+				PRODUCT_NAME = CipherParty;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Staging;
+		};
+		9F0E464CB6AAC17B540E1770 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = studio.oddlyuseful.cipherparty.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CipherParty.app/CipherParty";
+			};
+			name = Release;
+		};
+		AC3F0FA960914EDC7FEFB4FF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 2342BA98870BAB9E7AAC41B9 /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		B4288DF57A08315F48FD6BA6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = D60BDE7FBB7A8446BECFC298 /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		F504E3F1697A8C465C384A3A /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = studio.oddlyuseful.cipherparty.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CipherParty;
+			};
+			name = Staging;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		3B840ECF3EDB79F12E6BACCE /* Build configuration list for PBXNativeTarget "CipherPartyTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00D137EB012E535F7A879F79 /* Debug */,
+				9F0E464CB6AAC17B540E1770 /* Release */,
+				440261F91CC45E3668998AD3 /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CDAB621340B0BAB9800FD841 /* Build configuration list for PBXNativeTarget "CipherPartyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3ABF77CBE4C4EE10628DA8F8 /* Debug */,
+				57AA14A945A23430BAED2E0F /* Release */,
+				F504E3F1697A8C465C384A3A /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DA0B12A08F9AC58640BCA30B /* Build configuration list for PBXProject "CipherParty" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC3F0FA960914EDC7FEFB4FF /* Debug */,
+				B4288DF57A08315F48FD6BA6 /* Release */,
+				51A2A3F2A65612EA7476C90C /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		ED14665863447DFD4F916B13 /* Build configuration list for PBXNativeTarget "CipherParty" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				28E560490F23527A5DC392AB /* Debug */,
+				21534403BC25C1B4A948F73A /* Release */,
+				57D85997B992D680E2327EA2 /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 4E6346769AC527DCD4BF3098 /* Project object */;
+}

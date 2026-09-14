@@ -8,11 +8,12 @@
   },
   "scripts": {
     "build": "pnpm --filter @cipher-party/game-core run build && pnpm --filter @cipher-party/protocol run build && pnpm --filter @cipher-party/web run build && pnpm --filter @cipher-party/worker run build",
-    "check": "pnpm run check:docs && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
+    "check": "pnpm run check:docs && pnpm run check:ios-protocol-fixtures && pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test",
     "check:release": "pnpm run check && pnpm run check:complexity && pnpm run test:coverage && pnpm run build && pnpm run preflight && pnpm run test:e2e",
     "check:complexity": "node scripts/check-complexity.mjs",
     "check:release:clean": "node scripts/check-clean-release.mjs",
     "check:docs": "node scripts/check-project-docs.mjs",
+    "check:ios-protocol-fixtures": "node scripts/validate-ios-protocol-fixtures.mjs",
     "check:staging": "node scripts/check-staging.mjs",
     "deploy:staging": "node scripts/release-staging.mjs",
     "dev": "concurrently -k -n worker,web \"pnpm --filter @cipher-party/worker run dev\" \"pnpm --filter @cipher-party/web run dev\"",

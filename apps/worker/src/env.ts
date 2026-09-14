@@ -13,6 +13,7 @@ interface AdmissionBindings {
 }
 
 export interface Env extends AdmissionBindings {
+  APPLE_APP_ID?: string;
   CANONICAL_ORIGIN: string;
   ASSETS?: Fetcher;
   ROOMS: DurableObjectNamespace<RoomDurableObject>;
@@ -23,6 +24,7 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Cloudflare {
     interface Env extends AdmissionBindings {
+      APPLE_APP_ID?: string;
       CANONICAL_ORIGIN: string;
       ASSETS?: Fetcher;
       ROOMS: DurableObjectNamespace<RoomDurableObject>;

@@ -1,0 +1,232 @@
+{
+  "protocolVersion": 2,
+  "revision": 8,
+  "code": "ABC234",
+  "inviteUrl": "https://oddlyuseful.studio/room/ABC234",
+  "roomPhase": "playing",
+  "locked": true,
+  "viewRole": "spectator",
+  "viewer": {
+    "playerId": "player-spectator",
+    "teamId": null,
+    "role": "spectator",
+    "isHost": false
+  },
+  "permissions": {
+    "configure": false,
+    "moderate": false,
+    "submitClue": false,
+    "challengeClue": false,
+    "nominate": false,
+    "confirmReveal": false,
+    "endTurn": false,
+    "resolveChallenge": false,
+    "pause": false,
+    "resume": false
+  },
+  "seats": [
+    {
+      "playerId": "player-spectator",
+      "displayName": "Zoë",
+      "teamId": null,
+      "role": "spectator",
+      "connected": true
+    }
+  ],
+  "publicHistory": [
+    {
+      "revision": 6,
+      "at": "2026-09-13T12:00:00Z",
+      "type": "clue_submitted",
+      "teamId": "red",
+      "word": "Élan",
+      "count": 2
+    }
+  ],
+  "board": {
+    "order": [
+      "café",
+      "moon",
+      "river",
+      "hazard",
+      "filler-5",
+      "filler-6",
+      "filler-7",
+      "filler-8",
+      "filler-9",
+      "filler-10",
+      "filler-11",
+      "filler-12",
+      "filler-13",
+      "filler-14",
+      "filler-15",
+      "filler-16",
+      "filler-17",
+      "filler-18",
+      "filler-19",
+      "filler-20",
+      "filler-21",
+      "filler-22",
+      "filler-23",
+      "filler-24",
+      "filler-25"
+    ],
+    "cards": [
+      {
+        "id": "café",
+        "label": "Café",
+        "revealed": true,
+        "owner": "red"
+      },
+      {
+        "id": "moon",
+        "label": "Moon",
+        "revealed": false
+      },
+      {
+        "id": "river",
+        "label": "River",
+        "revealed": false
+      },
+      {
+        "id": "hazard",
+        "label": "Hazard",
+        "revealed": false
+      },
+      {
+        "id": "filler-5",
+        "label": "Filler 5",
+        "revealed": false
+      },
+      {
+        "id": "filler-6",
+        "label": "Filler 6",
+        "revealed": false
+      },
+      {
+        "id": "filler-7",
+        "label": "Filler 7",
+        "revealed": false
+      },
+      {
+        "id": "filler-8",
+        "label": "Filler 8",
+        "revealed": false
+      },
+      {
+        "id": "filler-9",
+        "label": "Filler 9",
+        "revealed": false
+      },
+      {
+        "id": "filler-10",
+        "label": "Filler 10",
+        "revealed": false
+      },
+      {
+        "id": "filler-11",
+        "label": "Filler 11",
+        "revealed": false
+      },
+      {
+        "id": "filler-12",
+        "label": "Filler 12",
+        "revealed": false
+      },
+      {
+        "id": "filler-13",
+        "label": "Filler 13",
+        "revealed": false
+      },
+      {
+        "id": "filler-14",
+        "label": "Filler 14",
+        "revealed": false
+      },
+      {
+        "id": "filler-15",
+        "label": "Filler 15",
+        "revealed": false
+      },
+      {
+        "id": "filler-16",
+        "label": "Filler 16",
+        "revealed": false
+      },
+      {
+        "id": "filler-17",
+        "label": "Filler 17",
+        "revealed": false
+      },
+      {
+        "id": "filler-18",
+        "label": "Filler 18",
+        "revealed": false
+      },
+      {
+        "id": "filler-19",
+        "label": "Filler 19",
+        "revealed": false
+      },
+      {
+        "id": "filler-20",
+        "label": "Filler 20",
+        "revealed": false
+      },
+      {
+        "id": "filler-21",
+        "label": "Filler 21",
+        "revealed": false
+      },
+      {
+        "id": "filler-22",
+        "label": "Filler 22",
+        "revealed": false
+      },
+      {
+        "id": "filler-23",
+        "label": "Filler 23",
+        "revealed": false
+      },
+      {
+        "id": "filler-24",
+        "label": "Filler 24",
+        "revealed": false
+      },
+      {
+        "id": "filler-25",
+        "label": "Filler 25",
+        "revealed": false
+      }
+    ],
+    "activeTeam": "red",
+    "phase": "guess",
+    "clue": {
+      "word": "Élan",
+      "count": 2
+    },
+    "guessesRemaining": 2,
+    "nomination": null,
+    "winner": null,
+    "completionReason": null,
+    "teamCount": 2,
+    "rows": 5,
+    "columns": 5,
+    "configuredTeams": ["red", "blue"],
+    "eliminatedTeams": [],
+    "teamSummaries": [
+      {
+        "teamId": "red",
+        "revealedTargets": 1,
+        "eliminated": false
+      },
+      {
+        "teamId": "blue",
+        "revealedTargets": 0,
+        "eliminated": false
+      }
+    ]
+  },
+  "teamCount": 2,
+  "configuredTeams": ["red", "blue"]
+}

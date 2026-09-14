@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { apiError } from "./http/json";
 import { checkAdmissionLimits } from "./http/admission-limits";
+import { handleAppleAppSiteAssociation } from "./http/apple-app-site-association";
 import { routeApiRequest } from "./http/router";
 import { normalizeRoomCode } from "./http/schemas";
 import { checkTransport, isApiPath, secureResponse } from "./http/security";
@@ -13,6 +14,12 @@ export { RoomDurableObject } from "./room/room-durable-object";
 
 async function dispatch(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  if (
+    url.pathname === "/.well-known/apple-app-site-association" &&
+    request.method === "GET"
+  ) {
+    return handleAppleAppSiteAssociation(env);
+  }
   if (url.pathname === "/api/health") {
     return Response.json({ ok: true, service: "cipher-party" });
   }

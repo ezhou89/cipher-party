@@ -1,22 +1,22 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 43
+**Snapshot revision:** 44
 
-**Last updated:** 2026-09-13
+**Last updated:** 2026-09-14
 
-**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean runtime source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the public repository handoff merged as PR #1 into the reviewed `main` baseline, and the multi-team source was subsequently deployed and attested at staging. The four-human and eight-human playtests remain NOT YET RUN; Milestone 1 is still open.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean runtime source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the public repository handoff merged as PR #1 into the reviewed `main` baseline, and the multi-team source was subsequently deployed and attested at staging. The native iOS companion is now aligned with protocol v2 and the current 2–4-team room contract in PR #3; its physical-device, Universal Link, and mixed-device acceptance gates remain pending. The four-human and eight-human playtests remain NOT YET RUN; Milestone 1 is still open.
 
 **Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
 **Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Next execution:** Run the distributed four-human two-team regression and eight-player four-team staging gate from the separate runbooks, record measured device/session evidence, and address any critical findings before closing Milestone 1. The prior two-team deployment remains a regression reference; the current multi-team deployment is now attested.
+**Next execution:** Merge the reviewed iOS client integration, configure the staging Apple App ID/AASA secret, and run the iOS physical-device plus mixed browser/iPhone checks. Then run the distributed four-human two-team regression and eight-player four-team staging gate from the separate runbooks, record measured device/session evidence, and address any critical findings before closing Milestone 1. The prior two-team deployment remains a regression reference; the current multi-team deployment is now attested.
 
 **Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
 
 **Original milestone plan:** docs/superpowers/plans/2026-08-30-connected-classic.md (historical implementation/review evidence).
 
-**Current worktree:** `/Users/eugenezhou/Code/cipher-party/.worktrees/creative-integration`
+**Current worktree:** `/Users/eugenezhou/Code/cipher-party/.worktrees/ios-online-client`
 
 **Creative source:** `legacy/gemini-main@128c0f7` plus identified Antigravity prototype/content directories. Preserve the original checkout and its untracked E2E drafts.
 
@@ -44,7 +44,7 @@ The prior deployed staging build, which remains the current external runtime ref
 - A 24-hour inactivity alarm that closes sockets and clears room storage.
 - A responsive phone/laptop lobby and game board.
 
-That prior deployed two-team staging build does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The reviewed branch/source now implements Tasks 1–8 of the approved single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms and is deployed at the current multi-team staging source recorded below. Pack Studio, image uploads, AI suggestions, Blitz, campaigns, TV mode, accounts, public packs, picture/mixed cards, and licensed content remain out of scope for the reviewed source.
+That prior deployed two-team staging build does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The reviewed branch/source now implements Tasks 1–8 of the approved single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms and is deployed at the current multi-team staging source recorded below. The native iOS companion now consumes the same protocol v2 projections and commands, supports account-free invite/code entry, durable seat credentials, role-safe views, and host team-count selection. Actual Apple App ID configuration, signed Universal Links, physical iPhone reconnect behavior, and mixed browser/iPhone acceptance remain unverified. Pack Studio, image uploads, AI suggestions, Blitz, campaigns, TV mode, accounts, public packs, picture/mixed cards, and licensed content remain out of scope for the reviewed source.
 
 ## Architecture snapshot
 
@@ -53,6 +53,7 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 - One SQLite-backed Durable Object per room.
 - Pure deterministic rules in packages/game-core.
 - Validated commands and role projections in packages/protocol.
+- Native iOS SwiftUI client and strict v2 models in apps/ios; it is a client of the Worker and does not own game state.
 - Pack schemas will be isolated in packages/pack-format when Milestone 2 introduces that package.
 - R2 and Workers AI are introduced in Milestone 2, not Milestone 1.
 
@@ -67,10 +68,10 @@ That prior deployed two-team staging build does not deliver the pack builder, im
 
 ## Work ledger
 
-- **Last accepted task:** Task 8 — full verification and source-bound release handoff for exact source `4e138b64a191d6236445b1763d1128004b0fc5ac`; prior runtime/hardening evidence remains in the commits and records below, and staging source is unchanged.
-- **Current task:** Tasks 1–8 accepted; PR #1 is merged into the reviewed `main` baseline, and multi-team staging attestation/public smoke passed; human gates remain pending.
+- **Last accepted task:** Task 8 — full verification and source-bound release handoff for exact source `4e138b64a191d6236445b1763d1128004b0fc5ac`; native iOS v2 alignment is reviewed in PR #3, with no Xcode runtime evidence available in this environment.
+- **Current task:** Merge PR #3 after repository checks, then configure the staging Apple App ID/AASA and run physical iOS/mixed-client acceptance.
 - **Next task:** Conduct the four-human two-team and eight-player four-team sessions from the separate runbooks and record their measured evidence.
-- **Current blockers:** Hosted CI has no configured repository/provider; the real four-human two-team and eight-player four-team staging sessions have not been run. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
+- **Current blockers:** Hosted CI has no configured repository/provider; this environment has CommandLineTools but no full Xcode/simulator; the Apple App ID/AASA value and physical-device reconnect/mixed-client checks are pending; the real four-human two-team and eight-player four-team staging sessions have not been run. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
 - **Audit baseline:** 518 tracked runtime functions; classic mean 3.36, maximum 34, and exactly the approved baseline exceptions above 20 after the final whole-branch fixes. The >20-function gate is green and inline waivers cannot suppress inventory. This current measurement comes from the final Task 8 release rerun; earlier task measurements below remain historical.
 
 ## Current hardening evidence
@@ -188,6 +189,8 @@ Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuit
 - The credential/hidden-data E2E spec disables automatic trace and screenshot capture. Explicit screenshots use public roles only, and clue-giver-derived target labels, IDs, and positions stay inside caught page-side interactions with fixed value-free diagnostics until the authoritative reveal makes them public.
 - Release preflight reads one immutable snapshot of all three Wrangler JSONC configs, rejects Milestone 2 bindings at root and `env.*` scopes, and requires seven exact real expiry-test identities; count-only or skipped-test substitution is not accepted.
 - The local human exit gate uses four real humans and four genuinely distinct host-local browser profiles named A–D, with exactly one assigned window each and Profile B at 320×780 CSS pixels. The authorized distributed-device gate may use one browser/device per participant at `https://staging.oddlyuseful.studio`; never use the apex or improvise LAN exposure.
+- The native iOS client is a protocol-v2 client of the same Worker, not a second game engine; it must preserve role-safe projections, server-authoritative revisions, account-free credentials, and host-selected 2/3/4-team metadata.
+- iOS staging uses `https://staging.oddlyuseful.studio`; Universal Link entitlements and AASA must use the configured environment host, and the Worker `APPLE_APP_ID` value must be configured before signed-link acceptance.
 
 ## Known risks
 
@@ -197,6 +200,7 @@ Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuit
 - Reconnect races causing duplicate reveals or lost seats.
 - Durable Object alarm and hibernation behavior diverging between local and deployed environments.
 - Mobile readability for later 5×6 and 6×6 boards.
+- The current environment has CommandLineTools but no full Xcode/simulator; Swift syntax can be parsed here, but simulator, signing, Universal Link, and physical reconnect evidence must come from an Xcode-capable Mac/device.
 - AI and image-pack scope accidentally leaking into Milestone 1.
 
 ## Snapshot update protocol
