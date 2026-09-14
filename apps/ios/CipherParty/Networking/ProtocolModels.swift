@@ -1213,7 +1213,7 @@ enum ClientProjection: Codable, Equatable, Sendable {
                     constraint: "exactly the current board card IDs"
                 )
             }
-            self = try .clueGiver(
+            self = .clueGiver(
                 base: base,
                 key: key
             )
