@@ -80,6 +80,9 @@ actor SeatCredentialStore {
             seatToken: credentials.seatToken,
             hostToken: credentials.hostToken
         )
+        guard normalizedCredentials.hasValidWorkerValues else {
+            throw SeatCredentialStoreError.invalidData
+        }
         let data: Data
         do {
             data = try encoder.encode(normalizedCredentials)
@@ -130,7 +133,7 @@ actor SeatCredentialStore {
             }
             do {
                 let credentials = try decoder.decode(SeatCredentials.self, from: data)
-                guard credentials.code == code else {
+                guard credentials.code == code, credentials.hasValidWorkerValues else {
                     throw SeatCredentialStoreError.invalidData
                 }
                 return credentials
@@ -167,5 +170,18 @@ actor SeatCredentialStore {
         } catch {
             throw SeatCredentialStoreError.invalidRoomCode
         }
+    }
+}
+
+private extension SeatCredentials {
+    var hasValidWorkerValues: Bool {
+        guard
+            WorkerContractValue.isPlayerID(playerId),
+            WorkerContractValue.isToken(seatToken)
+        else {
+            return false
+        }
+        guard let hostToken else { return true }
+        return WorkerContractValue.isToken(hostToken)
     }
 }

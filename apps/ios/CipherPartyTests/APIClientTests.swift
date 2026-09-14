@@ -3,6 +3,12 @@ import XCTest
 @testable import CipherParty
 
 final class APIClientTests: XCTestCase {
+    private static let hostPlayerID = "10000000-0000-4000-8000-000000000001"
+    private static let guestPlayerID = "10000000-0000-4000-8000-000000000002"
+    private static let seatToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    private static let hostToken = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    private static let ticket = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+
     override func tearDown() {
         URLProtocolStub.handler = nil
         super.tearDown()
@@ -20,7 +26,7 @@ final class APIClientTests: XCTestCase {
             return Self.response(
                 for: request,
                 status: 201,
-                body: #"{"code":"K7M2X9","inviteUrl":"https://cipher.party/room/K7M2X9","playerId":"player-host","seatToken":"seat-secret","hostToken":"host-secret"}"#
+                body: #"{"code":"K7M2X9","inviteUrl":"https://cipher.party/room/K7M2X9","playerId":"\#(Self.hostPlayerID)","seatToken":"\#(Self.seatToken)","hostToken":"\#(Self.hostToken)"}"#
             )
         }
 
@@ -28,9 +34,9 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(response.code, "K7M2X9")
         XCTAssertEqual(response.inviteURL.absoluteString, "https://cipher.party/room/K7M2X9")
-        XCTAssertEqual(response.playerId, "player-host")
-        XCTAssertEqual(response.seatToken, "seat-secret")
-        XCTAssertEqual(response.hostToken, "host-secret")
+        XCTAssertEqual(response.playerId, Self.hostPlayerID)
+        XCTAssertEqual(response.seatToken, Self.seatToken)
+        XCTAssertEqual(response.hostToken, Self.hostToken)
     }
 
     func testJoinRoomNormalizesCodeBeforeBuildingPathAndSendsSpectatorChoice() async throws {
@@ -45,7 +51,7 @@ final class APIClientTests: XCTestCase {
             return Self.response(
                 for: request,
                 status: 200,
-                body: #"{"code":"001129","playerId":"player-guest","seatToken":"seat-guest"}"#
+                body: #"{"code":"001129","playerId":"\#(Self.guestPlayerID)","seatToken":"\#(Self.seatToken)"}"#
             )
         }
 
@@ -57,7 +63,7 @@ final class APIClientTests: XCTestCase {
 
         XCTAssertEqual(
             response,
-            JoinRoomResponse(code: "001129", playerId: "player-guest", seatToken: "seat-guest")
+            JoinRoomResponse(code: "001129", playerId: Self.guestPlayerID, seatToken: Self.seatToken)
         )
     }
 
@@ -78,33 +84,33 @@ final class APIClientTests: XCTestCase {
     func testRequestTicketSendsBearerAndHostTokenWithoutABody() async throws {
         let credentials = SeatCredentials(
             code: "K7M2X9",
-            playerId: "player-host",
-            seatToken: "seat-secret",
-            hostToken: "host-secret"
+            playerId: Self.hostPlayerID,
+            seatToken: Self.seatToken,
+            hostToken: Self.hostToken
         )
         let client = try makeClient { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/api/rooms/K7M2X9/tickets")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer seat-secret")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Cipher-Host-Token"), "host-secret")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer \(Self.seatToken)")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Cipher-Host-Token"), Self.hostToken)
             XCTAssertNil(request.httpBody)
             return Self.response(
                 for: request,
                 status: 200,
-                body: #"{"ticket":"one-use-ticket","expiresAt":1789350123456}"#
+                body: #"{"ticket":"\#(Self.ticket)","expiresAt":1789350123456}"#
             )
         }
 
         let response = try await client.requestTicket(credentials: credentials)
 
-        XCTAssertEqual(response, TicketResponse(ticket: "one-use-ticket", expiresAt: 1_789_350_123_456))
+        XCTAssertEqual(response, TicketResponse(ticket: Self.ticket, expiresAt: 1_789_350_123_456))
     }
 
     func testRequestTicketOmitsHostHeaderWhenCredentialHasNoHostToken() async throws {
         let credentials = SeatCredentials(
             code: "ABC234",
-            playerId: "player-guest",
-            seatToken: "guest-secret",
+            playerId: Self.guestPlayerID,
+            seatToken: Self.seatToken,
             hostToken: nil
         )
         let client = try makeClient { request in
@@ -112,7 +118,7 @@ final class APIClientTests: XCTestCase {
             return Self.response(
                 for: request,
                 status: 200,
-                body: #"{"ticket":"guest-ticket","expiresAt":1789350123456}"#
+                body: #"{"ticket":"\#(Self.ticket)","expiresAt":1789350123456}"#
             )
         }
 
@@ -176,7 +182,7 @@ final class APIClientTests: XCTestCase {
             Self.response(
                 for: request,
                 status: 201,
-                body: #"{"code":"K7M2X9","inviteUrl":"https://cipher.party/room/K7M2X9","playerId":"player-host","seatToken":"seat-secret","hostToken":"host-secret","unexpected":true}"#
+                body: #"{"code":"K7M2X9","inviteUrl":"https://cipher.party/room/K7M2X9","playerId":"\#(Self.hostPlayerID)","seatToken":"\#(Self.seatToken)","hostToken":"\#(Self.hostToken)","unexpected":true}"#
             )
         }
 
@@ -193,13 +199,121 @@ final class APIClientTests: XCTestCase {
             Self.response(
                 for: request,
                 status: 201,
-                body: #"{"code":"K7M2X9","inviteUrl":"/room/K7M2X9","playerId":"player-host","seatToken":"seat-secret","hostToken":"host-secret"}"#
+                body: #"{"code":"K7M2X9","inviteUrl":"/room/K7M2X9","playerId":"\#(Self.hostPlayerID)","seatToken":"\#(Self.seatToken)","hostToken":"\#(Self.hostToken)"}"#
             )
         }
 
         do {
             _ = try await client.createRoom(displayName: "Host")
             XCTFail("Expected strict decoding failure")
+        } catch {
+            XCTAssertEqual(error as? APIClientError, .invalidResponse)
+        }
+    }
+
+    func testCreateResponseRejectsInviteURLContainingSeatTokenInHost() async throws {
+        let client = try makeClient { request in
+            Self.response(
+                for: request,
+                status: 201,
+                body: #"{"code":"K7M2X9","inviteUrl":"https://\#(Self.seatToken).example/room/K7M2X9","playerId":"\#(Self.hostPlayerID)","seatToken":"\#(Self.seatToken)","hostToken":"\#(Self.hostToken)"}"#
+            )
+        }
+
+        do {
+            _ = try await client.createRoom(displayName: "Host")
+            XCTFail("Expected credential-bearing invite URL to be rejected")
+        } catch {
+            XCTAssertEqual(error as? APIClientError, .invalidResponse)
+        }
+    }
+
+    func testCreateResponseRejectsInviteURLContainingHostTokenInHost() async throws {
+        let client = try makeClient { request in
+            Self.response(
+                for: request,
+                status: 201,
+                body: #"{"code":"K7M2X9","inviteUrl":"https://\#(Self.hostToken).example/room/K7M2X9","playerId":"\#(Self.hostPlayerID)","seatToken":"\#(Self.seatToken)","hostToken":"\#(Self.hostToken)"}"#
+            )
+        }
+
+        do {
+            _ = try await client.createRoom(displayName: "Host")
+            XCTFail("Expected credential-bearing invite URL to be rejected")
+        } catch {
+            XCTAssertEqual(error as? APIClientError, .invalidResponse)
+        }
+    }
+
+    func testCreateResponseRejectsMalformedPlayerID() async throws {
+        let client = try makeClient { request in
+            Self.response(
+                for: request,
+                status: 201,
+                body: #"{"code":"K7M2X9","inviteUrl":"https://cipher.party/room/K7M2X9","playerId":"not-a-uuid","seatToken":"\#(Self.seatToken)","hostToken":"\#(Self.hostToken)"}"#
+            )
+        }
+
+        do {
+            _ = try await client.createRoom(displayName: "Host")
+            XCTFail("Expected malformed player ID to be rejected")
+        } catch {
+            XCTAssertEqual(error as? APIClientError, .invalidResponse)
+        }
+    }
+
+    func testCreateResponseRejectsMalformedHostToken() async throws {
+        let client = try makeClient { request in
+            Self.response(
+                for: request,
+                status: 201,
+                body: #"{"code":"K7M2X9","inviteUrl":"https://cipher.party/room/K7M2X9","playerId":"\#(Self.hostPlayerID)","seatToken":"\#(Self.seatToken)","hostToken":"too-short"}"#
+            )
+        }
+
+        do {
+            _ = try await client.createRoom(displayName: "Host")
+            XCTFail("Expected malformed host token to be rejected")
+        } catch {
+            XCTAssertEqual(error as? APIClientError, .invalidResponse)
+        }
+    }
+
+    func testJoinResponseRejectsSeatTokenContainingWhitespace() async throws {
+        let client = try makeClient { request in
+            Self.response(
+                for: request,
+                status: 200,
+                body: #"{"code":"K7M2X9","playerId":"\#(Self.guestPlayerID)","seatToken":"AAAAAAAAAAAAAAAAAAAA AAAAAAAAAAAAAAAAAAAAAA"}"#
+            )
+        }
+
+        do {
+            _ = try await client.joinRoom(code: "K7M2X9", displayName: "Guest", asSpectator: false)
+            XCTFail("Expected whitespace-bearing seat token to be rejected")
+        } catch {
+            XCTAssertEqual(error as? APIClientError, .invalidResponse)
+        }
+    }
+
+    func testTicketResponseRejectsInvalidBase64URLCharacter() async throws {
+        let credentials = SeatCredentials(
+            code: "K7M2X9",
+            playerId: Self.hostPlayerID,
+            seatToken: Self.seatToken,
+            hostToken: nil
+        )
+        let client = try makeClient { request in
+            Self.response(
+                for: request,
+                status: 200,
+                body: #"{"ticket":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC+","expiresAt":1789350123456}"#
+            )
+        }
+
+        do {
+            _ = try await client.requestTicket(credentials: credentials)
+            XCTFail("Expected invalid base64url ticket to be rejected")
         } catch {
             XCTAssertEqual(error as? APIClientError, .invalidResponse)
         }

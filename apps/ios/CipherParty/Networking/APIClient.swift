@@ -19,8 +19,14 @@ struct CreateRoomResponse: Equatable, Sendable, Decodable {
         try decoder.requireExactKeys(CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         code = try RoomCode.validated(container.decode(String.self, forKey: .code))
-        let decodedInviteURL = try container.decode(URL.self, forKey: .inviteURL)
+        playerId = try container.decodePlayerID(forKey: .playerId)
+        seatToken = try container.decodeWorkerToken(forKey: .seatToken)
+        hostToken = try container.decodeWorkerToken(forKey: .hostToken)
+        let decodedInviteURLString = try container.decode(String.self, forKey: .inviteURL)
         guard
+            !decodedInviteURLString.contains(seatToken),
+            !decodedInviteURLString.contains(hostToken),
+            let decodedInviteURL = URL(string: decodedInviteURLString),
             let components = URLComponents(
                 url: decodedInviteURL,
                 resolvingAgainstBaseURL: false
@@ -41,9 +47,6 @@ struct CreateRoomResponse: Equatable, Sendable, Decodable {
             )
         }
         inviteURL = decodedInviteURL
-        playerId = try container.decodeNonEmptyString(forKey: .playerId)
-        seatToken = try container.decodeNonEmptyString(forKey: .seatToken)
-        hostToken = try container.decodeNonEmptyString(forKey: .hostToken)
     }
 }
 
@@ -68,8 +71,8 @@ struct JoinRoomResponse: Equatable, Sendable, Decodable {
         try decoder.requireExactKeys(CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         code = try RoomCode.validated(container.decode(String.self, forKey: .code))
-        playerId = try container.decodeNonEmptyString(forKey: .playerId)
-        seatToken = try container.decodeNonEmptyString(forKey: .seatToken)
+        playerId = try container.decodePlayerID(forKey: .playerId)
+        seatToken = try container.decodeWorkerToken(forKey: .seatToken)
     }
 }
 
@@ -90,7 +93,7 @@ struct TicketResponse: Equatable, Sendable, Decodable {
     init(from decoder: Decoder) throws {
         try decoder.requireExactKeys(CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        ticket = try container.decodeNonEmptyString(forKey: .ticket)
+        ticket = try container.decodeWorkerToken(forKey: .ticket)
         expiresAt = try container.decode(Int64.self, forKey: .expiresAt)
         guard expiresAt > 0 else {
             throw DecodingError.dataCorruptedError(
@@ -300,6 +303,25 @@ enum RoomCode {
     }
 }
 
+enum WorkerContractValue {
+    static func isPlayerID(_ value: String) -> Bool {
+        guard let uuid = UUID(uuidString: value) else { return false }
+        return uuid.uuidString.lowercased() == value
+    }
+
+    static func isToken(_ value: String) -> Bool {
+        guard value.utf8.count == 43 else { return false }
+        return value.utf8.allSatisfy { byte in
+            switch byte {
+            case 48...57, 65...90, 97...122, 45, 95:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+}
+
 private struct CreateRoomRequest: Encodable {
     let displayName: String
 }
@@ -346,13 +368,25 @@ private extension Decoder {
 }
 
 private extension KeyedDecodingContainer {
-    func decodeNonEmptyString(forKey key: Key) throws -> String {
+    func decodePlayerID(forKey key: Key) throws -> String {
         let value = try decode(String.self, forKey: key)
-        guard !value.isEmpty else {
+        guard WorkerContractValue.isPlayerID(value) else {
             throw DecodingError.dataCorruptedError(
                 forKey: key,
                 in: self,
-                debugDescription: "Expected a non-empty string"
+                debugDescription: "Expected a canonical UUID"
+            )
+        }
+        return value
+    }
+
+    func decodeWorkerToken(forKey key: Key) throws -> String {
+        let value = try decode(String.self, forKey: key)
+        guard WorkerContractValue.isToken(value) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: self,
+                debugDescription: "Expected a 32-byte unpadded base64url value"
             )
         }
         return value

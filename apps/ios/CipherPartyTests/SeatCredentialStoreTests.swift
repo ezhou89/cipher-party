@@ -4,14 +4,20 @@ import XCTest
 @testable import CipherParty
 
 final class SeatCredentialStoreTests: XCTestCase {
+    private static let playerOneID = "10000000-0000-4000-8000-000000000001"
+    private static let playerTwoID = "10000000-0000-4000-8000-000000000002"
+    private static let seatTokenOne = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    private static let seatTokenTwo = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+    private static let hostToken = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+
     func testPutAndGetRoundTripUsesDeviceOnlyNonSynchronizingKeychainItem() async throws {
         let keychain = InMemoryKeychainClient()
         let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
         let credentials = SeatCredentials(
             code: "ABC234",
-            playerId: "player-host",
-            seatToken: "seat-secret",
-            hostToken: "host-secret"
+            playerId: Self.playerOneID,
+            seatToken: Self.seatTokenOne,
+            hostToken: Self.hostToken
         )
 
         try await store.put(credentials)
@@ -33,8 +39,8 @@ final class SeatCredentialStoreTests: XCTestCase {
         let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
         let credentials = SeatCredentials(
             code: "ABC234",
-            playerId: "player-guest",
-            seatToken: "seat-guest",
+            playerId: Self.playerOneID,
+            seatToken: Self.seatTokenOne,
             hostToken: nil
         )
 
@@ -49,15 +55,15 @@ final class SeatCredentialStoreTests: XCTestCase {
         let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
         let first = SeatCredentials(
             code: "ABC234",
-            playerId: "player-one",
-            seatToken: "seat-one",
+            playerId: Self.playerOneID,
+            seatToken: Self.seatTokenOne,
             hostToken: nil
         )
         let second = SeatCredentials(
             code: "K7M2X9",
-            playerId: "player-two",
-            seatToken: "seat-two",
-            hostToken: "host-two"
+            playerId: Self.playerTwoID,
+            seatToken: Self.seatTokenTwo,
+            hostToken: Self.hostToken
         )
 
         try await store.put(first)
@@ -74,15 +80,15 @@ final class SeatCredentialStoreTests: XCTestCase {
         let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
         let original = SeatCredentials(
             code: "ABC234",
-            playerId: "player-old",
-            seatToken: "seat-old",
+            playerId: Self.playerOneID,
+            seatToken: Self.seatTokenOne,
             hostToken: nil
         )
         let replacement = SeatCredentials(
             code: "ABC234",
-            playerId: "player-new",
-            seatToken: "seat-new",
-            hostToken: "host-new"
+            playerId: Self.playerTwoID,
+            seatToken: Self.seatTokenTwo,
+            hostToken: Self.hostToken
         )
 
         try await store.put(original)
@@ -98,14 +104,14 @@ final class SeatCredentialStoreTests: XCTestCase {
         let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
         let leaving = SeatCredentials(
             code: "ABC234",
-            playerId: "player-one",
-            seatToken: "seat-one",
+            playerId: Self.playerOneID,
+            seatToken: Self.seatTokenOne,
             hostToken: nil
         )
         let staying = SeatCredentials(
             code: "K7M2X9",
-            playerId: "player-two",
-            seatToken: "seat-two",
+            playerId: Self.playerTwoID,
+            seatToken: Self.seatTokenTwo,
             hostToken: nil
         )
         try await store.put(leaving)
@@ -125,8 +131,8 @@ final class SeatCredentialStoreTests: XCTestCase {
         let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
         let credentials = SeatCredentials(
             code: "ABC234",
-            playerId: "player-one",
-            seatToken: "seat-one",
+            playerId: Self.playerOneID,
+            seatToken: Self.seatTokenOne,
             hostToken: nil
         )
 
@@ -141,6 +147,46 @@ final class SeatCredentialStoreTests: XCTestCase {
             XCTAssertFalse(String(describing: error).contains(credentials.seatToken))
         }
     }
+
+    func testPutRejectsMalformedCredentialsBeforeWritingKeychain() async throws {
+        let keychain = InMemoryKeychainClient()
+        let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
+        let credentials = SeatCredentials(
+            code: "ABC234",
+            playerId: Self.playerOneID,
+            seatToken: "invalid token with whitespace",
+            hostToken: nil
+        )
+
+        do {
+            try await store.put(credentials)
+            XCTFail("Expected malformed credentials to be rejected")
+        } catch {
+            XCTAssertEqual(error as? SeatCredentialStoreError, .invalidData)
+            XCTAssertEqual(keychain.itemCount, 0)
+        }
+    }
+
+    func testGetRejectsMalformedCredentialsAlreadyInKeychain() async throws {
+        let keychain = InMemoryKeychainClient()
+        let store = SeatCredentialStore(service: "test.credentials", keychain: keychain)
+        try keychain.seed(
+            SeatCredentials(
+                code: "ABC234",
+                playerId: "not-a-uuid",
+                seatToken: Self.seatTokenOne,
+                hostToken: nil
+            ),
+            service: "test.credentials"
+        )
+
+        do {
+            _ = try await store.get(code: "ABC234")
+            XCTFail("Expected malformed stored credentials to be rejected")
+        } catch {
+            XCTAssertEqual(error as? SeatCredentialStoreError, .invalidData)
+        }
+    }
 }
 
 private final class InMemoryKeychainClient: KeychainClient, @unchecked Sendable {
@@ -152,6 +198,13 @@ private final class InMemoryKeychainClient: KeychainClient, @unchecked Sendable 
 
     var itemCount: Int {
         lock.withLock { items.count }
+    }
+
+    func seed(_ credentials: SeatCredentials, service: String) throws {
+        let data = try JSONEncoder().encode(credentials)
+        lock.withLock {
+            items["\(service):\(credentials.code)"] = data
+        }
     }
 
     func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: CFTypeRef?) {
