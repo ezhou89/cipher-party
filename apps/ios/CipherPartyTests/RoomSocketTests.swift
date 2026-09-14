@@ -117,7 +117,7 @@ final class RoomSocketTests: XCTestCase {
         XCTAssertEqual(urls, [])
     }
 
-    func testMalformedFrameIsDiscardedAndReceiveLoopContinues() async throws {
+    func testMalformedFrameProducesSafeFailureAndFreshConnection() async throws {
         let expected = ServerMessage.commandResult(
             commandId: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
             result: .failure(revision: 7, code: .wrongPhase, message: "Wait for guessing")
@@ -125,11 +125,11 @@ final class RoomSocketTests: XCTestCase {
         let connection = FakeRoomWebSocketConnection(
             receiveSteps: [
                 .string(#"{"type":"future","secret":"raw-frame-secret"}"#),
-                .string(try encodedString(expected)),
                 .wait
             ]
         )
-        let harness = makeHarness(connections: [connection])
+        let recovered = FakeRoomWebSocketConnection(receiveSteps: [.string(try encodedString(expected)), .wait])
+        let harness = makeHarness(connections: [connection, recovered])
         let recorder = await recordEvents(from: harness.socket)
 
         await harness.socket.start()
@@ -137,12 +137,38 @@ final class RoomSocketTests: XCTestCase {
 
         let events = await recorder.snapshot()
         let receives = await connection.receiveCount()
-        XCTAssertFalse(events.contains { event in
-            if case .terminalFailure = event { return true }
-            return false
-        })
-        XCTAssertEqual(receives, 3)
+        XCTAssertTrue(events.contains(.incompatibleMessage))
+        XCTAssertEqual(receives, 1)
         XCTAssertFalse(String(describing: events).contains("raw-frame-secret"))
+        await harness.socket.close()
+    }
+
+    func testActualDebugConfigurationCanOpenLoopbackSocketOnly() async throws {
+        let environment = try AppEnvironment.production(bundle: Bundle.main)
+        if environment.deployment == .debug {
+            XCTAssertEqual(environment.apiBaseURL.absoluteString, "http://127.0.0.1:8787")
+            XCTAssertTrue(environment.allowsLoopbackWebSocket)
+        } else {
+            XCTAssertFalse(environment.allowsLoopbackWebSocket)
+        }
+        let connection = FakeRoomWebSocketConnection(receiveSteps: [.wait])
+        let harness = makeHarness(connections: [connection], webSocketBaseURL: URL(string: "ws://127.0.0.1:8787")!, allowsLoopbackWebSocket: true)
+        let recorder = await recordEvents(from: harness.socket)
+        await harness.socket.start()
+        try await waitUntil { await recorder.contains(.open) }
+        let urls = await harness.factory.requestedURLs()
+        XCTAssertEqual(urls.first?.scheme, "ws")
+        await harness.socket.close()
+    }
+
+    func testDebugExceptionNeverAllowsRemotePlaintextSocket() async throws {
+        let connection = FakeRoomWebSocketConnection(receiveSteps: [.wait])
+        let harness = makeHarness(connections: [connection], webSocketBaseURL: URL(string: "ws://example.com")!, allowsLoopbackWebSocket: true)
+        let recorder = await recordEvents(from: harness.socket)
+        await harness.socket.start()
+        try await waitUntil { await recorder.contains(.terminalFailure(.configuration)) }
+        let ticketRequests = await harness.tickets.requestCount()
+        XCTAssertEqual(ticketRequests, 0)
         await harness.socket.close()
     }
 
@@ -349,7 +375,8 @@ final class RoomSocketTests: XCTestCase {
         path: FakeNetworkPathMonitor? = nil,
         connections: [FakeRoomWebSocketConnection],
         nowMilliseconds: Int64 = 0,
-        webSocketBaseURL: URL = URL(string: "wss://example.com")!
+        webSocketBaseURL: URL = URL(string: "wss://example.com")!,
+        allowsLoopbackWebSocket: Bool = false
     ) -> Harness {
         let tickets = tickets ?? FakeTicketProvider(steps: (0..<20).map { index in
             .success(TicketResponse(ticket: Self.ticket(index), expiresAt: 61_000))
@@ -360,6 +387,7 @@ final class RoomSocketTests: XCTestCase {
         let socket = RoomSocket(
             credentials: credentials,
             webSocketBaseURL: webSocketBaseURL,
+            allowsLoopbackWebSocket: allowsLoopbackWebSocket,
             ticketProvider: tickets,
             webSocketFactory: factory,
             clock: clock,

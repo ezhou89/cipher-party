@@ -61,7 +61,8 @@ struct LobbyPresentation: Equatable, Sendable {
         projection: RoomProjection,
         connectionState: RoomConnectionState,
         isStale: Bool,
-        lastUpdated: Date?
+        lastUpdated: Date?,
+        isCommandPending: Bool = false
     ) {
         roomCode = projection.base.code
         inviteURLString = projection.base.inviteUrl
@@ -72,7 +73,7 @@ struct LobbyPresentation: Equatable, Sendable {
         hostControls = LobbyHostControlsPresentation(
             canConfigure: projection.base.permissions.configure,
             canModerate: projection.base.permissions.moderate,
-            actionsAreEnabled: connectionState == .connected && !isStale
+            actionsAreEnabled: connectionState == .connected && !isStale && !isCommandPending
         )
         connection = ConnectionBannerPresentation.make(
             state: connectionState,
@@ -113,7 +114,8 @@ struct LobbyView: View {
             projection: projection,
             connectionState: session.connectionState,
             isStale: session.isStale,
-            lastUpdated: session.lastUpdated
+            lastUpdated: session.lastUpdated,
+            isCommandPending: session.hasPendingCommand
         )
 
         ScrollView {
@@ -125,6 +127,8 @@ struct LobbyView: View {
                 )
 
                 roomSummary(presentation: presentation)
+
+                RoomActionStatusView(session: session)
 
                 RoomShareSheet(
                     roomCode: presentation.roomCode,
@@ -334,10 +338,12 @@ private struct LobbyHostControlsView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lobby.hostControls")
+        .onChange(of: session.lastCommandResult) { _, _ in actionError = nil }
     }
 
     private func dispatch(_ operation: @escaping @MainActor () async throws -> Void) {
         Task { @MainActor in
+            actionError = nil
             do {
                 try await operation()
             } catch {

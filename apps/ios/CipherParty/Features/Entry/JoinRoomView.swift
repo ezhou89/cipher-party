@@ -53,6 +53,9 @@ struct JoinRoomView: View {
             }
 
             Section("Your seat") {
+                Text("Already played in this room on this device? Enter its code and continue to restore your saved seat, including host access. A name is only needed for a new seat.")
+                    .font(.footnote)
+                    .accessibilityIdentifier("join.restoreGuidance")
                 TextField("Your name", text: $displayName)
                     .textContentType(.name)
                     .autocorrectionDisabled()
@@ -71,10 +74,11 @@ struct JoinRoomView: View {
                     .accessibilityLabel("Error: \(errorMessage)")
             }
 
-            Button(isSubmitting ? "Joining…" : "Join room") {
+            Button(isSubmitting ? "Opening…" : "Continue to room") {
                 Task { await joinRoom() }
             }
             .disabled(isSubmitting)
+            .accessibilityIdentifier("join.continue")
         }
         .navigationTitle("Join room")
         .sheet(isPresented: $scannerIsPresented) {
@@ -110,28 +114,16 @@ struct JoinRoomView: View {
             errorMessage = "Enter a valid six-character room code."
             return
         }
-        guard let name = normalizedDisplayNameForJoin(displayName) else {
-            errorMessage = "Enter a name of 24 characters or fewer."
-            return
-        }
-
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
 
         do {
-            let response = try await apiClient.joinRoom(
+            let credentials = try await RoomEntryService(apiClient: apiClient, credentialStore: credentialStore).resumeOrJoin(
                 code: code,
-                displayName: name,
+                displayName: displayName,
                 asSpectator: joinAsSpectator
             )
-            let credentials = SeatCredentials(
-                code: response.code,
-                playerId: response.playerId,
-                seatToken: response.seatToken,
-                hostToken: nil
-            )
-            try await credentialStore.put(credentials)
             onJoined(credentials)
         } catch {
             errorMessage = userFacingJoinError(error)
@@ -415,21 +407,8 @@ private final class InviteScannerMetadataDelegate: NSObject,
     }
 }
 
-private func normalizedDisplayNameForJoin(_ input: String) -> String? {
-    let normalized = input
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .precomposedStringWithCanonicalMapping
-    guard
-        !normalized.isEmpty,
-        normalized.count <= 24,
-        normalized.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
-    else {
-        return nil
-    }
-    return normalized
-}
-
 private func userFacingJoinError(_ error: Error) -> String {
+    if let entryError = error as? RoomEntryError { return entryError.localizedDescription }
     if let apiError = error as? APIClientError {
         return apiError.localizedDescription
     }

@@ -45,6 +45,9 @@ XCUITest. No third-party runtime dependency is required for this slice.
   pack sharing to this plan.
 - Target iOS 17 or newer and support Dynamic Type, VoiceOver, dark mode, and
   narrow iPhone widths.
+- Staging and Release require HTTPS/WSS. Debug alone may use HTTP/WS on
+  loopback for the local Worker; the one-use ticket stays in the existing
+  connect query and must never be logged, even locally.
 - Use Swift concurrency with explicit actor/main-actor boundaries. Inject time,
   networking, path status, Keychain, and WebSocket factories in tests rather
   than relying on sleeps or global singletons.
@@ -444,12 +447,19 @@ kept beside the existing web and worker apps; it is not a second repository.
 - No test fixture, snapshot, or log may contain a durable token or a clue-giver
   key in an unauthorized context.
 
-- [x] **Step 1: Run a mixed-room smoke flow.** Create on iOS, join in browser and
+- [ ] **Step 1: Run a mixed-room smoke flow.** Create on iOS, join in browser and
   a second iOS simulator, assign roles, start Classic, submit a clue, nominate,
   reveal, and complete a turn.
-- [x] **Step 2: Exercise interruption paths.** Background/foreground the app,
+- [ ] **Step 2: Exercise interruption paths.** Background/foreground the app,
   close the WebSocket, toggle simulator network conditions, and verify bounded
   reconnect plus fresh projection replacement.
+
+  **Pending acceptance:** These two end-to-end checks were not run. The configured
+  staging host serves an unrelated site (`/api/health` returned 404). Component
+  tests and the final root-flow regression suite cover lifecycle serialization,
+  seat restoration, and command recovery, but do not replace an actual mixed
+  iOS/browser room and device/network interruption smoke. Keep both steps open
+  until that evidence exists.
 - [x] **Step 3: Exercise authorization paths.** Attempt host commands from a
   non-host test seat and hidden-key decoding from operative/spectator fixtures;
   verify server rejection and safe UI state.

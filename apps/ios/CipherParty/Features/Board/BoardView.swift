@@ -197,7 +197,7 @@ struct BoardView: View {
                         connectionState: session.connectionState,
                         isStale: session.isStale,
                         lastUpdated: session.lastUpdated,
-                        isCommandPending: session.pendingCommand != nil
+                        isCommandPending: session.hasPendingCommand
                     )
                 )
             } else {
@@ -205,6 +205,7 @@ struct BoardView: View {
             }
         }
         .navigationBarBackButtonHidden()
+        .onChange(of: session.lastCommandResult) { _, _ in localActionError = nil }
     }
 
     @ViewBuilder
@@ -217,7 +218,9 @@ struct BoardView: View {
                     lastUpdated: session.lastUpdated
                 )
 
-                if let actionError = localActionError ?? boardActionErrorMessage {
+                RoomActionStatusView(session: session)
+
+                if let actionError = localActionError {
                     BoardActionErrorView(message: actionError)
                 }
 
@@ -232,7 +235,7 @@ struct BoardView: View {
                     ChallengeBanner(
                         clue: presentation.clue,
                         canResolve: presentation.controls.canResolveChallenge,
-                        isCommandPending: session.pendingCommand != nil,
+                        isCommandPending: session.hasPendingCommand,
                         onResolve: { decision in
                             dispatch { try await session.resolveChallenge(decision) }
                         }
@@ -255,7 +258,7 @@ struct BoardView: View {
                         currentClue: board.clue,
                         canSubmitClue: presentation.controls.canSubmitClue,
                         canChallengeClue: presentation.controls.canChallengeClue,
-                        isCommandPending: session.pendingCommand != nil,
+                        isCommandPending: session.hasPendingCommand,
                         onSubmit: { word, count in
                             dispatch { try await session.submitClue(word: word, count: count) }
                         },
@@ -280,7 +283,7 @@ struct BoardView: View {
                         nominatedCardLabel: presentation.cards.first {
                             $0.id == board.nomination?.cardId
                         }?.label,
-                        isCommandPending: session.pendingCommand != nil,
+                        isCommandPending: session.hasPendingCommand,
                         onClearNomination: {
                             dispatch { try await session.clearNomination() }
                         },
@@ -352,17 +355,6 @@ struct BoardView: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("board.header")
-    }
-
-    private var boardActionErrorMessage: String? {
-        guard let error = session.lastError else { return nil }
-        if case .commandRejected(_, _) = error {
-            guard let result = session.lastCommandResult else {
-                return BoardActionErrorPresentation.message(for: error)
-            }
-            return BoardActionErrorPresentation.message(for: result)
-        }
-        return BoardActionErrorPresentation.message(for: error)
     }
 
     private func dispatch(_ operation: @escaping @MainActor () async throws -> Void) {

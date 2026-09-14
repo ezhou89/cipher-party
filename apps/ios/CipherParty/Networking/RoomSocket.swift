@@ -5,6 +5,7 @@ enum RoomSocketEvent: Equatable, Sendable {
     case open
     case reconnecting(attempt: Int, delay: TimeInterval)
     case message(ServerMessage)
+    case incompatibleMessage
     case terminalFailure(RoomSocketFailure)
     case closed(RoomSocketCloseReason)
 }
@@ -105,12 +106,14 @@ actor RoomSocket {
     private enum AttemptError: Error {
         case expiredTicket
         case ticketRejected
+        case incompatibleMessage
     }
 
     private static let retryDelays: [TimeInterval] = [0.5, 1, 2, 5]
 
     private let credentials: SeatCredentials
     private let webSocketBaseURL: URL
+    private let allowsLoopbackWebSocket: Bool
     private let ticketProvider: any RoomTicketProviding
     private let webSocketFactory: any RoomWebSocketFactory
     private let clock: any RoomSocketClock
@@ -134,6 +137,7 @@ actor RoomSocket {
     init(
         credentials: SeatCredentials,
         webSocketBaseURL: URL,
+        allowsLoopbackWebSocket: Bool = false,
         ticketProvider: any RoomTicketProviding,
         webSocketFactory: any RoomWebSocketFactory = URLSessionRoomWebSocketFactory(),
         clock: any RoomSocketClock = SystemRoomSocketClock(),
@@ -141,6 +145,7 @@ actor RoomSocket {
     ) {
         self.credentials = credentials
         self.webSocketBaseURL = webSocketBaseURL
+        self.allowsLoopbackWebSocket = allowsLoopbackWebSocket
         self.ticketProvider = ticketProvider
         self.webSocketFactory = webSocketFactory
         self.clock = clock
@@ -162,6 +167,7 @@ actor RoomSocket {
         self.init(
             credentials: credentials,
             webSocketBaseURL: environment.webSocketBaseURL,
+            allowsLoopbackWebSocket: environment.allowsLoopbackWebSocket,
             ticketProvider: apiClient,
             webSocketFactory: webSocketFactory,
             clock: clock,
@@ -180,7 +186,7 @@ actor RoomSocket {
         terminal = false
         pathStatus = pathMonitor.currentStatus()
         continuation.yield(.connecting)
-        guard Self.isSecureWebSocketBaseURL(webSocketBaseURL) else {
+        guard isAllowedWebSocketBaseURL(webSocketBaseURL) else {
             terminal = true
             continuation.yield(.terminalFailure(.configuration))
             return
@@ -387,7 +393,8 @@ actor RoomSocket {
             }
 
             guard let message = try? decoder.decode(ServerMessage.self, from: data) else {
-                continue
+                continuation.yield(.incompatibleMessage)
+                throw AttemptError.incompatibleMessage
             }
             if message.serverErrorCode == .ticketExpired {
                 throw AttemptError.ticketRejected
@@ -405,7 +412,7 @@ actor RoomSocket {
                 resolvingAgainstBaseURL: false
             ),
             let scheme = components.scheme?.lowercased(),
-            scheme == "wss",
+            isAllowedScheme(scheme, host: components.host),
             components.host != nil,
             components.user == nil,
             components.password == nil,
@@ -423,10 +430,10 @@ actor RoomSocket {
         return url
     }
 
-    private static func isSecureWebSocketBaseURL(_ url: URL) -> Bool {
+    private func isAllowedWebSocketBaseURL(_ url: URL) -> Bool {
         guard
             let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            components.scheme?.lowercased() == "wss",
+            isAllowedScheme(components.scheme?.lowercased(), host: components.host),
             components.host != nil,
             components.user == nil,
             components.password == nil,
@@ -436,6 +443,12 @@ actor RoomSocket {
             return false
         }
         return true
+    }
+
+    private func isAllowedScheme(_ scheme: String?, host: String?) -> Bool {
+        if scheme == "wss" { return true }
+        guard allowsLoopbackWebSocket, scheme == "ws", let host else { return false }
+        return ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host.lowercased())
     }
 
     private func terminalFailure(for error: Error) -> RoomSocketFailure? {

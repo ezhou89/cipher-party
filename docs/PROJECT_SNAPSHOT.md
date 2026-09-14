@@ -1,13 +1,14 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 16
+**Snapshot revision:** 17
 
 **Last updated:** 2026-09-14
 
-**Project state:** Browser Task 11 remains complete. Native iOS Tasks 1–9 are
-implemented and reviewed, and Task 10 release-readiness verification is
-complete for the local build/test surface. The native client branch is ready
-for coordinator task review and final whole-branch review.
+**Project state:** Browser Task 11 remains complete. Native iOS implementation
+has undergone a final integration fix wave and awaits scoped re-review.
+Task 9's actual mixed-room and device/network interruption checks remain open;
+component tests are not substitutes for those acceptance checks. The iOS plan
+is not complete.
 
 **Active milestone:** Milestone 1 — Connected Classic, with the approved native
 iOS online companion extension
@@ -80,12 +81,16 @@ Cloudflare room authority; no nearby/offline match is included.
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 9 — Mixed-client integration,
-  resilience, and security hardening.
+- **Last accepted implementation task:** Task 8 — native Classic board play.
+  Task 9's component/security checks have evidence; mixed-room and interruption
+  smoke acceptance remains pending.
 - **Native iOS spec commit:** `9c1d68a` — native iOS online-client design.
-- **Current task:** Task 10 release-readiness handoff is complete and ready for
-  coordinator review; its final code-review checkbox remains pending.
-- **Next task:** Final whole-branch review, then decide whether to open a PR from
+- **Current task:** Final integration fixes: restore saved seats without
+  replacing host credentials, serialize root lifecycle/leave/room switching,
+  expose explicit pending-action recovery, gate lobby actions and show safe
+  server errors, allow Debug loopback WebSockets, and invalidate unsafe updates.
+- **Next task:** Scoped final re-review and the pending mixed-room/interruption
+  acceptance checks; then decide whether to open a PR from
   `feature/ios-online-client`.
 - **Deployment follow-ups:** `https://oddlyuseful.studio` currently serves the
   unrelated studio site (`/api/health` returned 404), so no staging create/join
@@ -98,21 +103,23 @@ Cloudflare room authority; no nearby/offline match is included.
 - Scaffold commit: 1fa7df2.
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
 - The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1–11 complete: 93/93 steps verified).
-- Native iOS Tasks 1–9 are accepted in the implementation ledger with focused
-  Swift, Worker, browser, and fixture evidence; role-safe projections, token
-  handling, reconnect reconciliation, invite routing, lobby, board, and mixed
-  client/privacy seams are covered.
+- Native iOS Tasks 1–8 have focused Swift, Worker, browser, and fixture evidence.
+  Task 9 has component/privacy evidence but no completed physical mixed-client
+  or network-interruption smoke. Those acceptance checkboxes are open.
 - Passing iOS commands: Debug and Staging `xcodebuild ... build`, Debug and
   Staging `xcodebuild ... test` on the iPhone SE (3rd generation) iOS 18.2
   simulator, and Debug/Staging `build-for-testing` with signing disabled.
+- Final integration-fix verification: Debug and Staging each passed 119 native
+  unit/UI tests with zero failures or skips, including saved-seat restoration,
+  root lifecycle/cleanup, pending-action recovery, and unsafe-update handling.
 - Passing repository commands: `pnpm run check` (24 fixture tests, 22
   game-core tests, 46 protocol tests, 53 web tests, 41 Worker tests, root test,
   formatting, lint, and typecheck), `node scripts/check-project-docs.mjs`, and
   `git diff --check`.
-- `pnpm run test:e2e` was attempted but is blocked by the current Playwright
-  readiness URL using `127.0.0.1:5173` while Vite listens on
-  `localhost:5173`; no E2E pass is claimed. This is a test-harness/environment
-  follow-up, not an iOS protocol failure.
+- Final verification resolved the earlier Vite/Playwright readiness mismatch by
+  explicitly binding Vite to `127.0.0.1`. `pnpm run test:e2e` then exited 1:
+  **No tests found**. The `e2e/` suite belongs to pending browser Task 12 and is
+  absent from this branch. No browser E2E or mixed native/browser pass is claimed.
 
 ## Decisions agents must preserve
 

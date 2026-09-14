@@ -4,6 +4,147 @@ import XCTest
 
 @MainActor
 final class RoomSessionTests: XCTestCase {
+    func testRootFlowSerializesLifecycleAndLeavesBeforeReplacingRoom() async throws {
+        let first = makeHarness()
+        let second = makeHarness()
+        let credentials = SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host")
+        let flow = RoomFlow { $0.code == "ABC234" ? first.session : second.session }
+        await flow.open(credentials)
+        await first.socket.emit(.open)
+        await first.socket.emit(.message(.projection(try projection(named: "projection-operative"))))
+        try await waitUntil { first.session.projection != nil }
+        flow.sceneChanged(isActive: false)
+        XCTAssertTrue(first.session.isStale)
+        flow.sceneChanged(isActive: true)
+        await flow.waitForTransitions()
+        let backgrounds = await first.socket.backgroundCount()
+        let foregrounds = await first.socket.foregroundCount()
+        let lifecycle = await first.socket.lifecycleEvents()
+        XCTAssertEqual(backgrounds, 1)
+        XCTAssertEqual(foregrounds, 1)
+        XCTAssertEqual(lifecycle, ["background", "foreground"])
+        XCTAssertTrue(first.session.isStale)
+        await flow.open(credentials)
+        let sameRoomCloses = await first.socket.closeCount()
+        XCTAssertEqual(sameRoomCloses, 0)
+        await flow.open(SeatCredentials(code: "K7M2X9", playerId: "guest", seatToken: "seat", hostToken: nil))
+        let closes = await first.socket.closeCount()
+        let deleted = await first.store.deletedCodes()
+        XCTAssertEqual(closes, 1)
+        XCTAssertEqual(deleted, ["ABC234"])
+        XCTAssertTrue(flow.session === second.session)
+        await flow.leave()
+        let secondCloses = await second.socket.closeCount()
+        XCTAssertEqual(secondCloses, 1)
+        XCTAssertNil(flow.session)
+        XCTAssertNil(flow.roomCode)
+    }
+
+    func testUnsafeProjectionInvalidatesFreshStateUntilValidReplacement() async throws {
+        let harness = makeHarness()
+        try await connect(harness, projection: projection(named: "projection-operative"))
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-operative", revision: 9, unrevealedOwner: .hazard))))
+        try await waitUntil { harness.session.lastError == .unsafeProjection }
+        XCTAssertTrue(harness.session.isStale)
+        await XCTAssertThrowsErrorAsync(try await harness.session.endTurn()) {
+            XCTAssertEqual($0 as? RoomSessionIntentError, .notConnected)
+        }
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-operative", revision: 10))))
+        try await waitUntil { harness.session.projection?.revision == 10 }
+        XCTAssertFalse(harness.session.isStale)
+        XCTAssertNil(harness.session.lastError)
+    }
+
+    func testIncompatibleTransportEventMakesExistingProjectionReadOnly() async throws {
+        let harness = makeHarness()
+        try await connect(harness, projection: projection(named: "projection-clue-giver"))
+        await harness.socket.emit(.incompatibleMessage)
+        try await waitUntil { harness.session.lastError == .connection(.incompatibleResponse) }
+        XCTAssertTrue(harness.session.isStale)
+        await harness.socket.emit(.open)
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 12))))
+        try await waitUntil { harness.session.projection?.revision == 12 }
+        XCTAssertFalse(harness.session.isStale)
+        XCTAssertNil(harness.session.lastError)
+    }
+
+    func testRootBackgroundRedactsKeyAndIgnoresLateProjectionUntilForeground() async throws {
+        let harness = makeHarness()
+        let flow = RoomFlow { _ in harness.session }
+        await flow.open(SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host"))
+        await harness.socket.emit(.open)
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver"))))
+        try await waitUntil { harness.session.projection?.key != nil }
+        flow.sceneChanged(isActive: false)
+        XCTAssertNil(harness.session.projection?.key)
+        XCTAssertTrue(harness.session.isStale)
+        await flow.waitForTransitions()
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 12))))
+        await harness.socket.emit(.closed(.background))
+        try await waitUntil { harness.session.connectionState == .disconnected(.background) }
+        XCTAssertNil(harness.session.projection?.key)
+        XCTAssertNotEqual(harness.session.projection?.revision, 12)
+        flow.sceneChanged(isActive: true)
+        await flow.waitForTransitions()
+        await harness.socket.emit(.open)
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 13))))
+        try await waitUntil { harness.session.projection?.revision == 13 }
+        XCTAssertFalse(harness.session.isStale)
+        XCTAssertNotNil(harness.session.projection?.key)
+        await flow.leave()
+    }
+
+    func testTerminalFailureSurvivesSceneChangesAndStillAllowsRootLeave() async throws {
+        let harness = makeHarness()
+        let flow = RoomFlow { _ in harness.session }
+        await flow.open(SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host"))
+        await harness.socket.emit(.terminalFailure(.authentication))
+        try await waitUntil { harness.session.connectionState == .failed(.authentication) }
+        flow.sceneChanged(isActive: false)
+        flow.sceneChanged(isActive: true)
+        await flow.waitForTransitions()
+        XCTAssertEqual(harness.session.connectionState, .failed(.authentication))
+        await flow.leave()
+        XCTAssertNil(flow.session)
+    }
+
+    func testSharedActionStatusShowsSafeAsyncRejectionThenClearsForNextCommand() async throws {
+        let harness = makeHarness(commandIDs: [Self.commandA, Self.commandB])
+        try await connect(harness, projection: projection(named: "projection-lobby-unassigned", allPermissions: true))
+        try await harness.session.lockRoom(true)
+        await harness.socket.emit(.message(.commandResult(commandId: Self.commandA, result: .failure(revision: harness.session.projection!.revision, code: .storageFailed, message: "private raw payload"))))
+        try await waitUntil { harness.session.lastCommandResult != nil }
+        let rejected = RoomActionPresentation(session: harness.session)
+        XCTAssertNotNil(rejected.error)
+        XCTAssertFalse(rejected.error!.contains("private raw payload"))
+        try await harness.session.lockRoom(true)
+        XCTAssertNil(RoomActionPresentation(session: harness.session).error)
+    }
+
+    func testRecoveryPresentationEnablesExplicitRetryOnlyAfterFreshProjection() async throws {
+        let harness = makeHarness(commandIDs: [Self.commandA, Self.commandB])
+        try await connect(harness, projection: projection(named: "projection-operative"))
+        try await harness.session.nominateCard("moon")
+        var presentation = RoomActionPresentation(session: harness.session)
+        XCTAssertFalse(presentation.canRetry)
+        XCTAssertFalse(presentation.canCancel)
+        await harness.socket.emit(.reconnecting(attempt: 1, delay: 0.5))
+        try await waitUntil { harness.session.pendingCommand?.delivery == .unknownDelivery }
+        presentation = RoomActionPresentation(session: harness.session)
+        XCTAssertFalse(presentation.canRetry)
+        XCTAssertTrue(presentation.canCancel)
+        await harness.socket.emit(.open)
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-operative", revision: 9))))
+        try await waitUntil { harness.session.pendingCommand?.delivery == .retryAvailable }
+        presentation = RoomActionPresentation(session: harness.session)
+        XCTAssertTrue(presentation.canRetry)
+        try await harness.session.retryPendingCommand()
+        let commands = await harness.socket.sentCommands()
+        XCTAssertEqual(commands.count, 2)
+        XCTAssertEqual(commands.last?.expectedRevision, 9)
+        XCTAssertNotEqual(commands.first?.commandId, commands.last?.commandId)
+    }
+
     func testServerProjectionReplacesStateAndConnectionTransitionsControlFreshness() async throws {
         let harness = makeHarness()
         await harness.session.connect()
@@ -579,6 +720,7 @@ private actor FakeRoomSessionSocket: RoomSessionSocket {
     private var closes = 0
     private var backgrounds = 0
     private var foregrounds = 0
+    private var lifecycle: [String] = []
 
     init() {
         let pair = AsyncStream<RoomSocketEvent>.makeStream()
@@ -589,8 +731,9 @@ private actor FakeRoomSessionSocket: RoomSessionSocket {
     func events() -> AsyncStream<RoomSocketEvent> { stream }
     func start() {}
     func close() { closes += 1 }
-    func didEnterBackground() { backgrounds += 1 }
-    func willEnterForeground() { foregrounds += 1 }
+    func didEnterBackground() { backgrounds += 1; lifecycle.append("background") }
+    func willEnterForeground() { foregrounds += 1; lifecycle.append("foreground") }
+    func lifecycleEvents() -> [String] { lifecycle }
     func send(_ command: CommandEnvelope) { sent.append(command) }
     func emit(_ event: RoomSocketEvent) { continuation.yield(event) }
     func sentCommands() -> [CommandEnvelope] { sent }

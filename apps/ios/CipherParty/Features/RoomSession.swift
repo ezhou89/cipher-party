@@ -139,11 +139,21 @@ final class RoomSession {
     @ObservationIgnored private let clock: any RoomSessionClock
     @ObservationIgnored private let commandIDGenerator: any RoomCommandIDGenerating
     @ObservationIgnored private var eventTask: Task<Void, Never>?
-    @ObservationIgnored private var activeSubmission: RoomCommandSubmission?
+    private var activeSubmission: RoomCommandSubmission?
     @ObservationIgnored private var nextSubmissionToken: UInt64 = 0
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
     private var projectionIsFresh = false
     @ObservationIgnored private var leaving = false
+    @ObservationIgnored private var isInBackground = false
+
+    var hasPendingCommand: Bool { pendingCommand != nil || activeSubmission != nil }
+
+    var canRetryPendingCommand: Bool {
+        guard let pendingCommand, pendingCommand.delivery == .retryAvailable,
+              activeSubmission == nil, connectionState == .connected, projectionIsFresh,
+              let projection else { return false }
+        return isAllowed(permission(for: pendingCommand.command), by: projection.base.permissions)
+    }
 
     init(
         code: String,
@@ -189,11 +199,21 @@ final class RoomSession {
     }
 
     func didEnterBackground() async {
-        markConnectionUncertain()
+        prepareForBackground()
+        if case .failed = connectionState { return }
         await socket.didEnterBackground()
     }
 
+    // Called synchronously by the scene owner before any queued lifecycle work.
+    func prepareForBackground() {
+        isInBackground = true
+        markConnectionUncertain()
+        projection = projection?.redacted()
+    }
+
     func willEnterForeground() async {
+        isInBackground = false
+        if case .failed = connectionState { return }
         if connectionState != .idle {
             connectionState = .connecting
             projectionIsFresh = false
@@ -464,6 +484,9 @@ final class RoomSession {
             markConnectionUncertain()
         case let .message(message):
             await receive(message)
+        case .incompatibleMessage:
+            markConnectionUncertain()
+            lastError = .connection(.incompatibleResponse)
         case let .terminalFailure(failure):
             connectionState = .failed(failure)
             markConnectionUncertain()
@@ -486,14 +509,17 @@ final class RoomSession {
     }
 
     private func receive(_ serverProjection: ClientProjection) async {
+        guard !isInBackground else { return }
         let roomProjection: RoomProjection
         do {
             roomProjection = try RoomProjection(serverProjection: serverProjection)
         } catch {
+            markConnectionUncertain()
             lastError = .unsafeProjection
             return
         }
         guard serverProjection.base.code == code else {
+            markConnectionUncertain()
             lastError = .unsafeProjection
             return
         }
@@ -503,7 +529,7 @@ final class RoomSession {
         lastUpdated = updatedAt
         projectionIsFresh = true
         switch lastError {
-        case .connection, .connectionLost:
+        case .connection, .connectionLost, .unsafeProjection:
             lastError = nil
         default:
             break

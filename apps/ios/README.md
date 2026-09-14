@@ -9,6 +9,21 @@ state.
 Open `CipherParty.xcodeproj` in Xcode 16 or later, select the `CipherParty`
 scheme, and run on an iPhone simulator. The Debug configuration uses the local
 Worker at `http://127.0.0.1:8787`; only a loopback HTTP host is accepted.
+Debug also permits `ws` only for loopback (`localhost`, `127.0.0.1`, or `::1`)
+so the local Worker can complete its ticketed connection. Staging and Release
+require HTTPS/WSS. The short-lived ticket is never logged, including locally.
+
+Choose **Return to saved room** and enter the room code to restore a seat after
+restart. Manual codes and invite links check Keychain before joining, preserving
+the original player and host access without requiring a new display name. Use
+**Leave room** to close the connection and remove that room's credentials/cache.
+The same action is available when a connection fails. Switching rooms cleans up
+the previous room first.
+
+After an uncertain action, inspect the current room and choose **Retry action**
+or **Dismiss action**. Retry becomes available only after a fresh projection;
+the app never replays the action automatically. Backgrounding marks the view
+read-only, hides private content, and reconnects with a new ticket on return.
 
 If command-line tools are not already pointed at the full Xcode installation,
 prefix commands with:
@@ -65,9 +80,14 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   build
 ```
 
-Run the unit and UI test targets on the available narrow simulator. Pin the
-destination ID when several architecture entries or multiple runtimes are
-installed:
+Run the unit and UI test targets on an available narrow simulator. Discover
+devices with the command below and set `CIPHER_PARTY_SIMULATOR_ID` to the UUID
+of an available iPhone SE (the narrow-width UI test expects at most 375 points):
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun simctl list devices available
+export CIPHER_PARTY_SIMULATOR_ID="<available iPhone SE simulator UUID>"
+```
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
@@ -75,7 +95,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -scheme CipherParty \
   -configuration Debug \
   -sdk iphonesimulator \
-  -destination 'id=A2F34315-5495-46DD-874E-F8248399991F' \
+  -destination "id=$CIPHER_PARTY_SIMULATOR_ID" \
   -derivedDataPath /private/tmp/cipher-party-task10-debug \
   CODE_SIGNING_ALLOWED=NO \
   test
@@ -85,14 +105,15 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -scheme CipherParty \
   -configuration Staging \
   -sdk iphonesimulator \
-  -destination 'id=A2F34315-5495-46DD-874E-F8248399991F' \
+  -destination "id=$CIPHER_PARTY_SIMULATOR_ID" \
   -derivedDataPath /private/tmp/cipher-party-task10-staging \
   CODE_SIGNING_ALLOWED=NO \
   test
 ```
 
 The current verification run passed both configurations on the iPhone SE
-(3rd generation) simulator (iOS 18.2). It also passed Debug and Staging
+(3rd generation) simulator (iOS 18.2), with 119 unit/UI tests passing in each
+configuration and zero failures or skips. It also passed Debug and Staging
 `build-for-testing`. A signed device remains required for camera capture,
 Universal Link activation, share sheets, background/foreground behavior, and
 the final Dynamic Type, dark-mode, and VoiceOver visual pass.
@@ -110,18 +131,18 @@ tests, 53 web tests, 41 Worker tests, and the root test). The first restricted
 shell attempt failed because Wrangler could not write its log or bind its test
 port; it is not a code failure.
 
-The repository Playwright command remains an environment/configuration
-follow-up in this handoff:
+The repository Playwright command remains a pending browser milestone check:
 
 ```sh
 pnpm run test:e2e
 ```
 
-The configured web-server readiness URL uses `127.0.0.1:5173`, while Vite
-listens on `localhost:5173` in this environment. `curl
-http://localhost:5173/api/health` returned `200`, while the configured
-`127.0.0.1` URL refused the connection, so no E2E pass is claimed. Keep this
-as a test-harness follow-up rather than changing the iOS client or protocol.
+The earlier attempt stalled because Vite bound `localhost` while Playwright
+waited for `127.0.0.1:5173`. During final verification, starting the Worker and
+`pnpm --filter @cipher-party/web run dev --host 127.0.0.1` resolved readiness.
+`pnpm run test:e2e` then exited 1 with **No tests found**: the `e2e/` suite is
+part of the still-pending browser Task 12 and does not exist in this branch.
+No browser E2E or mixed native/browser gameplay pass is claimed.
 
 ## Mixed-client integration and privacy harness
 

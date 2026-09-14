@@ -2,7 +2,45 @@ import Foundation
 import XCTest
 @testable import CipherParty
 
+private actor EntryTestSeatStore: RoomSeatStoring {
+    var saved: SeatCredentials?
+    private(set) var writeCount = 0
+    init(saved: SeatCredentials?) { self.saved = saved }
+    func get(code: String) throws -> SeatCredentials? { saved?.code == code ? saved : nil }
+    func put(_ credentials: SeatCredentials) throws {
+        saved = credentials
+        writeCount += 1
+    }
+}
+
 final class APIClientTests: XCTestCase {
+    func testRoomEntryResumesSavedHostWithoutJoiningOrOverwritingCredentials() async throws {
+        let client = try makeClient { _ in
+            XCTFail("Restoration must not POST a new seat")
+            throw URLError(.badServerResponse)
+        }
+        let original = SeatCredentials(code: "001129", playerId: Self.hostPlayerID, seatToken: Self.seatToken, hostToken: Self.hostToken)
+        let store = EntryTestSeatStore(saved: original)
+        let entry = RoomEntryService(apiClient: client, credentialStore: store)
+        let restored = try await entry.resumeOrJoin(code: " o0-iL2 9 ", displayName: "", asSpectator: true)
+        XCTAssertEqual(restored, original)
+        let writes = await store.writeCount
+        XCTAssertEqual(writes, 0)
+    }
+
+    func testRoomEntryCreatesAndPersistsOnlyWhenNoSavedSeatExists() async throws {
+        let client = try makeClient { request in
+            XCTAssertEqual(request.url?.path, "/api/rooms/ABC234/join")
+            return Self.response(for: request, status: 200, body: #"{"code":"ABC234","playerId":"\#(Self.guestPlayerID)","seatToken":"\#(Self.seatToken)"}"#)
+        }
+        let store = EntryTestSeatStore(saved: nil)
+        let entry = RoomEntryService(apiClient: client, credentialStore: store)
+        let joined = try await entry.resumeOrJoin(code: "ABC234", displayName: "Guest", asSpectator: false)
+        let saved = try await store.get(code: "ABC234")
+        XCTAssertEqual(joined, saved)
+        XCTAssertNil(joined.hostToken)
+    }
+
     private static let hostPlayerID = "10000000-0000-4000-8000-000000000001"
     private static let guestPlayerID = "10000000-0000-4000-8000-000000000002"
     private static let seatToken = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"

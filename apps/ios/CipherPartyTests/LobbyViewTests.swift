@@ -3,6 +3,18 @@ import XCTest
 @testable import CipherParty
 
 final class LobbyViewTests: XCTestCase {
+    func testPendingCommandDisablesAllLobbyConfiguration() throws {
+        let base = try fixtureProjection(named: "projection-lobby-unassigned")
+        let projection = try projectionWithPermissions(base, configure: true, moderate: true)
+        let presentation = LobbyPresentation(
+            projection: try RoomProjection(serverProjection: projection),
+            connectionState: .connected, isStale: false, lastUpdated: nil,
+            isCommandPending: true
+        )
+        XCTAssertTrue(presentation.showsHostControls)
+        XCTAssertFalse(presentation.hostControls.actionsAreEnabled)
+    }
+
     func testNonHostProjectionDoesNotExposeHostControls() throws {
         let projection = try fixtureProjection(named: "projection-lobby-unassigned")
         let presentation = LobbyPresentation(

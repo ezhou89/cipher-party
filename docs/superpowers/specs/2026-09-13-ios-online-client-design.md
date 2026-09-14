@@ -1,7 +1,9 @@
 # Cipher Party iOS Online Client Design
 
-**Date:** 2026-09-13  
-**Status:** Approved product direction; awaiting written-spec review  
+**Date:** 2026-09-13
+
+**Status:** Approved
+
 **Scope:** Native iOS client for online Cipher Party rooms
 
 This document turns the approved iOS direction into a concrete subsystem boundary

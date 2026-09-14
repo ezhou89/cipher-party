@@ -1,4 +1,101 @@
 import SwiftUI
+import Observation
+
+enum RoomEntryError: Error, LocalizedError {
+    case invalidDisplayName
+    var errorDescription: String? { "Enter a name of 24 characters or fewer for a new seat." }
+}
+
+struct RoomEntryService: Sendable {
+    let apiClient: APIClient
+    let credentialStore: any RoomSeatStoring
+
+    func resumeOrJoin(code: String, displayName: String, asSpectator: Bool) async throws -> SeatCredentials {
+        let code = try RoomCode.normalizedAndValidated(code)
+        if let saved = try await credentialStore.get(code: code) {
+            return saved
+        }
+        guard let name = normalizedDisplayName(displayName) else {
+            throw RoomEntryError.invalidDisplayName
+        }
+        let response = try await apiClient.joinRoom(code: code, displayName: name, asSpectator: asSpectator)
+        let credentials = SeatCredentials(code: response.code, playerId: response.playerId, seatToken: response.seatToken, hostToken: nil)
+        try await credentialStore.put(credentials)
+        return credentials
+    }
+}
+
+/// One owner serializes session replacement, cleanup, and scene transitions.
+@MainActor @Observable
+final class RoomFlow {
+    private(set) var session: RoomSession?
+    private(set) var roomCode: String?
+    private(set) var cleanupFailed = false
+    private(set) var transitions = 0
+    var isTransitioning: Bool { transitions > 0 }
+    @ObservationIgnored private let makeSession: (SeatCredentials) -> RoomSession
+    @ObservationIgnored private var transitionTask: Task<Void, Never>?
+    @ObservationIgnored private var sceneIsActive = true
+
+    init(makeSession: @escaping (SeatCredentials) -> RoomSession) {
+        self.makeSession = makeSession
+    }
+
+    func open(_ credentials: SeatCredentials) async {
+        transitions += 1
+        defer { transitions -= 1 }
+        await enqueue { [self] in
+            guard roomCode != credentials.code || session == nil else { return }
+            await cleanUpCurrentSession()
+            let newSession = makeSession(credentials)
+            roomCode = credentials.code
+            session = newSession
+            await newSession.connect()
+            if !sceneIsActive { await newSession.didEnterBackground() }
+        }.value
+    }
+
+    func leave() async {
+        session?.prepareForBackground()
+        transitions += 1
+        defer { transitions -= 1 }
+        await enqueue { [self] in await cleanUpCurrentSession() }.value
+    }
+
+    func sceneChanged(isActive: Bool) {
+        guard sceneIsActive != isActive else { return }
+        sceneIsActive = isActive
+        if !isActive { session?.prepareForBackground() }
+        enqueue { [self] in
+            if isActive {
+                await session?.willEnterForeground()
+            } else {
+                await session?.didEnterBackground()
+            }
+        }
+    }
+
+    func waitForTransitions() async { await transitionTask?.value }
+
+    private func cleanUpCurrentSession() async {
+        let previous = session
+        await previous?.leave()
+        cleanupFailed = previous?.lastError == .leaveCleanup
+        session = nil
+        roomCode = nil
+    }
+
+    @discardableResult
+    private func enqueue(_ operation: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        let previous = transitionTask
+        let next = Task { @MainActor in
+            await previous?.value
+            await operation()
+        }
+        transitionTask = next
+        return next
+    }
+}
 
 private enum EntryRoute: Hashable {
     case create
@@ -13,23 +110,42 @@ struct EntryView: View {
     private let inviteRouter: InviteRouter
 
     @State private var path: [EntryRoute] = []
-    @State private var roomSession: RoomSession?
-    @State private var activeRoomCode: String?
+    @State private var flow: RoomFlow
+    @Environment(\.scenePhase) private var scenePhase
     @State private var linkError: String?
 
     init(environment: AppEnvironment) {
         self.environment = environment
         let apiClient = APIClient(baseURL: environment.apiBaseURL)
         self.apiClient = apiClient
-        credentialStore = SeatCredentialStore(service: environment.keychainServiceName)
+        let credentialStore = SeatCredentialStore(service: environment.keychainServiceName)
+        self.credentialStore = credentialStore
         inviteRouter = InviteRouter(customScheme: environment.urlScheme)
+        _flow = State(initialValue: RoomFlow { credentials in
+            RoomSession(
+                code: credentials.code,
+                socket: RoomSocket(credentials: credentials, environment: environment, apiClient: apiClient),
+                credentialStore: credentialStore
+            )
+        })
     }
 
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if let roomSession, let activeRoomCode {
+                if let roomSession = flow.session, let activeRoomCode = flow.roomCode {
                     RoomSessionHandoffView(code: activeRoomCode, session: roomSession)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Leave room", role: .destructive) {
+                                    Task {
+                                        await flow.leave()
+                                        path.removeAll()
+                                    }
+                                }
+                                .accessibilityIdentifier("room.leave")
+                            }
+                        }
                 } else {
                     entryChoices
                 }
@@ -54,6 +170,17 @@ struct EntryView: View {
                 }
             }
         }
+        .disabled(flow.isTransitioning)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            flow.sceneChanged(isActive: phase == .active)
+        }
+        .overlay {
+            if scenePhase != .active, flow.session != nil {
+                Color(uiColor: .systemBackground).ignoresSafeArea()
+                    .overlay { Text("Cipher Party").font(.title.bold()) }
+                    .accessibilityIdentifier("room.privacyCover")
+            }
+        }
         .onOpenURL(perform: handleIncomingURL)
         .alert("Invite unavailable", isPresented: linkErrorIsPresented) {
             Button("OK", role: .cancel) {}
@@ -76,6 +203,10 @@ struct EntryView: View {
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 12) {
+                NavigationLink("Return to saved room", value: EntryRoute.join(code: nil, scanImmediately: false))
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("entry.resumeRoom")
+
                 NavigationLink("Create room", value: EntryRoute.create)
                     .buttonStyle(.borderedProminent)
                     .accessibilityIdentifier("entry.createRoom")
@@ -96,6 +227,12 @@ struct EntryView: View {
             }
             .frame(maxWidth: 320)
 
+            if flow.cleanupFailed {
+                Text("Some saved room data could not be removed. Return to that room and leave again to retry cleanup.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer()
         }
         .padding(24)
@@ -113,6 +250,7 @@ struct EntryView: View {
     private func handleIncomingURL(_ url: URL) {
         do {
             let code = try inviteRouter.roomCode(from: url)
+            if flow.roomCode == code { path.removeAll(); return }
             path = [.join(code: code, scanImmediately: false)]
         } catch {
             linkError = "That invite link is not valid. Enter the room code manually."
@@ -120,20 +258,10 @@ struct EntryView: View {
     }
 
     private func openRoom(_ credentials: SeatCredentials) {
-        let socket = RoomSocket(
-            credentials: credentials,
-            environment: environment,
-            apiClient: apiClient
-        )
-        let session = RoomSession(
-            code: credentials.code,
-            socket: socket,
-            credentialStore: credentialStore
-        )
-        activeRoomCode = credentials.code
-        roomSession = session
-        path.removeAll()
-        Task { await session.connect() }
+        Task {
+            await flow.open(credentials)
+            path.removeAll()
+        }
     }
 }
 
@@ -234,7 +362,7 @@ private struct RoomSessionHandoffView: View {
     }
 }
 
-private func normalizedDisplayName(_ input: String) -> String? {
+func normalizedDisplayName(_ input: String) -> String? {
     let normalized = input
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .precomposedStringWithCanonicalMapping

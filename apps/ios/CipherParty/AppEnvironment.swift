@@ -28,6 +28,8 @@ struct AppEnvironment: Sendable, CustomStringConvertible, CustomDebugStringConve
     let keychainServiceName: String
     let featureFlags: FeatureFlags
 
+    var allowsLoopbackWebSocket: Bool { deployment == .debug }
+
     init(
         deployment: Deployment,
         apiBaseURL: URL,

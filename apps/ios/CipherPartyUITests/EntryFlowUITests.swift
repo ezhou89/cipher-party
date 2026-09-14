@@ -34,4 +34,13 @@ final class EntryFlowUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["entry.screen"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.otherElements["lobby.hostControls"].exists)
     }
+
+    func testSavedRoomEntryExplainsThatNameIsOnlyNeededForANewSeat() throws {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["entry.resumeRoom"].waitForExistence(timeout: 5))
+        app.buttons["entry.resumeRoom"].tap()
+        XCTAssertTrue(app.staticTexts["join.restoreGuidance"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["join.continue"].exists)
+    }
 }

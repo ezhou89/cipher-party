@@ -8,6 +8,11 @@ struct SeatCredentials: Codable, Equatable, Sendable {
     let hostToken: String?
 }
 
+protocol RoomSeatStoring: Actor {
+    func get(code: String) throws -> SeatCredentials?
+    func put(_ credentials: SeatCredentials) throws
+}
+
 protocol KeychainClient: Sendable {
     func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: CFTypeRef?)
     func add(_ attributes: [String: Any]) -> OSStatus
@@ -59,7 +64,7 @@ enum SeatCredentialStoreError: Error, Equatable, Sendable, CustomStringConvertib
     }
 }
 
-actor SeatCredentialStore {
+actor SeatCredentialStore: RoomSeatStoring {
     private let service: String
     private let keychain: any KeychainClient
     private let encoder: JSONEncoder
