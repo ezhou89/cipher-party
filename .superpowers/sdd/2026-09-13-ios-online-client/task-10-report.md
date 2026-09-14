@@ -2,8 +2,8 @@
 
 ## Status
 
-The final integration fix wave and scoped code-review gate are complete through
-the latest reviewed HEAD. Task 9 mixed-room/interruption acceptance remains
+The final integration fix wave and whole-branch code-review gate are complete
+through HEAD `d3adeb9`. Task 9 mixed-room/interruption acceptance remains
 pending. The original Task 10 documentation-only evidence below is historical;
 the appended final-fix section records the subsequent code changes.
 
@@ -224,3 +224,9 @@ remain pending. Component/root-flow tests do not claim those acceptance steps.
 Task 10 Step 5 is complete after the final scoped code-review gate. The plan
 remains incomplete only because Task 9 Steps 1–2 still require staging,
 mixed-client, interruption, and signed-device evidence.
+
+The final whole-branch review package was
+`review-128c0f7..d3adeb9.diff`; `/root/ios_final_gate_review` ruled **Accept**
+with no Critical or Important findings. Remaining minors are non-blocking ATS
+scope, test-fixture hygiene, physical-device file-protection verification, and
+camera/UI accessibility refinements.
