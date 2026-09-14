@@ -52,52 +52,25 @@ struct RoomShareSheet: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 10) {
-                Text(roomCode)
-                    .font(.title2.monospaced().weight(.bold))
-                    .tracking(2)
-                    .accessibilityLabel("Room code \(roomCode)")
-                    .accessibilityIdentifier("lobby.roomCode")
-
-                Spacer(minLength: 0)
-
-                Button("Copy code", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = roomCode
-                    copiedItem = .code
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    roomCodeLabel
+                    Spacer(minLength: 0)
+                    copyCodeButton
+                        .labelStyle(.iconOnly)
                 }
-                .labelStyle(.iconOnly)
-                .accessibilityLabel("Copy room code")
-                .accessibilityIdentifier("lobby.copyCode")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    roomCodeLabel
+                    copyCodeButton
+                        .buttonStyle(.bordered)
+                }
             }
             .padding(14)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
 
             if let payload {
-                HStack(spacing: 12) {
-                    ShareLink(
-                        item: payload.value,
-                        subject: Text("Join my Cipher Party room")
-                    ) {
-                        Label("Share invite", systemImage: "square.and.arrow.up")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("lobby.shareInvite")
-
-                    Button("Copy invite", systemImage: "link") {
-                        UIPasteboard.general.string = payload.value
-                        copiedItem = .invite
-                    }
-                    .labelStyle(.iconOnly)
-                    .accessibilityLabel("Copy invite link")
-                    .accessibilityIdentifier("lobby.copyInvite")
-
-                    Button("Show QR code", systemImage: "qrcode") {
-                        isQRCodePresented = true
-                    }
-                    .labelStyle(.iconOnly)
-                    .accessibilityLabel("Show QR code")
-                    .accessibilityIdentifier("lobby.showQR")
-                }
+                shareActions(payload: payload)
             } else {
                 Text("Invite sharing is unavailable for this room.")
                     .font(.footnote)
@@ -130,6 +103,74 @@ struct RoomShareSheet: View {
                 }
             }
         }
+    }
+
+    private var roomCodeLabel: some View {
+        Text(roomCode)
+            .font(.title2.monospaced().weight(.bold))
+            .tracking(2)
+            .accessibilityLabel("Room code \(roomCode)")
+            .accessibilityIdentifier("lobby.roomCode")
+    }
+
+    private var copyCodeButton: some View {
+        Button("Copy code", systemImage: "doc.on.doc") {
+            UIPasteboard.general.string = roomCode
+            copiedItem = .code
+        }
+        .accessibilityLabel("Copy room code")
+        .accessibilityIdentifier("lobby.copyCode")
+    }
+
+    @ViewBuilder
+    private func shareActions(payload: RoomSharePayload) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                shareLink(payload: payload)
+                    .buttonStyle(.borderedProminent)
+                copyInviteButton(payload: payload)
+                    .labelStyle(.iconOnly)
+                showQRCodeButton
+                    .labelStyle(.iconOnly)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                shareLink(payload: payload)
+                    .buttonStyle(.borderedProminent)
+                HStack(spacing: 12) {
+                    copyInviteButton(payload: payload)
+                    showQRCodeButton
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func shareLink(payload: RoomSharePayload) -> some View {
+        ShareLink(
+            item: payload.value,
+            subject: Text("Join my Cipher Party room")
+        ) {
+            Label("Share invite", systemImage: "square.and.arrow.up")
+        }
+        .accessibilityIdentifier("lobby.shareInvite")
+    }
+
+    private func copyInviteButton(payload: RoomSharePayload) -> some View {
+        Button("Copy invite", systemImage: "link") {
+            UIPasteboard.general.string = payload.value
+            copiedItem = .invite
+        }
+        .accessibilityLabel("Copy invite link")
+        .accessibilityIdentifier("lobby.copyInvite")
+    }
+
+    private var showQRCodeButton: some View {
+        Button("Show QR code", systemImage: "qrcode") {
+            isQRCodePresented = true
+        }
+        .accessibilityLabel("Show QR code")
+        .accessibilityIdentifier("lobby.showQR")
     }
 }
 

@@ -10,12 +10,46 @@ struct LobbyHostControlsPresentation: Equatable, Sendable {
     }
 }
 
+struct LobbyReadiness: Equatable, Sendable {
+    static let startRequirementHint =
+        "Each team must have at least one clue-giver and one operative to start."
+
+    let redClueGivers: Int
+    let redOperatives: Int
+    let blueClueGivers: Int
+    let blueOperatives: Int
+
+    init(seats: [SeatSummary]) {
+        let redSeats = seats.filter { $0.teamId == .red }
+        let blueSeats = seats.filter { $0.teamId == .blue }
+        redClueGivers = redSeats.filter { $0.role == .clueGiver }.count
+        redOperatives = redSeats.filter { $0.role == .operative }.count
+        blueClueGivers = blueSeats.filter { $0.role == .clueGiver }.count
+        blueOperatives = blueSeats.filter { $0.role == .operative }.count
+    }
+
+    var isReady: Bool {
+        redClueGivers >= 1 &&
+            redOperatives >= 1 &&
+            blueClueGivers >= 1 &&
+            blueOperatives >= 1
+    }
+
+    var requirementHint: String? {
+        isReady ? nil : Self.startRequirementHint
+    }
+}
+
 struct LobbyPresentation: Equatable, Sendable {
+    static let mixedClientGuidance =
+        "Browser and iPhone players appear together in this same server-provided seat list."
+
     let roomCode: String
     let inviteURLString: String
     let roomPhaseLabel: String
     let lockLabel: String
     let seats: [LobbySeatPresentation]
+    let readiness: LobbyReadiness
     let hostControls: LobbyHostControlsPresentation
     let connection: ConnectionBannerPresentation
 
@@ -34,6 +68,7 @@ struct LobbyPresentation: Equatable, Sendable {
         roomPhaseLabel = projection.base.roomPhase.displayName
         lockLabel = projection.base.locked ? "Locked" : "Open"
         seats = projection.base.seats.map(LobbySeatPresentation.init)
+        readiness = LobbyReadiness(seats: projection.base.seats)
         hostControls = LobbyHostControlsPresentation(
             canConfigure: projection.base.permissions.configure,
             canModerate: projection.base.permissions.moderate,
@@ -104,6 +139,7 @@ struct LobbyView: View {
                         seats: projection.base.seats,
                         permissions: projection.base.permissions,
                         actionsAreEnabled: presentation.hostControls.actionsAreEnabled,
+                        readiness: presentation.readiness,
                         roomPhase: projection.base.roomPhase,
                         locked: projection.base.locked
                     )
@@ -150,6 +186,12 @@ struct LobbyView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Text(LobbyPresentation.mixedClientGuidance)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("lobby.mixedClientGuidance")
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,6 +227,7 @@ private struct LobbyHostControlsView: View {
     let seats: [SeatSummary]
     let permissions: ProjectionPermissions
     let actionsAreEnabled: Bool
+    let readiness: LobbyReadiness
     let roomPhase: RoomPhase
     let locked: Bool
 
@@ -268,8 +311,16 @@ private struct LobbyHostControlsView: View {
                 dispatch { try await session.startBoard() }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!canConfigure || roomPhase != .lobby)
+            .disabled(!canConfigure || !readiness.isReady || roomPhase != .lobby)
             .accessibilityIdentifier("lobby.startBoard")
+
+            if let requirementHint = readiness.requirementHint {
+                Text(requirementHint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("lobby.startRequirementHint")
+            }
 
             if let actionError {
                 Text(actionError)

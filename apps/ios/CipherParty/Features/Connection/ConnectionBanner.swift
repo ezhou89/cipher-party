@@ -49,7 +49,7 @@ struct ConnectionBannerPresentation: Equatable, Sendable {
             let seconds = delay.formatted(.number.precision(.fractionLength(0...1)))
             return ConnectionBannerPresentation(
                 title: "Reconnecting",
-                message: "Trying again in " + seconds + " seconds (attempt " + String(attempt) + "). Changes are paused.",
+                message: "Trying again in \(seconds) seconds (attempt \(attempt)). Changes are paused.",
                 symbolName: "arrow.triangle.2.circlepath",
                 isReadOnly: true,
                 lastUpdated: lastUpdated
@@ -74,7 +74,7 @@ struct ConnectionBannerPresentation: Equatable, Sendable {
         case let .failed(failure):
             return ConnectionBannerPresentation(
                 title: "Unable to connect",
-                message: failure.description + " Room actions are paused.",
+                message: "\(failure.description) Room actions are paused.",
                 symbolName: "exclamationmark.triangle",
                 isReadOnly: true,
                 lastUpdated: lastUpdated
@@ -112,7 +112,7 @@ struct ConnectionBanner: View {
                     .fixedSize(horizontal: false, vertical: true)
 
                 if let lastUpdated = presentation.lastUpdated {
-                    Text("Last updated " + lastUpdated.formatted(.dateTime.hour().minute().second()))
+                    Text("Last updated \(lastUpdated, format: .dateTime.hour().minute().second())")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -141,8 +141,8 @@ struct ConnectionBanner: View {
     }
 
     private var accessibilityLabel: String {
-        let base = presentation.title + ". " + presentation.message
-        guard let lastUpdated = presentation.lastUpdated else { return base }
-        return base + " Last updated " + lastUpdated.formatted(.dateTime.hour().minute().second()) + "."
+        presentation.lastUpdated.map {
+            "\(presentation.title). \(presentation.message) Last updated \($0.formatted(.dateTime.hour().minute().second()))."
+        } ?? "\(presentation.title). \(presentation.message)"
     }
 }

@@ -32,6 +32,52 @@ final class LobbyViewTests: XCTestCase {
         XCTAssertFalse(presentation.hostControls.canModerate)
     }
 
+    func testStartReadinessMatchesWebRequirementForBothTeams() throws {
+        let base = try fixtureProjection(named: "projection-lobby-unassigned")
+        let incomplete = try projectionWithSeats(
+            base,
+            seats: [
+                seat(id: "00000000-0000-4000-8000-000000000001", team: "red", role: "clue-giver"),
+                seat(id: "00000000-0000-4000-8000-000000000002", team: "blue", role: "clue-giver")
+            ]
+        )
+        let incompletePresentation = LobbyPresentation(
+            projection: try RoomProjection(serverProjection: incomplete),
+            connectionState: .connected,
+            isStale: false,
+            lastUpdated: nil
+        )
+        XCTAssertFalse(incompletePresentation.readiness.isReady)
+        XCTAssertEqual(
+            incompletePresentation.readiness.requirementHint,
+            LobbyReadiness.startRequirementHint
+        )
+
+        let complete = try projectionWithSeats(
+            base,
+            seats: [
+                seat(id: "00000000-0000-4000-8000-000000000001", team: "red", role: "clue-giver"),
+                seat(id: "00000000-0000-4000-8000-000000000002", team: "red", role: "operative"),
+                seat(id: "00000000-0000-4000-8000-000000000003", team: "blue", role: "clue-giver"),
+                seat(id: "00000000-0000-4000-8000-000000000004", team: "blue", role: "operative")
+            ]
+        )
+        let completePresentation = LobbyPresentation(
+            projection: try RoomProjection(serverProjection: complete),
+            connectionState: .connected,
+            isStale: false,
+            lastUpdated: nil
+        )
+        XCTAssertTrue(completePresentation.readiness.isReady)
+        XCTAssertNil(completePresentation.readiness.requirementHint)
+    }
+
+    func testMixedClientGuidanceDoesNotInventPlatformMetadata() {
+        XCTAssertTrue(LobbyPresentation.mixedClientGuidance.contains("Browser"))
+        XCTAssertTrue(LobbyPresentation.mixedClientGuidance.contains("iPhone"))
+        XCTAssertTrue(LobbyPresentation.mixedClientGuidance.contains("server-provided seat list"))
+    }
+
     func testDisconnectedSeatIsExplicitlyLabeledAndSpectatorIsSupported() throws {
         let projection = try fixtureProjection(named: "projection-lobby-unassigned")
         let updated = try projectionWithSeats(
@@ -130,5 +176,15 @@ final class LobbyViewTests: XCTestCase {
             ClientProjection.self,
             from: JSONSerialization.data(withJSONObject: object)
         )
+    }
+
+    private func seat(id: String, team: String, role: String) -> [String: Any] {
+        [
+            "playerId": id,
+            "displayName": String(id.suffix(4)),
+            "teamId": team,
+            "role": role,
+            "connected": true
+        ]
     }
 }
