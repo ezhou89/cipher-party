@@ -1,22 +1,34 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 14
+**Snapshot revision:** 15
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-09-13
 
-**Project state:** Task 11 Role-aware Classic game board UI completed. Ready for Task 12.
+**Project state:** Browser Task 11 remains complete. The native iOS online-client
+design is approved, the implementation plan is committed, and implementation is
+ready to begin after execution selection.
 
-**Active milestone:** Milestone 1 — Connected Classic
+**Active milestone:** Milestone 1 — Connected Classic, with the approved native
+iOS online companion extension
 
-**Active plan:** docs/superpowers/plans/2026-08-30-connected-classic.md
+**Active plan:** docs/superpowers/plans/2026-09-13-ios-online-client.md
+
+**Browser plan:** docs/superpowers/plans/2026-08-30-connected-classic.md
 
 **Roadmap:** docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md
 
-**Approved spec:** docs/superpowers/specs/2026-08-30-cipher-party-design.md
+**Approved specs:**
+
+- docs/superpowers/specs/2026-08-30-cipher-party-design.md
+- docs/superpowers/specs/2026-09-13-ios-online-client-design.md
 
 ## What we are building
 
 A private, account-free multiplayer association game for 4–16 active players on phones and laptops. The MVP uses a server-authoritative Cloudflare room, role-safe views, text/picture/mixed theme packs, Classic and Blitz rules, two to four teams, and best-of-3/5/7 campaigns.
+
+The current iOS extension is a native SwiftUI 17+ online client for the same
+rooms. It is intended for groups standing together while each person uses a
+phone, and it must interoperate with the browser client through protocol v1.
 
 ## Current delivery boundary
 
@@ -34,6 +46,11 @@ Milestone 1 delivers a deployable two-team Classic game with:
 
 Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs.
 
+The iOS extension currently delivers design and planning only. Its first
+implementation slice will cover account-free create/join, QR/Universal
+Link/manual-code entry, role-safe lobby and Classic board views, Keychain seat
+credentials, and online reconnect UX. No nearby/offline match is included.
+
 ## Architecture snapshot
 
 - React + TypeScript DOM client.
@@ -43,6 +60,8 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Validated commands and role projections in packages/protocol.
 - Pack schemas will be isolated in packages/pack-format when Milestone 2 introduces that package.
 - R2 and Workers AI are introduced in Milestone 2, not Milestone 1.
+- Native iOS lives in apps/ios and consumes the existing HTTP/WebSocket protocol;
+  it does not carry a second game engine or authoritative state.
 
 ## Non-negotiable safety boundaries
 
@@ -52,13 +71,22 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Room codes locate rooms but do not authorize privileged actions.
 - Seat and host tokens stay out of URLs and logs.
 - The shipped app contains no unlicensed franchise art.
+- iOS durable seat/host credentials stay in device-only Keychain storage; the
+  short-lived WebSocket ticket is never logged.
+- Network loss is read-only cached presentation plus reconnect, never an offline
+  local match.
 
 ## Work ledger
 
 - **Last accepted implementation task:** Task 11 — Role-aware Classic game board UI.
-- **Current task:** Task 11 complete; ready for Task 12.
-- **Next task after selection:** Task 12 — Complete multiplayer browser flow and hidden-data regression.
-- **Blocked by:** Nothing.
+- **Native iOS spec commit:** `9c1d68a` — native iOS online-client design.
+- **Current task:** Native iOS online-client implementation plan is committed;
+  awaiting execution selection.
+- **Next task after selection:** iOS Task 1 — create the Xcode target and
+  deterministic app configuration.
+- **Blocked by:** The new worktree's `pnpm run check` attempt triggered a
+  dependency status install that could not reach the npm registry (`ENOTFOUND`).
+  This is an environment/network blocker, not a diagnosed code failure.
 
 ## Verified baseline
 
@@ -67,6 +95,9 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
 - The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 11 complete: 93/93 steps verified).
 - Commands verified passing: `pnpm run check:docs`, `pnpm run format:check`, `pnpm run lint`, `pnpm run typecheck`, `pnpm run test` (136 unit & component tests passing across all packages), `pnpm run build`, `git diff --check`.
+- Planning work additionally passes `git diff --check`; the branch is clean after
+  the documentation commits. iOS Xcode checks have not run because no app target
+  exists yet.
 
 ## Decisions agents must preserve
 
@@ -82,6 +113,14 @@ Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Bl
 - Multi-team hazard behavior eliminates the team that revealed it.
 - Canonical invite URLs come from validated server configuration, never the incoming Host header.
 - Aesthetic theme: Neo 8-Bit Retro Arcade (Balatro + Celeste inspired).
+- Native iOS uses SwiftUI Observation on iOS 17+, Foundation URLSession WebSockets,
+  Network framework path hints, Core Image QR generation, AVFoundation scanning,
+  and Keychain; no third-party runtime dependency is required for the first slice.
+- iOS online rooms reuse protocol v1 and remain account-free; Universal Links,
+  QR/manual code entry, and redacted app-private projection cache are the join
+  and reconnect seams.
+- True no-signal peer-to-peer play is a separate future subsystem and is not
+  implemented or implied by the iOS online client.
 - The Balatro Rule: Pixel fonts (Press Start 2P) for arcade chrome/HUD/badges only; ultra-crisp bold modern sans (Plus Jakarta Sans) for card words.
 - 16 Collectible Monopoly-Style Arcade Tokens for player nomination stamps; team mascot crests for card reveals.
 - Quad-Indicator colorblind accessibility (Hue, Glyph, Texture, Semantic label).
