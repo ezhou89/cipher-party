@@ -33,8 +33,11 @@ release environment or an uncommitted local configuration:
 - `CIPHER_PARTY_APPLE_TEAM_ID` — the Apple Developer team that signs the app
 
 The URL scheme, Keychain service name, and feature flags are also injected by
-the selected `.xcconfig`. Seat tokens, host tokens, and WebSocket tickets are
-runtime credentials; never add them to these files, the bundle, URLs, or logs.
+the selected `.xcconfig`. Seat and host tokens are durable runtime credentials;
+never add them to these files, the bundle, URLs, or logs. A short-lived,
+one-use WebSocket ticket may appear only in the existing WSS
+`/api/rooms/{code}/connect?ticket=...` query parameter; keep it in memory and
+never log it.
 
 ## Verification
 

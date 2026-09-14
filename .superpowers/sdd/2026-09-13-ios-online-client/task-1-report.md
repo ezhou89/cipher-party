@@ -104,3 +104,19 @@ runtime environment wiring.
 - This machine's selected developer directory is Command Line Tools, so Xcode
   commands require the documented `DEVELOPER_DIR` prefix unless `xcode-select`
   is changed by the developer.
+
+## Review follow-up
+
+- Corrected the README security guidance to preserve the shared transport
+  contract: long-lived seat/host tokens never enter URLs, while the short-lived,
+  one-use WebSocket ticket may appear only in the established WSS
+  `/api/rooms/{code}/connect?ticket=...` query and must never be logged.
+- Covering check: a Node assertion over `apps/ios/README.md` verified all four
+  constraints (durable-token URL exclusion, WSS-only ticket allowance, exact
+  connect query, and no ticket logging); result: `README protocol guidance OK`.
+- `pnpm exec prettier --check apps/ios/README.md .superpowers/sdd/2026-09-13-ios-online-client/task-1-report.md`
+  - Result: both files match Prettier formatting.
+- `git diff --check`
+  - Result: passed with no whitespace errors.
+- The review's separate ATS observation remains deferred as requested; no code
+  or project configuration changed in this follow-up.
