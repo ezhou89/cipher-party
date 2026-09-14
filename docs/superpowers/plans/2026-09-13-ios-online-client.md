@@ -259,20 +259,20 @@ kept beside the existing web and worker apps; it is not a second repository.
 - Backoff is 500 ms, 1 s, 2 s, and 5 s, capped at 5 s; user close and terminal
   authentication/room errors stop retries. `NWPathMonitor` is a retry hint only.
 
-- [ ] **Step 1: Add transport fakes and failing tests.** Build injectable
+- [x] **Step 1: Add transport fakes and failing tests.** Build injectable
   WebSocket, ticket, clock, and path-monitor fakes. Test open/receive/close,
   malformed-frame recovery, ticket expiry, and bounded backoff without real
   sleeps.
-- [ ] **Step 2: Implement the receive loop.** Use
+- [x] **Step 2: Implement the receive loop.** Use
   `URLSessionWebSocketTask`, a cancellation-safe async receive task, and explicit
   close codes. Keep the ticket and raw frame out of logs.
-- [ ] **Step 3: Implement reconnect behavior.** On unexpected close/error,
+- [x] **Step 3: Implement reconnect behavior.** On unexpected close/error,
   emit reconnecting, wait through the injected clock, request a fresh ticket,
   and accept the first projection as the new source of truth.
-- [ ] **Step 4: Add foreground/path hooks.** Pause/cancel safely on background,
+- [x] **Step 4: Add foreground/path hooks.** Pause/cancel safely on background,
   resume on foreground, and use `NWPathMonitor` to avoid futile loops while the
   device has no usable path.
-- [ ] **Step 5: Verify focused transport tests and cancellation races.** Include
+- [x] **Step 5: Verify focused transport tests and cancellation races.** Include
   a regression for one close producing one retry schedule and no duplicate
   receive tasks.
 
