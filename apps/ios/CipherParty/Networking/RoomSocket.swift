@@ -123,6 +123,7 @@ actor RoomSocket {
     private var lifecycleTask: Task<Void, Never>?
     private var pathTask: Task<Void, Never>?
     private var connection: (any RoomWebSocketConnection)?
+    private var connectionIsOpen = false
     private var generation: UInt64 = 0
     private var pathStatus: NetworkPathStatus
     private var started = false
@@ -179,6 +180,11 @@ actor RoomSocket {
         terminal = false
         pathStatus = pathMonitor.currentStatus()
         continuation.yield(.connecting)
+        guard Self.isSecureWebSocketBaseURL(webSocketBaseURL) else {
+            terminal = true
+            continuation.yield(.terminalFailure(.configuration))
+            return
+        }
         observePathIfNeeded()
         launchConnectionLoopIfPossible()
     }
@@ -194,6 +200,7 @@ actor RoomSocket {
         pathTask = nil
         let openConnection = connection
         connection = nil
+        connectionIsOpen = false
         await openConnection?.close(code: .normalClosure)
         continuation.yield(.closed(.userInitiated))
     }
@@ -206,6 +213,7 @@ actor RoomSocket {
         lifecycleTask = nil
         let openConnection = connection
         connection = nil
+        connectionIsOpen = false
         await openConnection?.close(code: .goingAway)
         continuation.yield(.closed(.background))
     }
@@ -249,12 +257,19 @@ actor RoomSocket {
 
         switch status {
         case .unavailable:
-            guard started, lifecycleTask != nil || connection != nil else { return }
+            guard
+                started,
+                !connectionIsOpen,
+                lifecycleTask != nil || connection != nil
+            else {
+                return
+            }
             generation &+= 1
             lifecycleTask?.cancel()
             lifecycleTask = nil
             let openConnection = connection
             connection = nil
+            connectionIsOpen = false
             await openConnection?.close(code: .goingAway)
             continuation.yield(.closed(.unavailablePath))
         case .usable:
@@ -305,8 +320,10 @@ actor RoomSocket {
                 }
 
                 connection = candidate
+                connectionIsOpen = false
                 try await candidate.connect()
                 try ensureCurrent(generation: loopGeneration)
+                connectionIsOpen = true
                 continuation.yield(.open)
                 consecutiveFailures = 0
                 try await receiveMessages(from: candidate, generation: loopGeneration)
@@ -319,11 +336,18 @@ actor RoomSocket {
 
                 let failedConnection = connection
                 connection = nil
+                connectionIsOpen = false
                 await failedConnection?.close(code: .goingAway)
 
                 if let failure = terminalFailure(for: error) {
                     terminal = true
                     continuation.yield(.terminalFailure(failure))
+                    finishLoop(generation: loopGeneration)
+                    return
+                }
+
+                guard pathStatus == .usable else {
+                    continuation.yield(.closed(.unavailablePath))
                     finishLoop(generation: loopGeneration)
                     return
                 }
@@ -381,7 +405,7 @@ actor RoomSocket {
                 resolvingAgainstBaseURL: false
             ),
             let scheme = components.scheme?.lowercased(),
-            ["ws", "wss"].contains(scheme),
+            scheme == "wss",
             components.host != nil,
             components.user == nil,
             components.password == nil,
@@ -397,6 +421,21 @@ actor RoomSocket {
         components.queryItems = [URLQueryItem(name: "ticket", value: ticket)]
         guard let url = components.url else { throw RoomSocketFailure.configuration }
         return url
+    }
+
+    private static func isSecureWebSocketBaseURL(_ url: URL) -> Bool {
+        guard
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            components.scheme?.lowercased() == "wss",
+            components.host != nil,
+            components.user == nil,
+            components.password == nil,
+            components.query == nil,
+            components.fragment == nil
+        else {
+            return false
+        }
+        return true
     }
 
     private func terminalFailure(for error: Error) -> RoomSocketFailure? {
@@ -427,7 +466,6 @@ actor RoomSocket {
             && started
             && foreground
             && !terminal
-            && pathStatus == .usable
             && !Task.isCancelled
     }
 
@@ -443,40 +481,62 @@ actor RoomSocket {
     }
 }
 
-private final class URLSessionRoomWebSocketConnection:
+final class URLSessionRoomWebSocketConnection:
     NSObject,
     RoomWebSocketConnection,
     URLSessionWebSocketDelegate,
     @unchecked Sendable
 {
+    typealias TaskFactory = @Sendable (URLSession, URL) -> URLSessionWebSocketTask
+
     private let url: URL
     private let configuration: URLSessionConfiguration
+    private let beforeTaskInstallation: @Sendable () async -> Void
+    private let taskFactory: TaskFactory
     private let lock = NSLock()
     private var session: URLSession?
     private var task: URLSessionWebSocketTask?
     private var connectContinuation: CheckedContinuation<Void, Error>?
     private var opened = false
+    private var closed = false
 
-    init(url: URL, configuration: URLSessionConfiguration) {
+    init(
+        url: URL,
+        configuration: URLSessionConfiguration,
+        beforeTaskInstallation: @escaping @Sendable () async -> Void = {},
+        taskFactory: @escaping TaskFactory = { session, url in
+            session.webSocketTask(with: url)
+        }
+    ) {
         self.url = url
         self.configuration = configuration
+        self.beforeTaskInstallation = beforeTaskInstallation
+        self.taskFactory = taskFactory
     }
 
     func connect() async throws {
         try await withTaskCancellationHandler {
+            await beforeTaskInstallation()
+            try Task.checkCancellation()
             try await withCheckedThrowingContinuation { continuation in
-                lock.withLock {
+                let taskToResume = lock.withLock { () -> URLSessionWebSocketTask? in
+                    guard !closed else { return nil }
                     connectContinuation = continuation
                     let session = URLSession(
                         configuration: configuration,
                         delegate: self,
                         delegateQueue: nil
                     )
-                    let task = session.webSocketTask(with: url)
+                    let task = taskFactory(session, url)
                     self.session = session
                     self.task = task
-                    task.resume()
+                    return task
                 }
+                guard let taskToResume else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                taskToResume.resume()
             }
         } onCancel: {
             self.cancelForTaskCancellation()
@@ -517,16 +577,21 @@ private final class URLSessionRoomWebSocketConnection:
     }
 
     func close(code: RoomSocketCloseCode) async {
-        let state = lock.withLock { () -> (URLSessionWebSocketTask?, URLSession?) in
-            let state = (task, session)
+        let state = lock.withLock {
+            () -> (
+                URLSessionWebSocketTask?,
+                URLSession?,
+                CheckedContinuation<Void, Error>?
+            ) in
+            let state = (task, session, connectContinuation)
             task = nil
             session = nil
             opened = false
-            let continuation = connectContinuation
+            closed = true
             connectContinuation = nil
-            continuation?.resume(throwing: CancellationError())
             return state
         }
+        state.2?.resume(throwing: CancellationError())
         if let closeCode = URLSessionWebSocketTask.CloseCode(rawValue: code.rawValue) {
             state.0?.cancel(with: closeCode, reason: nil)
         } else {
@@ -578,15 +643,20 @@ private final class URLSessionRoomWebSocketConnection:
     }
 
     private func cancelForTaskCancellation() {
-        let state = lock.withLock { () -> (URLSessionWebSocketTask?, URLSession?) in
-            let state = (task, session)
+        let state = lock.withLock {
+            () -> (
+                URLSessionWebSocketTask?,
+                URLSession?,
+                CheckedContinuation<Void, Error>?
+            ) in
+            let state = (task, session, connectContinuation)
             task = nil
             session = nil
-            let continuation = connectContinuation
+            closed = true
             connectContinuation = nil
-            continuation?.resume(throwing: CancellationError())
             return state
         }
+        state.2?.resume(throwing: CancellationError())
         state.0?.cancel(with: .goingAway, reason: nil)
         state.1?.invalidateAndCancel()
     }

@@ -69,6 +69,54 @@ final class RoomSocketTests: XCTestCase {
         await harness.socket.close()
     }
 
+    func testCloseBeforeURLSessionTaskInstallationPreventsLateSocketStart() async {
+        let gate = AsyncGate()
+        let installations = LockedCounter()
+        let connection = URLSessionRoomWebSocketConnection(
+            url: URL(string: "wss://example.com/api/rooms/ABC123/connect")!,
+            configuration: .ephemeral,
+            beforeTaskInstallation: {
+                await gate.suspend()
+            },
+            taskFactory: { session, url in
+                installations.increment()
+                return session.webSocketTask(with: url)
+            }
+        )
+
+        let connectTask = Task {
+            try await connection.connect()
+        }
+        await gate.waitUntilSuspended()
+        await connection.close(code: .goingAway)
+        await gate.release()
+
+        switch await connectTask.result {
+        case .success:
+            XCTFail("A closed transport must not finish connecting")
+        case let .failure(error):
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(installations.value(), 0)
+    }
+
+    func testPlaintextWebSocketBaseURLIsRejectedBeforeTicketOrSocketUse() async throws {
+        let connection = FakeRoomWebSocketConnection(receiveSteps: [.wait])
+        let harness = makeHarness(
+            connections: [connection],
+            webSocketBaseURL: URL(string: "ws://example.com")!
+        )
+        let recorder = await recordEvents(from: harness.socket)
+
+        await harness.socket.start()
+        try await waitUntil { await recorder.contains(.terminalFailure(.configuration)) }
+
+        let ticketRequests = await harness.tickets.requestCount()
+        let urls = await harness.factory.requestedURLs()
+        XCTAssertEqual(ticketRequests, 0)
+        XCTAssertEqual(urls, [])
+    }
+
     func testMalformedFrameIsDiscardedAndReceiveLoopContinues() async throws {
         let expected = ServerMessage.commandResult(
             commandId: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
@@ -251,6 +299,29 @@ final class RoomSocketTests: XCTestCase {
         await harness.socket.close()
     }
 
+    func testUnavailablePathDoesNotCloseAnEstablishedSocketOrReconnectOnRecovery() async throws {
+        let path = FakeNetworkPathMonitor(initialStatus: .usable)
+        let connection = FakeRoomWebSocketConnection(receiveSteps: [.wait])
+        let harness = makeHarness(path: path, connections: [connection])
+        let recorder = await recordEvents(from: harness.socket)
+
+        await harness.socket.start()
+        try await waitUntil { await recorder.contains(.open) }
+
+        path.send(.unavailable)
+        for _ in 0..<20 { await Task.yield() }
+        path.send(.usable)
+        for _ in 0..<20 { await Task.yield() }
+
+        let closeCodes = await connection.closeCodes()
+        let ticketRequests = await harness.tickets.requestCount()
+        let openCount = await recorder.openCount()
+        XCTAssertEqual(closeCodes, [])
+        XCTAssertEqual(ticketRequests, 1)
+        XCTAssertEqual(openCount, 1)
+        await harness.socket.close()
+    }
+
     func testOneRemoteCloseProducesOneRetryAndNoDuplicateReceiveTasks() async throws {
         let first = FakeRoomWebSocketConnection(receiveSteps: [.wait])
         let second = FakeRoomWebSocketConnection(receiveSteps: [.wait])
@@ -277,7 +348,8 @@ final class RoomSocketTests: XCTestCase {
         tickets: FakeTicketProvider? = nil,
         path: FakeNetworkPathMonitor? = nil,
         connections: [FakeRoomWebSocketConnection],
-        nowMilliseconds: Int64 = 0
+        nowMilliseconds: Int64 = 0,
+        webSocketBaseURL: URL = URL(string: "wss://example.com")!
     ) -> Harness {
         let tickets = tickets ?? FakeTicketProvider(steps: (0..<20).map { index in
             .success(TicketResponse(ticket: Self.ticket(index), expiresAt: 61_000))
@@ -287,7 +359,7 @@ final class RoomSocketTests: XCTestCase {
         let path = path ?? FakeNetworkPathMonitor(initialStatus: .usable)
         let socket = RoomSocket(
             credentials: credentials,
-            webSocketBaseURL: URL(string: "wss://example.com")!,
+            webSocketBaseURL: webSocketBaseURL,
             ticketProvider: tickets,
             webSocketFactory: factory,
             clock: clock,
@@ -346,6 +418,47 @@ private struct Harness {
 
 private enum TestWaitError: Error {
     case timedOut
+}
+
+private actor AsyncGate {
+    private var suspended = false
+    private var suspensionWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+    func suspend() async {
+        suspended = true
+        suspensionWaiters.forEach { $0.resume() }
+        suspensionWaiters.removeAll()
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+        }
+    }
+
+    func waitUntilSuspended() async {
+        if suspended { return }
+        await withCheckedContinuation { continuation in
+            suspensionWaiters.append(continuation)
+        }
+    }
+
+    func release() {
+        let continuation = releaseContinuation
+        releaseContinuation = nil
+        continuation?.resume()
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.withLock { count += 1 }
+    }
+
+    func value() -> Int {
+        lock.withLock { count }
+    }
 }
 
 private actor EventRecorder {
