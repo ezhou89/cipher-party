@@ -25,6 +25,11 @@
 		A50000000000000000000004 /* ProjectionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000104 /* ProjectionCacheTests.swift */; };
 		A60000000000000000000005 /* InviteRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000105 /* InviteRouterTests.swift */; };
 		A61000000000000000000001 /* CameraInviteScannerLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */; };
+		A70000000000000000000001 /* LobbyViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70000000000000000000101 /* LobbyViewTests.swift */; };
+		B70000000000000000000001 /* LobbyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000101 /* LobbyView.swift */; };
+		B70000000000000000000002 /* SeatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000102 /* SeatListView.swift */; };
+		B70000000000000000000003 /* RoomShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000103 /* RoomShareSheet.swift */; };
+		B70000000000000000000004 /* ConnectionBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70000000000000000000104 /* ConnectionBanner.swift */; };
 		A60000000000000000000001 /* InviteRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000101 /* InviteRouter.swift */; };
 		A60000000000000000000002 /* QRCodeRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000102 /* QRCodeRenderer.swift */; };
 		A60000000000000000000003 /* EntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A60000000000000000000103 /* EntryView.swift */; };
@@ -96,6 +101,11 @@
 		A60000000000000000000104 /* JoinRoomView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JoinRoomView.swift; sourceTree = "<group>"; };
 		A60000000000000000000106 /* CipherParty.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CipherParty.entitlements; sourceTree = "<group>"; };
 		A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraInviteScannerLifecycleTests.swift; sourceTree = "<group>"; };
+		A70000000000000000000101 /* LobbyViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyViewTests.swift; sourceTree = "<group>"; };
+		B70000000000000000000101 /* LobbyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LobbyView.swift; sourceTree = "<group>"; };
+		B70000000000000000000102 /* SeatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatListView.swift; sourceTree = "<group>"; };
+		B70000000000000000000103 /* RoomShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomShareSheet.swift; sourceTree = "<group>"; };
+		B70000000000000000000104 /* ConnectionBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionBanner.swift; sourceTree = "<group>"; };
 		A30000000000000000000101 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		A30000000000000000000102 /* SeatCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatCredentialStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -168,6 +178,7 @@
 				A50000000000000000000104 /* ProjectionCacheTests.swift */,
 				A60000000000000000000105 /* InviteRouterTests.swift */,
 				A61000000000000000000101 /* CameraInviteScannerLifecycleTests.swift */,
+				A70000000000000000000101 /* LobbyViewTests.swift */,
 				A20000000000000000000202 /* Fixtures */,
 			);
 			path = CipherPartyTests;
@@ -218,9 +229,29 @@
 			isa = PBXGroup;
 			children = (
 				A60000000000000000000201 /* Entry */,
+				B70000000000000000000201 /* Lobby */,
+				B70000000000000000000202 /* Connection */,
 				A50000000000000000000101 /* RoomSession.swift */,
 			);
 			path = Features;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000201 /* Lobby */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000101 /* LobbyView.swift */,
+				B70000000000000000000102 /* SeatListView.swift */,
+				B70000000000000000000103 /* RoomShareSheet.swift */,
+			);
+			path = Lobby;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000202 /* Connection */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000104 /* ConnectionBanner.swift */,
+			);
+			path = Connection;
 			sourceTree = "<group>";
 		};
 		A60000000000000000000201 /* Entry */ = {
@@ -380,6 +411,10 @@
 				A60000000000000000000002 /* QRCodeRenderer.swift in Sources */,
 				A60000000000000000000003 /* EntryView.swift in Sources */,
 				A60000000000000000000004 /* JoinRoomView.swift in Sources */,
+				B70000000000000000000001 /* LobbyView.swift in Sources */,
+				B70000000000000000000002 /* SeatListView.swift in Sources */,
+				B70000000000000000000003 /* RoomShareSheet.swift in Sources */,
+				B70000000000000000000004 /* ConnectionBanner.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -396,6 +431,7 @@
 				A50000000000000000000004 /* ProjectionCacheTests.swift in Sources */,
 				A60000000000000000000005 /* InviteRouterTests.swift in Sources */,
 				A61000000000000000000001 /* CameraInviteScannerLifecycleTests.swift in Sources */,
+				A70000000000000000000001 /* LobbyViewTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -200,26 +200,32 @@ private struct RoomSessionHandoffView: View {
     let session: RoomSession
 
     var body: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-            Text("Opening room \(code)")
-                .font(.headline)
+        Group {
+            if session.projection != nil {
+                LobbyView(session: session)
+            } else {
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("Opening room \(code)")
+                        .font(.headline)
 
-            switch session.connectionState {
-            case .failed:
-                Text("The room could not connect. Check your network and try again.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            case .disconnected:
-                Text("Connection paused. Your saved seat is safe on this device.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            default:
-                Text("Connecting securely…")
-                    .foregroundStyle(.secondary)
+                    switch session.connectionState {
+                    case .failed:
+                        Text("The room could not connect. Check your network and try again.")
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    case .disconnected:
+                        Text("Connection paused. Your saved seat is safe on this device.")
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    default:
+                        Text("Connecting securely…")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(24)
             }
         }
-        .padding(24)
         .navigationBarBackButtonHidden()
     }
 }

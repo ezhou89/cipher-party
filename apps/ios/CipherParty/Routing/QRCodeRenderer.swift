@@ -15,9 +15,7 @@ struct QRCodeRenderer {
     }
 
     func render(inviteURL: URL) throws -> CGImage {
-        guard Self.isSafeInviteURL(inviteURL) else {
-            throw QRCodeRendererError.unsafeInviteURL
-        }
+        _ = try Self.validatedInviteURL(inviteURL)
 
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(inviteURL.absoluteString.utf8)
@@ -31,6 +29,13 @@ struct QRCodeRenderer {
             throw QRCodeRendererError.generationFailed
         }
         return image
+    }
+
+    static func validatedInviteURL(_ url: URL) throws -> URL {
+        guard isSafeInviteURL(url) else {
+            throw QRCodeRendererError.unsafeInviteURL
+        }
+        return url
     }
 
     private static func isSafeInviteURL(_ url: URL) -> Bool {

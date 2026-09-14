@@ -26,4 +26,12 @@ final class EntryFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["join.scanInvite"].exists)
         XCTAssertTrue(app.staticTexts["join.manualFallback"].exists)
     }
+
+    func testHostControlsAreNotShownBeforeRoomProjection() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        XCTAssertTrue(app.otherElements["entry.screen"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.otherElements["lobby.hostControls"].exists)
+    }
 }
