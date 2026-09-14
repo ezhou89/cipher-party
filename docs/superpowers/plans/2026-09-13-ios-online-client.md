@@ -225,19 +225,19 @@ kept beside the existing web and worker apps; it is not a second repository.
 - `SeatCredentialStore` uses Security Keychain with a device-only accessibility
   class and deletes credentials on explicit leave.
 
-- [ ] **Step 1: Write failing URLProtocol tests.** Assert exact HTTP methods,
+- [x] **Step 1: Write failing URLProtocol tests.** Assert exact HTTP methods,
   paths, JSON bodies, headers, status/error mapping, and that tokens do not
   appear in thrown error descriptions.
-- [ ] **Step 2: Write failing Keychain tests.** Cover put/get/delete, host-token
+- [x] **Step 2: Write failing Keychain tests.** Cover put/get/delete, host-token
   optionality, separate room keys, duplicate replacement, and a failing
   Keychain status surfaced as a typed error.
-- [ ] **Step 3: Implement typed API errors and requests.** Reuse the browser's
+- [x] **Step 3: Implement typed API errors and requests.** Reuse the browser's
   room-code normalization rules and strict response decoding; never concatenate
   unvalidated path components.
-- [ ] **Step 4: Implement the Keychain adapter.** Inject a small Keychain client
+- [x] **Step 4: Implement the Keychain adapter.** Inject a small Keychain client
   protocol so tests use an in-memory fake. Use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
   (or the platform-equivalent constant) and avoid iCloud synchronization.
-- [ ] **Step 5: Verify focused tests and a local Worker smoke request.** Do not
+- [x] **Step 5: Verify focused tests and a local Worker smoke request.** Do not
   log request headers or response tokens.
 
 ## Task 4: Build the ticketed WebSocket and reconnect transport
