@@ -64,3 +64,72 @@ xcodebuild \
   -only-testing:CipherPartyUITests/EntryFlowUITests \
   test
 ```
+
+## Mixed-client integration and privacy harness
+
+The Worker is the interoperability reference for the native client. It uses
+the same HTTP room bootstrap, bearer-token ticket issuance, one-use WSS ticket,
+role-specific projection, command-revision, and reconnect contracts consumed by
+the iOS app. Run these checks from the repository root before a staging smoke:
+
+```sh
+pnpm --filter @cipher-party/worker exec vitest run \
+  test/rooms-api.test.ts test/room-websocket.test.ts --reporter=dot
+```
+
+This covers room creation and join, browser-compatible ticket issuance,
+multiple simultaneous seats, role-safe projections at a shared revision,
+authorization, command broadcasts, duplicate/reconnect behavior, and fresh
+projection recovery. The verified local result for the current client is 14
+tests passed.
+
+The browser fallback remains a separate compatibility check:
+
+```sh
+pnpm --filter @cipher-party/web exec vitest run \
+  src/features/lobby/RoomPage.test.tsx --reporter=dot
+```
+
+The verified local result is 4 tests passed, including a room URL opening in
+the browser when the native app is not installed and an in-page browser join.
+Worker authorization and Universal Link association regressions are covered by:
+
+```sh
+pnpm --filter @cipher-party/worker exec vitest run \
+  test/auth.test.ts test/apple-app-site-association.test.ts --reporter=dot
+```
+
+The verified local result is 6 tests passed.
+
+For an iOS-side smoke, create a room in the app, open the invite URL in a
+browser, join from the browser, and connect a second iOS install or simulator
+with the same code. In the lobby, assign at least one clue-giver and operative
+to each team, lock and start the board, then complete one clue/nomination/reveal
+turn. Background the app between the clue and reveal, restore it, and confirm
+that the connection banner stays read-only until a fresh server projection
+arrives. The app must obtain a new short-lived ticket on reconnect; never copy
+or inspect a durable seat/host token from a URL, QR payload, log, notification,
+share item, or cache file.
+
+The following local audit is intentionally source-level and safe to run in CI:
+
+```sh
+rg -n --glob '*.swift' \
+  '(print\(|NSLog|os_log|Logger\(|UNNotification|UserDefaults|NSUbiquitous)' \
+  apps/ios/CipherParty apps/ios/CipherPartyTests apps/ios/CipherPartyUITests
+```
+
+Expected production output is empty. Invite/QR tests reject query strings,
+fragments, and credential-shaped payloads; projection/cache tests reject hidden
+keys outside the clue-giver projection; API/Keychain tests assert that error
+descriptions do not contain durable credentials.
+
+The current environment can parse every Swift source with the iOS 17 target,
+but simulator execution is not deterministic here when CoreSimulatorService or
+the Observation macro service is unavailable. A signed-device run is still
+required for camera capture, Universal Link association, share-sheet behavior,
+background/foreground transitions, and VoiceOver/dark-mode visual checks.
+The configured `oddlyuseful.studio` host must also route the Cipher Party
+Worker before staging create/join can be exercised; if it serves another site,
+use the deployed Worker origin instead and do not treat a 404 as an iOS protocol
+failure.
