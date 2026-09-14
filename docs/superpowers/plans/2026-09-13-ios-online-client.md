@@ -297,20 +297,20 @@ kept beside the existing web and worker apps; it is not a second repository.
   sandbox. It strips `key` before persistence, applies file protection, never
   syncs to iCloud, and is deleted on leave.
 
-- [ ] **Step 1: Write failing state-machine tests.** Cover projection
+- [x] **Step 1: Write failing state-machine tests.** Cover projection
   replacement, connection transitions, cached-state labeling, permission-based
   command gating, one in-flight command, and clean leave.
-- [ ] **Step 2: Write failing reconciliation tests.** Cover successful command
+- [x] **Step 2: Write failing reconciliation tests.** Cover successful command
   result followed by projection, stale revision, unauthorized/wrong-phase
   errors, socket loss after send, and a new projection arriving before a result.
-- [ ] **Step 3: Implement the session.** Subscribe to `RoomSocket`, replace
+- [x] **Step 3: Implement the session.** Subscribe to `RoomSocket`, replace
   state only with complete server projections, persist a redacted cache, and
   clear pending state only when the result/projection revision proves it is
   reconciled.
-- [ ] **Step 4: Implement explicit retry UX state.** A command with unknown
+- [x] **Step 4: Implement explicit retry UX state.** A command with unknown
   delivery is not replayed automatically. After the fresh revision arrives,
   expose retry/cancel intent to the view and generate a new command ID on retry.
-- [ ] **Step 5: Verify hidden-data and cache tests.** Assert no operative,
+- [x] **Step 5: Verify hidden-data and cache tests.** Assert no operative,
   spectator, or persisted projection can contain unrevealed ownership.
 
 ## Task 6: Add invite routing, QR sharing, and Universal Link support
