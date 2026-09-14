@@ -250,6 +250,19 @@ final class RoomSessionTests: XCTestCase {
         )
     }
 
+    func testDelayedGenerationlessConfigurationFailureAfterOpenIsIgnored() async throws {
+        let harness = makeHarness()
+        await harness.session.connect()
+        await harness.socket.emit(.open)
+        try await waitUntil { harness.session.connectionState == .connected }
+
+        await harness.socket.emit(.terminalFailure(.configuration))
+        for _ in 0..<40 { await Task.yield() }
+
+        XCTAssertEqual(harness.session.connectionState, .connected)
+        XCTAssertNil(harness.session.lastError)
+    }
+
     func testTerminalFailureSurvivesSceneChangesAndStillAllowsRootLeave() async throws {
         let harness = makeHarness()
         let flow = RoomFlow { _ in harness.session }

@@ -148,6 +148,7 @@ final class RoomSession {
     @ObservationIgnored private var socketIsOpen = false
     @ObservationIgnored private var requiresForegroundOpen = false
     @ObservationIgnored private var hasObservedSocketLifecycle = false
+    @ObservationIgnored private var initialConfigurationFailureEligible = true
     @ObservationIgnored private var terminalFailure: RoomSocketFailure?
     private var projectionIsFresh = false
     @ObservationIgnored private var leaving = false
@@ -510,6 +511,7 @@ final class RoomSession {
             connectionState = .connecting
             projectionIsFresh = false
         case .open:
+            initialConfigurationFailureEligible = false
             socketIsOpen = true
             requiresForegroundOpen = false
             backgroundSocketGeneration = nil
@@ -544,6 +546,7 @@ final class RoomSession {
             markConnectionUncertain()
             lastError = .connection(.incompatibleResponse)
         case let .terminalFailure(failure):
+            initialConfigurationFailureEligible = false
             terminalFailure = failure
             socketIsOpen = false
             connectionState = .failed(failure)
@@ -729,7 +732,7 @@ final class RoomSession {
     ) -> Bool {
         guard let eventGeneration else {
             if failure == .configuration {
-                return true
+                return initialConfigurationFailureEligible
             }
             return !hasObservedSocketLifecycle && !isInBackground && !requiresForegroundOpen
         }
