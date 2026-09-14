@@ -164,7 +164,7 @@ describe("RoomPage", () => {
     return { ...render(<RouterProvider router={router} />), fetchMock };
   }
 
-  it("shows join form when no credentials exist in seat store", async () => {
+  it("keeps /room/CODE as a browser join fallback when no native app opens it", async () => {
     renderRoomPage("ABC234");
 
     await waitFor(() => {

@@ -1,6 +1,6 @@
 API_BASE_URL = http:/$()/127.0.0.1:8787
 APP_ENVIRONMENT = debug
-APP_URL_SCHEME = cipherparty-dev
+APP_URL_SCHEME = cipherparty
 KEYCHAIN_SERVICE_NAME = studio.oddlyuseful.cipherparty.debug.credentials
 FEATURE_CONNECTION_DIAGNOSTICS = YES
 

@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { handleAppleAppSiteAssociation } from "./apple-app-site-association";
 import { errorResponse } from "./json";
 import { handleCreateRoom, handleIssueTicket, handleJoinRoom } from "./rooms";
 import { RoomCodeSchema } from "./schemas";
@@ -10,6 +11,13 @@ export async function routeRequest(
   const url = new URL(request.url);
   const { pathname } = url;
   const { method } = request;
+
+  if (
+    pathname === "/.well-known/apple-app-site-association" &&
+    method === "GET"
+  ) {
+    return handleAppleAppSiteAssociation(env);
+  }
 
   if (pathname === "/api/health" && method === "GET") {
     return Response.json({ ok: true, service: "cipher-party" });
