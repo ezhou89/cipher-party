@@ -38,6 +38,9 @@ final class RoomFlow {
     @ObservationIgnored private var transitionTask: Task<Void, Never>?
     @ObservationIgnored private var sceneIsActive = true
     @ObservationIgnored private var pendingCleanupSessions: [RoomSession] = []
+    // A same-code open with a different seat is a real replacement; repeated
+    // opens for the same saved seat keep the existing connection.
+    @ObservationIgnored private var activePlayerID: String?
 
     init(makeSession: @escaping (SeatCredentials) -> RoomSession) {
         self.makeSession = makeSession
@@ -47,10 +50,15 @@ final class RoomFlow {
         transitions += 1
         defer { transitions -= 1 }
         await enqueue { [self] in
-            guard roomCode != credentials.code || session == nil else { return }
+            guard
+                session == nil
+                    || roomCode != credentials.code
+                    || activePlayerID != credentials.playerId
+            else { return }
             await cleanUpCurrentSession()
             let newSession = makeSession(credentials)
             roomCode = credentials.code
+            activePlayerID = credentials.playerId
             session = newSession
             await newSession.connect()
             if !sceneIsActive { await newSession.didEnterBackground() }
@@ -71,11 +79,18 @@ final class RoomFlow {
             var remainingSessions: [RoomSession] = []
             var remainingCodes: [String] = []
             for (index, pending) in pendingCleanupSessions.enumerated() {
-                await pending.leave()
-                if pending.lastError == .leaveCleanup {
+                let pendingCode = index < pendingCleanupRoomCodes.count
+                    ? pendingCleanupRoomCodes[index]
+                    : nil
+                // A code-scoped cache/keychain record may now belong to the
+                // active rejoined room. Defer this old session's destructive
+                // cleanup until that active room is no longer using the code.
+                let preservesPersistentState = pendingCode != nil && pendingCode == roomCode
+                await pending.leave(preservingPersistentState: preservesPersistentState)
+                if preservesPersistentState || pending.lastError == .leaveCleanup {
                     remainingSessions.append(pending)
-                    if index < pendingCleanupRoomCodes.count {
-                        remainingCodes.append(pendingCleanupRoomCodes[index])
+                    if let pendingCode {
+                        remainingCodes.append(pendingCode)
                     }
                 }
             }
@@ -113,6 +128,7 @@ final class RoomFlow {
         cleanupFailed = !pendingCleanupSessions.isEmpty
         session = nil
         roomCode = nil
+        activePlayerID = nil
     }
 
     @discardableResult

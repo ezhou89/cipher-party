@@ -86,8 +86,8 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertNotEqual(harness.session.projection?.revision, 12)
         flow.sceneChanged(isActive: true)
         await flow.waitForTransitions()
-        await harness.socket.emit(.open)
-        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 13))))
+        await harness.socket.emit(.open(generation: 2))
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 13)), generation: 2))
         try await waitUntil { harness.session.projection?.revision == 13 }
         XCTAssertFalse(harness.session.isStale)
         XCTAssertNotNil(harness.session.projection?.key)
@@ -137,6 +137,84 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertTrue(flow.session === second.session)
         let deletedCodes = await first.cache.deletedCodes()
         XCTAssertEqual(deletedCodes, ["ABC234"])
+    }
+
+    func testSameRoomCodeCleanupCannotDeleteActiveSeatOrCache() async throws {
+        let sharedCache = FakeProjectionCache(cached: nil, deleteFailures: 1)
+        let sharedStore = FakeRoomCredentialStore()
+        let firstCredentials = SeatCredentials(
+            code: "ABC234",
+            playerId: "11111111-1111-4111-8111-111111111111",
+            seatToken: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            hostToken: nil
+        )
+        let secondCredentials = SeatCredentials(
+            code: "ABC234",
+            playerId: "22222222-2222-4222-8222-222222222222",
+            seatToken: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            hostToken: nil
+        )
+        await sharedStore.put(firstCredentials)
+        let first = makeHarness(code: "ABC234", cache: sharedCache, store: sharedStore)
+        let second = makeHarness(code: "ABC234", cache: sharedCache, store: sharedStore)
+        let flow = RoomFlow { credentials in
+            credentials.playerId == firstCredentials.playerId ? first.session : second.session
+        }
+
+        await flow.open(firstCredentials)
+        await flow.open(secondCredentials)
+        await sharedStore.put(secondCredentials)
+        try await sharedCache.save(try projection(named: "projection-operative"), lastUpdated: Self.now)
+
+        XCTAssertTrue(flow.session === second.session)
+        XCTAssertTrue(flow.cleanupFailed)
+        XCTAssertEqual(flow.pendingCleanupRoomCodes, ["ABC234"])
+
+        await flow.retryCleanup()
+
+        XCTAssertTrue(flow.cleanupFailed)
+        XCTAssertEqual(flow.pendingCleanupRoomCodes, ["ABC234"])
+        XCTAssertTrue(flow.session === second.session)
+        let activeCredentials = await sharedStore.current(code: "ABC234")
+        let activeCacheCode = await sharedCache.currentCode()
+        let deletedCodes = await sharedCache.deletedCodes()
+        XCTAssertEqual(activeCredentials, secondCredentials)
+        XCTAssertEqual(activeCacheCode, "ABC234")
+        XCTAssertEqual(deletedCodes, [])
+    }
+
+    func testTerminalFailureQueuedWhileBackgroundRemainsFailedAfterForeground() async throws {
+        let harness = makeHarness()
+        await harness.session.connect()
+        await harness.socket.emit(.open(generation: 1))
+        try await waitUntil { harness.session.connectionState == .connected }
+
+        harness.session.prepareForBackground()
+        await harness.socket.emit(.terminalFailure(.authentication, generation: 1))
+        await harness.socket.emit(.closed(.background, generation: 2))
+        try await waitUntil { harness.session.connectionState == .failed(.authentication) }
+
+        await harness.session.willEnterForeground()
+
+        XCTAssertEqual(harness.session.connectionState, .failed(.authentication))
+        XCTAssertEqual(harness.session.lastError, .connection(.authentication))
+    }
+
+    func testLegacyNilGenerationOpenCannotClearForegroundBarrier() async throws {
+        let harness = makeHarness()
+        try await connect(harness, projection: projection(named: "projection-clue-giver"))
+        let revision = harness.session.projection?.revision
+
+        harness.session.prepareForBackground()
+        await harness.session.willEnterForeground()
+        await harness.socket.emit(.open)
+        await harness.socket.emit(.message(.projection(try projection(named: "projection-clue-giver", revision: 13))))
+        for _ in 0..<40 { await Task.yield() }
+
+        XCTAssertEqual(harness.session.connectionState, .connecting)
+        XCTAssertTrue(harness.session.isStale)
+        XCTAssertEqual(harness.session.projection?.revision, revision)
+        XCTAssertNil(harness.session.projection?.key)
     }
 
     func testTerminalFailureSurvivesSceneChangesAndStillAllowsRootLeave() async throws {
@@ -623,7 +701,7 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertEqual(backgroundCount, 1)
         XCTAssertEqual(foregroundCount, 1)
 
-        await harness.socket.emit(.terminalFailure(.authentication))
+        await harness.socket.emit(.terminalFailure(.authentication, generation: 2))
         try await waitUntil { harness.session.connectionState == .failed(.authentication) }
         XCTAssertEqual(harness.session.lastError, .connection(.authentication))
     }
@@ -679,17 +757,20 @@ final class RoomSessionTests: XCTestCase {
     }
 
     private func makeHarness(
+        code: String = "ABC234",
         cached: CachedRoomProjection? = nil,
         commandIDs: [UUID] = [],
         commandIDGenerator: (any RoomCommandIDGenerating)? = nil,
         cacheDeleteFailures: Int = 0,
-        credentialDeleteFailures: Int = 0
+        credentialDeleteFailures: Int = 0,
+        cache: FakeProjectionCache? = nil,
+        store: FakeRoomCredentialStore? = nil
     ) -> Harness {
         let socket = FakeRoomSessionSocket()
-        let cache = FakeProjectionCache(cached: cached, deleteFailures: cacheDeleteFailures)
-        let store = FakeRoomCredentialStore(deleteFailures: credentialDeleteFailures)
+        let cache = cache ?? FakeProjectionCache(cached: cached, deleteFailures: cacheDeleteFailures)
+        let store = store ?? FakeRoomCredentialStore(deleteFailures: credentialDeleteFailures)
         let session = RoomSession(
-            code: "ABC234",
+            code: code,
             socket: socket,
             credentialStore: store,
             cache: cache,
@@ -823,6 +904,7 @@ private actor FakeProjectionCache: ProjectionCaching {
     private var remainingDeleteFailures: Int
     private var saved: [CachedRoomProjection] = []
     private var deletions: [String] = []
+    private var currentCodes: Set<String> = []
 
     init(cached: CachedRoomProjection?, deleteFailures: Int = 0) {
         self.cached = cached
@@ -832,6 +914,7 @@ private actor FakeProjectionCache: ProjectionCaching {
     func load(code: String) -> CachedRoomProjection? { cached }
 
     func save(_ projection: ClientProjection, lastUpdated: Date) throws {
+        currentCodes.insert(projection.base.code)
         saved.append(
             CachedRoomProjection(
                 projection: try RoomProjection(serverProjection: projection).redacted(),
@@ -845,18 +928,25 @@ private actor FakeProjectionCache: ProjectionCaching {
             remainingDeleteFailures -= 1
             throw TestCleanupError.failed
         }
+        currentCodes.remove(code)
         deletions.append(code)
     }
     func savedProjections() -> [CachedRoomProjection] { saved }
     func deletedCodes() -> [String] { deletions }
+    func currentCode() -> String? { currentCodes.first }
 }
 
 private actor FakeRoomCredentialStore: RoomCredentialDeleting {
     private var remainingDeleteFailures: Int
     private var deletions: [String] = []
+    private var credentials: [String: SeatCredentials] = [:]
 
     init(deleteFailures: Int = 0) {
         remainingDeleteFailures = deleteFailures
+    }
+
+    func put(_ credentials: SeatCredentials) {
+        self.credentials[credentials.code] = credentials
     }
 
     func delete(code: String) throws {
@@ -864,9 +954,11 @@ private actor FakeRoomCredentialStore: RoomCredentialDeleting {
             remainingDeleteFailures -= 1
             throw TestCleanupError.failed
         }
+        credentials.removeValue(forKey: code)
         deletions.append(code)
     }
     func deletedCodes() -> [String] { deletions }
+    func current(code: String) -> SeatCredentials? { credentials[code] }
 }
 
 private enum TestCleanupError: Error {

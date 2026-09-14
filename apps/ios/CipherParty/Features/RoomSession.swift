@@ -144,8 +144,10 @@ final class RoomSession {
     @ObservationIgnored private var sessionGeneration: UInt64 = 0
     @ObservationIgnored private var minimumSocketGeneration: UInt64 = 0
     @ObservationIgnored private var activeSocketGeneration: UInt64?
+    @ObservationIgnored private var backgroundSocketGeneration: UInt64?
     @ObservationIgnored private var socketIsOpen = false
     @ObservationIgnored private var requiresForegroundOpen = false
+    @ObservationIgnored private var terminalFailure: RoomSocketFailure?
     private var projectionIsFresh = false
     @ObservationIgnored private var leaving = false
     @ObservationIgnored private var isInBackground = false
@@ -215,6 +217,7 @@ final class RoomSession {
         isInBackground = true
         socketIsOpen = false
         requiresForegroundOpen = true
+        backgroundSocketGeneration = activeSocketGeneration
         if let activeSocketGeneration {
             minimumSocketGeneration = max(minimumSocketGeneration, activeSocketGeneration &+ 1)
         }
@@ -242,7 +245,9 @@ final class RoomSession {
         isInBackground = false
     }
 
-    func leave() async {
+    /// Closes this session and optionally leaves code-scoped persistence for a
+    /// newer session that has already rejoined the same room code.
+    func leave(preservingPersistentState: Bool = false) async {
         leaving = true
         sessionGeneration &+= 1
         activeSubmission = nil
@@ -251,15 +256,17 @@ final class RoomSession {
         await socket.close()
 
         var cleanupFailed = false
-        do {
-            try await cache.delete(code: code)
-        } catch {
-            cleanupFailed = true
-        }
-        do {
-            try await credentialStore.delete(code: code)
-        } catch {
-            cleanupFailed = true
+        if !preservingPersistentState {
+            do {
+                try await cache.delete(code: code)
+            } catch {
+                cleanupFailed = true
+            }
+            do {
+                try await credentialStore.delete(code: code)
+            } catch {
+                cleanupFailed = true
+            }
         }
 
         connectionState = .idle
@@ -268,6 +275,7 @@ final class RoomSession {
         pendingCommand = nil
         lastCommandResult = nil
         projectionIsFresh = false
+        terminalFailure = nil
         lastError = cleanupFailed ? .leaveCleanup : nil
         leaving = false
     }
@@ -492,6 +500,7 @@ final class RoomSession {
 
     private func receive(_ event: RoomSocketEvent) async {
         guard !leaving else { return }
+        guard terminalFailure == nil else { return }
         guard accepts(event) else { return }
         switch event.kind {
         case .connecting:
@@ -500,6 +509,7 @@ final class RoomSession {
         case .open:
             socketIsOpen = true
             requiresForegroundOpen = false
+            backgroundSocketGeneration = nil
             activeSocketGeneration = event.generation
             connectionState = .connected
             projectionIsFresh = false
@@ -514,11 +524,13 @@ final class RoomSession {
             markConnectionUncertain()
             lastError = .connection(.incompatibleResponse)
         case let .terminalFailure(failure):
+            terminalFailure = failure
             socketIsOpen = false
             connectionState = .failed(failure)
             markConnectionUncertain()
             lastError = .connection(failure)
         case let .closed(reason):
+            guard terminalFailure == nil else { return }
             socketIsOpen = false
             connectionState = reason == .userInitiated ? .idle : .disconnected(reason)
             markConnectionUncertain()
@@ -642,10 +654,35 @@ final class RoomSession {
     }
 
     private func accepts(_ event: RoomSocketEvent) -> Bool {
+        // A terminal failure can be queued by the active transport just as
+        // the scene enters the background. Preserve it even when its socket
+        // generation predates the background floor; otherwise RoomSocket has
+        // already stopped retrying and foreground cannot recover the failure.
+        if case .terminalFailure = event.kind {
+            if let eventGeneration = event.generation {
+                if let backgroundSocketGeneration {
+                    return eventGeneration == backgroundSocketGeneration
+                        || eventGeneration >= minimumSocketGeneration
+                }
+                if isInBackground || requiresForegroundOpen {
+                    return eventGeneration >= minimumSocketGeneration
+                }
+            } else if isInBackground || requiresForegroundOpen {
+                // Nil generations are only supported before the first
+                // lifecycle barrier. URLSession-backed production events are
+                // always tagged, so a nil terminal event after background is
+                // stale and must not fail a newly foregrounded session.
+                return false
+            } else {
+                return true
+            }
+        }
+
         if isInBackground {
             // A transport close is still useful while the scene is covered:
             // it records the connection transition without allowing a queued
-            // socket open or message to restore usable state.
+            // socket open or message to restore usable state. Terminal
+            // failures are handled above so they cannot be lost.
             guard case .closed = event.kind else { return false }
         }
 
@@ -673,7 +710,7 @@ final class RoomSession {
         case .connecting:
             return true
         case .open:
-            return true
+            return !requiresForegroundOpen
         case .terminalFailure, .closed, .reconnecting, .incompatibleMessage:
             return true
         case .message:
