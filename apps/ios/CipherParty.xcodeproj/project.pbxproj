@@ -21,6 +21,10 @@
 		A30000000000000000000003 /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000103 /* APIClientTests.swift */; };
 		A30000000000000000000004 /* SeatCredentialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000104 /* SeatCredentialStoreTests.swift */; };
 		A40000000000000000000003 /* RoomSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000103 /* RoomSocketTests.swift */; };
+		A50000000000000000000003 /* RoomSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000103 /* RoomSessionTests.swift */; };
+		A50000000000000000000004 /* ProjectionCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000104 /* ProjectionCacheTests.swift */; };
+		A50000000000000000000001 /* RoomSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000101 /* RoomSession.swift */; };
+		A50000000000000000000002 /* ProjectionCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50000000000000000000102 /* ProjectionCache.swift */; };
 		A40000000000000000000001 /* RoomSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000101 /* RoomSocket.swift */; };
 		A40000000000000000000002 /* NetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A40000000000000000000102 /* NetworkPathMonitor.swift */; };
 		A30000000000000000000001 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000101 /* APIClient.swift */; };
@@ -75,6 +79,10 @@
 		A40000000000000000000103 /* RoomSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSocketTests.swift; sourceTree = "<group>"; };
 		A40000000000000000000101 /* RoomSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSocket.swift; sourceTree = "<group>"; };
 		A40000000000000000000102 /* NetworkPathMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkPathMonitor.swift; sourceTree = "<group>"; };
+		A50000000000000000000103 /* RoomSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSessionTests.swift; sourceTree = "<group>"; };
+		A50000000000000000000104 /* ProjectionCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectionCacheTests.swift; sourceTree = "<group>"; };
+		A50000000000000000000101 /* RoomSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomSession.swift; sourceTree = "<group>"; };
+		A50000000000000000000102 /* ProjectionCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectionCache.swift; sourceTree = "<group>"; };
 		A30000000000000000000101 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		A30000000000000000000102 /* SeatCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatCredentialStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -111,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000102 /* SeatCredentialStore.swift */,
+				A50000000000000000000102 /* ProjectionCache.swift */,
 			);
 			path = Persistence;
 			sourceTree = "<group>";
@@ -142,6 +151,8 @@
 				A30000000000000000000103 /* APIClientTests.swift */,
 				A30000000000000000000104 /* SeatCredentialStoreTests.swift */,
 				A40000000000000000000103 /* RoomSocketTests.swift */,
+				A50000000000000000000103 /* RoomSessionTests.swift */,
+				A50000000000000000000104 /* ProjectionCacheTests.swift */,
 				A20000000000000000000202 /* Fixtures */,
 			);
 			path = CipherPartyTests;
@@ -172,8 +183,17 @@
 				324FAFE17926D0798BA2FA00 /* CipherPartyApp.swift */,
 				A20000000000000000000201 /* Networking */,
 				A30000000000000000000203 /* Persistence */,
+				A50000000000000000000201 /* Features */,
 			);
 			path = CipherParty;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000201 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000101 /* RoomSession.swift */,
+			);
+			path = Features;
 			sourceTree = "<group>";
 		};
 		DC32B4A284CA77BC3DFE9E82 /* CipherPartyUITests */ = {
@@ -318,6 +338,8 @@
 				A30000000000000000000002 /* SeatCredentialStore.swift in Sources */,
 				A40000000000000000000001 /* RoomSocket.swift in Sources */,
 				A40000000000000000000002 /* NetworkPathMonitor.swift in Sources */,
+				A50000000000000000000001 /* RoomSession.swift in Sources */,
+				A50000000000000000000002 /* ProjectionCache.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -330,6 +352,8 @@
 				A30000000000000000000003 /* APIClientTests.swift in Sources */,
 				A30000000000000000000004 /* SeatCredentialStoreTests.swift in Sources */,
 				A40000000000000000000003 /* RoomSocketTests.swift in Sources */,
+				A50000000000000000000003 /* RoomSessionTests.swift in Sources */,
+				A50000000000000000000004 /* ProjectionCacheTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
