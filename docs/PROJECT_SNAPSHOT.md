@@ -109,8 +109,8 @@ Cloudflare room authority; no nearby/offline match is included.
 - Passing iOS commands: Debug and Staging `xcodebuild ... build`, Debug and
   Staging `xcodebuild ... test` on the iPhone SE (3rd generation) iOS 18.2
   simulator, and Debug/Staging `build-for-testing` with signing disabled.
-- Latest integration-fix verification: Debug and Staging each passed 121 native
-  tests (117 unit and 4 UI) with zero failures or skips, including saved-seat
+- Latest integration-fix verification: Debug and Staging each passed 124 native
+  tests (120 unit and 4 UI) with zero failures or skips, including saved-seat
   restoration, root lifecycle/cleanup, pending-action recovery, and unsafe-
   update handling.
 - Passing repository commands: `pnpm run check` (24 fixture tests, 22

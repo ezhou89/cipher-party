@@ -112,8 +112,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 ```
 
 The latest verification run passed both configurations on the iPhone SE (3rd
-generation) simulator (iOS 18.2), with 121 tests passing in each configuration
-(117 unit tests and 4 UI tests) and zero failures or skips. It also passed
+generation) simulator (iOS 18.2), with 124 tests passing in each configuration
+(120 unit tests and 4 UI tests) and zero failures or skips. It also passed
 Debug and Staging `build-for-testing`. A signed device remains required for camera capture,
 Universal Link activation, share sheets, background/foreground behavior, and
 the final Dynamic Type, dark-mode, and VoiceOver visual pass.

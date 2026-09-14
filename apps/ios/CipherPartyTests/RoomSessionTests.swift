@@ -139,8 +139,8 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertEqual(deletedCodes, ["ABC234"])
     }
 
-    func testSameRoomCodeCleanupCannotDeleteActiveSeatOrCache() async throws {
-        let sharedCache = FakeProjectionCache(cached: nil, deleteFailures: 1)
+    func testSameRoomCodeReplacementPreservesActiveSeatAndCache() async throws {
+        let sharedCache = FakeProjectionCache(cached: nil)
         let sharedStore = FakeRoomCredentialStore()
         let firstCredentials = SeatCredentials(
             code: "ABC234",
@@ -162,19 +162,17 @@ final class RoomSessionTests: XCTestCase {
         }
 
         await flow.open(firstCredentials)
-        await flow.open(secondCredentials)
-        await sharedStore.put(secondCredentials)
+        await sharedStore.put(firstCredentials)
         try await sharedCache.save(try projection(named: "projection-operative"), lastUpdated: Self.now)
 
-        XCTAssertTrue(flow.session === second.session)
-        XCTAssertTrue(flow.cleanupFailed)
-        XCTAssertEqual(flow.pendingCleanupRoomCodes, ["ABC234"])
+        // RoomEntryService has already replaced the code-scoped record with
+        // the new seat before RoomFlow receives the replacement session.
+        await sharedStore.put(secondCredentials)
+        await flow.open(secondCredentials)
 
-        await flow.retryCleanup()
-
-        XCTAssertTrue(flow.cleanupFailed)
-        XCTAssertEqual(flow.pendingCleanupRoomCodes, ["ABC234"])
         XCTAssertTrue(flow.session === second.session)
+        XCTAssertFalse(flow.cleanupFailed)
+        XCTAssertEqual(flow.pendingCleanupRoomCodes, [])
         let activeCredentials = await sharedStore.current(code: "ABC234")
         let activeCacheCode = await sharedCache.currentCode()
         let deletedCodes = await sharedCache.deletedCodes()
@@ -183,7 +181,23 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertEqual(deletedCodes, [])
     }
 
-    func testTerminalFailureQueuedWhileBackgroundRemainsFailedAfterForeground() async throws {
+    func testTerminalFailureGenerationRulesPreserveCurrentSocketAndBackgroundFailure() async throws {
+        let currentHarness = makeHarness()
+        await currentHarness.session.connect()
+        await currentHarness.socket.emit(.open(generation: 1))
+        try await waitUntil { currentHarness.session.connectionState == .connected }
+        await currentHarness.socket.emit(.open(generation: 2))
+        try await waitUntil { currentHarness.session.connectionState == .connected }
+        await currentHarness.socket.emit(.open)
+        try await waitUntil { currentHarness.session.connectionState == .connected }
+
+        // A terminal event from the superseded socket must not fail the new
+        // socket, even though it arrived after the replacement opened.
+        await currentHarness.socket.emit(.terminalFailure(.authentication, generation: 1))
+        for _ in 0..<40 { await Task.yield() }
+        XCTAssertEqual(currentHarness.session.connectionState, .connected)
+        XCTAssertNil(currentHarness.session.lastError)
+
         let harness = makeHarness()
         await harness.session.connect()
         await harness.socket.emit(.open(generation: 1))
@@ -200,7 +214,7 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertEqual(harness.session.lastError, .connection(.authentication))
     }
 
-    func testLegacyNilGenerationOpenCannotClearForegroundBarrier() async throws {
+    func testLifecycleBarrierRejectsLegacyEventsButPreservesConfigurationFailure() async throws {
         let harness = makeHarness()
         try await connect(harness, projection: projection(named: "projection-clue-giver"))
         let revision = harness.session.projection?.revision
@@ -215,6 +229,25 @@ final class RoomSessionTests: XCTestCase {
         XCTAssertTrue(harness.session.isStale)
         XCTAssertEqual(harness.session.projection?.revision, revision)
         XCTAssertNil(harness.session.projection?.key)
+
+        let configurationHarness = makeHarness()
+        let configurationFlow = RoomFlow { _ in configurationHarness.session }
+        configurationFlow.sceneChanged(isActive: false)
+        await configurationFlow.open(
+            SeatCredentials(code: "ABC234", playerId: "host", seatToken: "seat", hostToken: "host")
+        )
+        await configurationFlow.waitForTransitions()
+        await configurationHarness.socket.holdEvents()
+        await configurationHarness.socket.emit(.terminalFailure(.configuration))
+        configurationFlow.sceneChanged(isActive: true)
+        await configurationFlow.waitForTransitions()
+        await configurationHarness.socket.releaseEvents()
+
+        try await waitUntil { configurationHarness.session.connectionState == .failed(.configuration) }
+        XCTAssertEqual(
+            configurationHarness.session.lastError,
+            .connection(.configuration)
+        )
     }
 
     func testTerminalFailureSurvivesSceneChangesAndStillAllowsRootLeave() async throws {

@@ -147,6 +147,7 @@ final class RoomSession {
     @ObservationIgnored private var backgroundSocketGeneration: UInt64?
     @ObservationIgnored private var socketIsOpen = false
     @ObservationIgnored private var requiresForegroundOpen = false
+    @ObservationIgnored private var hasObservedSocketLifecycle = false
     @ObservationIgnored private var terminalFailure: RoomSocketFailure?
     private var projectionIsFresh = false
     @ObservationIgnored private var leaving = false
@@ -217,6 +218,7 @@ final class RoomSession {
         isInBackground = true
         socketIsOpen = false
         requiresForegroundOpen = true
+        hasObservedSocketLifecycle = true
         backgroundSocketGeneration = activeSocketGeneration
         if let activeSocketGeneration {
             minimumSocketGeneration = max(minimumSocketGeneration, activeSocketGeneration &+ 1)
@@ -502,6 +504,7 @@ final class RoomSession {
         guard !leaving else { return }
         guard terminalFailure == nil else { return }
         guard accepts(event) else { return }
+        hasObservedSocketLifecycle = true
         switch event.kind {
         case .connecting:
             connectionState = .connecting
@@ -510,7 +513,24 @@ final class RoomSession {
             socketIsOpen = true
             requiresForegroundOpen = false
             backgroundSocketGeneration = nil
-            activeSocketGeneration = event.generation
+            if let eventGeneration = event.generation {
+                // An accepted open establishes a new lower bound for tagged
+                // events. This prevents a delayed terminal event from an
+                // older socket from failing the newly opened session.
+                minimumSocketGeneration = max(minimumSocketGeneration, eventGeneration)
+                activeSocketGeneration = eventGeneration
+            } else {
+                // A generationless open comes only from legacy/test
+                // transports. Treat it as a new untagged socket while
+                // retaining a floor above any previously tagged socket.
+                if let activeSocketGeneration {
+                    minimumSocketGeneration = max(
+                        minimumSocketGeneration,
+                        activeSocketGeneration &+ 1
+                    )
+                }
+                activeSocketGeneration = nil
+            }
             connectionState = .connected
             projectionIsFresh = false
         case let .reconnecting(attempt, delay):
@@ -655,27 +675,12 @@ final class RoomSession {
 
     private func accepts(_ event: RoomSocketEvent) -> Bool {
         // A terminal failure can be queued by the active transport just as
-        // the scene enters the background. Preserve it even when its socket
-        // generation predates the background floor; otherwise RoomSocket has
-        // already stopped retrying and foreground cannot recover the failure.
-        if case .terminalFailure = event.kind {
-            if let eventGeneration = event.generation {
-                if let backgroundSocketGeneration {
-                    return eventGeneration == backgroundSocketGeneration
-                        || eventGeneration >= minimumSocketGeneration
-                }
-                if isInBackground || requiresForegroundOpen {
-                    return eventGeneration >= minimumSocketGeneration
-                }
-            } else if isInBackground || requiresForegroundOpen {
-                // Nil generations are only supported before the first
-                // lifecycle barrier. URLSession-backed production events are
-                // always tagged, so a nil terminal event after background is
-                // stale and must not fail a newly foregrounded session.
-                return false
-            } else {
-                return true
-            }
+        // the scene enters the background. Preserve it when it belongs to
+        // the active/pre-background socket, but never let an older socket
+        // fail a newer open. The initial configuration failure is the one
+        // intentional generationless terminal event from RoomSocket.start.
+        if case let .terminalFailure(failure) = event.kind {
+            return acceptsTerminalFailure(failure, generation: event.generation)
         }
 
         if isInBackground {
@@ -716,6 +721,29 @@ final class RoomSession {
         case .message:
             return socketIsOpen && !requiresForegroundOpen
         }
+    }
+
+    private func acceptsTerminalFailure(
+        _ failure: RoomSocketFailure,
+        generation eventGeneration: UInt64?
+    ) -> Bool {
+        guard let eventGeneration else {
+            if failure == .configuration {
+                return true
+            }
+            return !hasObservedSocketLifecycle && !isInBackground && !requiresForegroundOpen
+        }
+
+        if let backgroundSocketGeneration,
+           eventGeneration == backgroundSocketGeneration {
+            return true
+        }
+
+        // The active open is always a valid terminal source. Future tagged
+        // generations can also report a terminal failure before they emit an
+        // open event, but any generation below either floor is stale.
+        let activeFloor = activeSocketGeneration ?? 0
+        return eventGeneration >= max(minimumSocketGeneration, activeFloor)
     }
 
     private func permission(for command: ClassicCommand) -> RoomCommandPermission {

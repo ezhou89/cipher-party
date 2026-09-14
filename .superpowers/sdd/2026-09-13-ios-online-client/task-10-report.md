@@ -176,15 +176,16 @@ The initial regression build failed with missing `RoomSeatStoring` before the
 new flow implementation. A later focused terminal-lifecycle regression failed
 against the first implementation, then passed after terminal-state guards were
 added. Tests cover saved-host restoration without HTTP or Keychain overwrite,
-new-seat persistence, ordered background/foreground forwarding, same-room
-preservation, replacement cleanup, root leave, background key redaction,
-unsafe/incompatible update recovery, safe asynchronous lobby errors, pending
-recovery, and Debug transport policy.
+new-seat persistence, ordered background/foreground forwarding, stale terminal
+generation rejection, generationless initial configuration failure handling,
+same-room persistence preservation, replacement cleanup, root leave, background
+key redaction, unsafe/incompatible update recovery, safe asynchronous lobby
+errors, pending recovery, and Debug transport policy.
 
 The latest Debug and Staging XCTest/XCUITest runs passed on iPhone SE (3rd
-generation), iOS 18.2. Each configuration's final result has 121 passed (117
+generation), iOS 18.2. Each configuration's final result has 124 passed (120
 unit tests and 4 UI tests), 0 failed, 0 skipped. This supersedes the earlier
-119-test count recorded during the initial integration-fix wave.
+121-test count recorded during the initial integration-fix wave.
 Commands, with configuration and derived-data path changed
 for Staging:
 

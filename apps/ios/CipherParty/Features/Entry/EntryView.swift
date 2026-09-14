@@ -55,7 +55,7 @@ final class RoomFlow {
                     || roomCode != credentials.code
                     || activePlayerID != credentials.playerId
             else { return }
-            await cleanUpCurrentSession()
+            await cleanUpCurrentSession(preservingPersistentState: roomCode == credentials.code)
             let newSession = makeSession(credentials)
             roomCode = credentials.code
             activePlayerID = credentials.playerId
@@ -115,10 +115,10 @@ final class RoomFlow {
 
     func waitForTransitions() async { await transitionTask?.value }
 
-    private func cleanUpCurrentSession() async {
+    private func cleanUpCurrentSession(preservingPersistentState: Bool = false) async {
         let previous = session
         let previousCode = roomCode
-        await previous?.leave()
+        await previous?.leave(preservingPersistentState: preservingPersistentState)
         if previous?.lastError == .leaveCleanup, let previous {
             pendingCleanupSessions.append(previous)
             if let previousCode {
