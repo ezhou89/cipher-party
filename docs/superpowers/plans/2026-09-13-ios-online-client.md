@@ -150,20 +150,20 @@ kept beside the existing web and worker apps; it is not a second repository.
   registered during app setup, not values embedded in the protocol or deep-link
   payload.
 
-- [ ] **Step 1: Add a failing configuration test.** Assert that the environment
+- [x] **Step 1: Add a failing configuration test.** Assert that the environment
   rejects a non-HTTPS staging URL, exposes a valid WebSocket base URL, and does
   not include seat/host tokens in its description or debug output.
-- [ ] **Step 2: Create the Xcode project and app shell.** Set the deployment
+- [x] **Step 2: Create the Xcode project and app shell.** Set the deployment
   target to iOS 17, add the app/unit/UI targets, wire the `.xcconfig` files,
   enable Swift concurrency checking appropriate for the target, and render a
   minimal entry view.
-- [ ] **Step 3: Implement the environment.** Centralize base URL, URL scheme,
+- [x] **Step 3: Implement the environment.** Centralize base URL, URL scheme,
   Keychain service name, and feature flags in an immutable `AppEnvironment`;
   provide production wiring and test initializers without global mutable state.
-- [ ] **Step 4: Add launch/accessibility smoke coverage.** Give the entry screen
+- [x] **Step 4: Add launch/accessibility smoke coverage.** Give the entry screen
   stable accessibility identifiers and verify a simulator can launch it at the
   narrowest supported width.
-- [ ] **Step 5: Verify the scaffold.** Run `xcodebuild -project
+- [x] **Step 5: Verify the scaffold.** Run `xcodebuild -project
   apps/ios/CipherParty.xcodeproj -scheme CipherParty -sdk iphonesimulator
   -destination 'generic/platform=iOS Simulator' build` and the focused unit/UI
   tests. Commit only the scaffold.
