@@ -129,7 +129,12 @@ but simulator execution is not deterministic here when CoreSimulatorService or
 the Observation macro service is unavailable. A signed-device run is still
 required for camera capture, Universal Link association, share-sheet behavior,
 background/foreground transitions, and VoiceOver/dark-mode visual checks.
-The configured `oddlyuseful.studio` host must also route the Cipher Party
-Worker before staging create/join can be exercised; if it serves another site,
-use the deployed Worker origin instead and do not treat a 404 as an iOS protocol
-failure.
+Native `InviteRouter`, the Associated Domains entitlement, dynamic/static AASA,
+and the invite URL/QR origin are all bound to `oddlyuseful.studio`. Preferred
+staging is therefore to route the Cipher Party Worker at that host with
+`CANONICAL_ORIGIN=https://oddlyuseful.studio`. If an alternate Worker origin is
+used instead, update the Worker's `CANONICAL_ORIGIN`,
+`InviteRouter.universalLinkHost`, invite URL/QR origin, Associated Domains
+entitlement, and both dynamic and static AASA together, then validate Universal
+Links before running the smoke flow. Do not treat a 404 from the currently
+unrelated host as an iOS protocol failure.
