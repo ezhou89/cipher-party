@@ -269,6 +269,7 @@ struct BoardView: View {
 
                     CardGridView(
                         cards: presentation.cards,
+                        columnsCount: board.columns,
                         onNominate: { cardID in
                             dispatch { try await session.nominateCard(cardID) }
                         },
@@ -603,6 +604,8 @@ private extension Ownership {
         switch self {
         case .red: return "Ruby"
         case .blue: return "Cobalt"
+        case .green: return "Emerald"
+        case .yellow: return "Gold"
         case .neutral: return "Neutral"
         case .hazard: return "Hazard"
         }
@@ -627,8 +630,9 @@ private extension PublicHistoryEntry {
             return "Revision \(revision): \(teamID.displayName) clue challenged"
         case let .challengeResolved(revision, _, decision):
             return "Revision \(revision): challenge \(decision == .accept ? "accepted" : "rejected")"
-        case let .cardRevealed(revision, _, teamID, cardID, owner):
-            return "Revision \(revision): \(teamID.displayName) revealed \(cardID) (\(owner.displayName))"
+        case let .cardRevealed(revision, _, teamID, cardID, owner, eliminatedTeam):
+            let elimination = eliminatedTeam.map { ", \($0.displayName) eliminated" } ?? ""
+            return "Revision \(revision): \(teamID.displayName) revealed \(cardID) (\(owner.displayName))\(elimination)"
         case let .turnEnded(revision, _, teamID):
             return "Revision \(revision): \(teamID.displayName) ended the turn"
         case let .roomPaused(revision, _):

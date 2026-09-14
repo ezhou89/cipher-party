@@ -14,12 +14,16 @@ struct LobbyReadiness: Equatable, Sendable {
     static let startRequirementHint =
         "Each team must have at least one clue-giver and one operative to start."
 
+    let configuredTeams: [TeamID]
+    let seats: [SeatSummary]
     let redClueGivers: Int
     let redOperatives: Int
     let blueClueGivers: Int
     let blueOperatives: Int
 
-    init(seats: [SeatSummary]) {
+    init(seats: [SeatSummary], configuredTeams: [TeamID] = [.red, .blue]) {
+        self.seats = seats
+        self.configuredTeams = configuredTeams
         let redSeats = seats.filter { $0.teamId == .red }
         let blueSeats = seats.filter { $0.teamId == .blue }
         redClueGivers = redSeats.filter { $0.role == .clueGiver }.count
@@ -29,14 +33,18 @@ struct LobbyReadiness: Equatable, Sendable {
     }
 
     var isReady: Bool {
-        redClueGivers >= 1 &&
-            redOperatives >= 1 &&
-            blueClueGivers >= 1 &&
-            blueOperatives >= 1
+        configuredTeams.allSatisfy { team in
+            seatsFor(team: team).contains { $0.role == .clueGiver } &&
+                seatsFor(team: team).contains { $0.role == .operative }
+        }
     }
 
     var requirementHint: String? {
         isReady ? nil : Self.startRequirementHint
+    }
+
+    private func seatsFor(team: TeamID) -> [SeatSummary] {
+        seats.filter { $0.teamId == team }
     }
 }
 
@@ -69,7 +77,10 @@ struct LobbyPresentation: Equatable, Sendable {
         roomPhaseLabel = projection.base.roomPhase.displayName
         lockLabel = projection.base.locked ? "Locked" : "Open"
         seats = projection.base.seats.map(LobbySeatPresentation.init)
-        readiness = LobbyReadiness(seats: projection.base.seats)
+        readiness = LobbyReadiness(
+            seats: projection.base.seats,
+            configuredTeams: projection.base.configuredTeams
+        )
         hostControls = LobbyHostControlsPresentation(
             canConfigure: projection.base.permissions.configure,
             canModerate: projection.base.permissions.moderate,
@@ -144,6 +155,8 @@ struct LobbyView: View {
                         permissions: projection.base.permissions,
                         actionsAreEnabled: presentation.hostControls.actionsAreEnabled,
                         readiness: presentation.readiness,
+                        teamCount: projection.base.teamCount,
+                        configuredTeams: projection.base.configuredTeams,
                         roomPhase: projection.base.roomPhase,
                         locked: projection.base.locked
                     )
@@ -232,6 +245,8 @@ private struct LobbyHostControlsView: View {
     let permissions: ProjectionPermissions
     let actionsAreEnabled: Bool
     let readiness: LobbyReadiness
+    let teamCount: TeamCount
+    let configuredTeams: [TeamID]
     let roomPhase: RoomPhase
     let locked: Bool
 
@@ -258,6 +273,16 @@ private struct LobbyHostControlsView: View {
             }
             .disabled(!canConfigure)
             .accessibilityIdentifier("lobby.randomizeTeams")
+
+            Menu("Team count: \(teamCount.rawValue)", systemImage: "person.3") {
+                ForEach(TeamCount.allCases, id: \.self) { option in
+                    Button("\(option.rawValue) teams") {
+                        dispatch { try await session.setTeamCount(option) }
+                    }
+                }
+            }
+            .disabled(!canConfigure || roomPhase != .lobby)
+            .accessibilityIdentifier("lobby.teamCount")
 
             Toggle("Lock room", isOn: Binding(
                 get: { locked },
@@ -288,7 +313,7 @@ private struct LobbyHostControlsView: View {
                             Button("No team") {
                                 dispatch { try await session.assignSeat(playerId: seat.playerId, teamId: nil) }
                             }
-                            ForEach(TeamID.allCases, id: \.self) { team in
+                            ForEach(configuredTeams, id: \.self) { team in
                                 Button("\(team.displayName) team") {
                                     dispatch { try await session.assignSeat(playerId: seat.playerId, teamId: team) }
                                 }

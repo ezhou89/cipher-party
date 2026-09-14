@@ -1,60 +1,37 @@
 import type { Env } from "../env";
-import { handleAppleAppSiteAssociation } from "./apple-app-site-association";
-import { errorResponse } from "./json";
-import { handleCreateRoom, handleIssueTicket, handleJoinRoom } from "./rooms";
-import { RoomCodeSchema } from "./schemas";
+import { checkAdmissionLimits } from "./admission-limits";
+import { createRoom, issueRoomTicket, joinRoom } from "./rooms";
 
-export async function routeRequest(
+const JOIN_PATH = /^\/api\/rooms\/([^/]+)\/join$/u;
+const TICKET_PATH = /^\/api\/rooms\/([^/]+)\/tickets$/u;
+
+export async function routeApiRequest(
   request: Request,
-  env: Env
+  env: Env,
 ): Promise<Response | null> {
-  const url = new URL(request.url);
-  const { pathname } = url;
-  const { method } = request;
-
-  if (
-    pathname === "/.well-known/apple-app-site-association" &&
-    method === "GET"
-  ) {
-    return handleAppleAppSiteAssociation(env);
+  if (request.method !== "POST") {
+    return null;
   }
-
-  if (pathname === "/api/health" && method === "GET") {
-    return Response.json({ ok: true, service: "cipher-party" });
+  const pathname = new URL(request.url).pathname;
+  if (pathname === "/api/rooms") {
+    return (
+      (await checkAdmissionLimits(request, env, "create")) ??
+      createRoom(request, env)
+    );
   }
-
-  if (pathname === "/api/rooms" && method === "POST") {
-    return handleCreateRoom(request, env);
+  const joinMatch = JOIN_PATH.exec(pathname);
+  if (joinMatch !== null) {
+    return (
+      (await checkAdmissionLimits(request, env, "join", joinMatch[1]!)) ??
+      joinRoom(request, env, joinMatch[1]!)
+    );
   }
-
-  const joinMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/join$/);
-  if (joinMatch && method === "POST") {
-    const rawCode = joinMatch[1]!;
-    return handleJoinRoom(request, env, rawCode);
+  const ticketMatch = TICKET_PATH.exec(pathname);
+  if (ticketMatch !== null) {
+    return (
+      (await checkAdmissionLimits(request, env, "ticket", ticketMatch[1]!)) ??
+      issueRoomTicket(request, env, ticketMatch[1]!)
+    );
   }
-
-  const ticketMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/tickets$/);
-  if (ticketMatch && method === "POST") {
-    const rawCode = ticketMatch[1]!;
-    return handleIssueTicket(request, env, rawCode);
-  }
-
-  const connectMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/connect$/);
-  if (connectMatch && method === "GET") {
-    const rawCode = connectMatch[1]!;
-    const codeResult = RoomCodeSchema.safeParse(rawCode);
-    if (!codeResult.success) {
-      return errorResponse(
-        "room_unavailable",
-        "Room not found or expired",
-        404
-      );
-    }
-    const code = codeResult.data;
-    const id = env.ROOMS.idFromName(code);
-    const stub = env.ROOMS.get(id);
-    return stub.fetch(request);
-  }
-
   return null;
 }

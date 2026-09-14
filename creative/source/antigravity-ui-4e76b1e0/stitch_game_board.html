@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cipher Party — Operative Game Board (Round 03)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Plus+Jakarta+Sans:wght@700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --color-canvas: #0e0c1a;
+      --color-surface: #161324;
+      --color-surface-high: #211c36;
+      --color-ruby: #ff2a5f;
+      --color-cobalt: #00d2ff;
+      --color-card-face: #fbf6ec;
+      --color-card-ink: #0e0c1a;
+      --shadow-pixel: 4px 4px 0px #000000;
+      --shadow-pixel-sm: 2px 2px 0px #000000;
+      --shadow-pixel-lg: 6px 6px 0px #000000;
+      --pixel-corners: polygon(
+        0px 4px, 4px 4px, 4px 0px,
+        calc(100% - 4px) 0px, calc(100% - 4px) 4px, 100% 4px,
+        100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%,
+        4px 100%, 4px calc(100% - 4px), 0px calc(100% - 4px)
+      );
+    }
+    body {
+      background-color: var(--color-canvas);
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-corners { clip-path: var(--pixel-corners); }
+    
+    .pixel-box {
+      background-color: var(--color-surface);
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0px #000;
+      clip-path: var(--pixel-corners);
+    }
+    .pixel-btn {
+      border: 3px solid #000;
+      box-shadow: 3px 3px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+
+    /* Cartridge Card Styles */
+    .game-card {
+      position: relative;
+      border: 3px solid #000;
+      box-shadow: 3px 3px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+    .game-card:hover:not(.revealed) {
+      transform: translateY(-3px);
+      box-shadow: 0 0 12px rgba(255, 190, 11, 0.3), 4px 4px 0px #000;
+    }
+    .game-card:active:not(.revealed) {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+
+    /* Nominated / Selected Card with 1UP Halo */
+    .game-card.nominated {
+      border-color: #ffbe0b !important;
+      box-shadow: 0 0 16px rgba(255, 190, 11, 0.9), 4px 4px 0px #000 !important;
+      transform: translateY(-4px) !important;
+      z-index: 10;
+    }
+
+    @keyframes pulseNomination {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 4px #ffbe0b); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 10px #ffbe0b); }
+    }
+    .animate-pulse-nom {
+      animation: pulseNomination 1.4s infinite ease-in-out;
+    }
+
+    /* Revealed States */
+    .game-card.revealed {
+      cursor: default;
+    }
+    .game-card.revealed-ruby {
+      background-color: #ff2a5f !important;
+      border-color: #000 !important;
+      color: #ffffff !important;
+    }
+    .game-card.revealed-cobalt {
+      background-color: #00d2ff !important;
+      border-color: #000 !important;
+      color: #000000 !important;
+    }
+    .game-card.revealed-neutral {
+      background-color: #2b2540 !important;
+      border-color: #000 !important;
+      color: #8b85a3 !important;
+      opacity: 0.7;
+    }
+    .game-card.revealed-hazard {
+      background-color: #0c0812 !important;
+      border-color: #ff0055 !important;
+      color: #ff0055 !important;
+      box-shadow: 0 0 16px rgba(255, 0, 85, 0.6), 4px 4px 0px #000 !important;
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5 pb-36">
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-[#ffbe0b] text-black font-arcade text-xs px-4 py-2.5 border-4 border-black shadow-[4px_4px_0_#000] pixel-corners hidden transition-all">
+    <span id="toast-text">NOMINATION CONFIRMED</span>
+  </div>
+
+  <div class="max-w-4xl mx-auto space-y-4">
+
+    <!-- 1. Top Arcade HUD -->
+    <header class="pixel-box p-3 sm:p-4 flex flex-col md:flex-row justify-between items-center gap-3">
+      
+      <!-- Team Ruby (P1) Counter -->
+      <div class="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">👑</span>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs font-arcade text-[#ff2a5f]">TEAM RUBY</span>
+              <span class="px-1.5 py-0.5 bg-[#ff2a5f]/20 text-[#ff2a5f] text-[8px] font-mono border border-[#ff2a5f]/40 font-bold">YOUR TEAM</span>
+            </div>
+            <div class="text-[9px] font-arcade text-white mt-0.5">
+              TARGETS: <span id="ruby-targets" class="text-[#ff2a5f] font-bold">5 / 8 LEFT</span>
+            </div>
+          </div>
+        </div>
+        <!-- Series Win Pips -->
+        <div class="bg-black/60 px-2 py-1 border border-black pixel-corners text-[9px] font-mono text-[#ff2a5f] tracking-widest">
+          ● ● ○ ○
+        </div>
+      </div>
+
+      <!-- Center Turn Timer & Round Info -->
+      <div class="flex items-center gap-3 bg-black border-2 border-[#3f3565] px-4 py-2 pixel-corners">
+        <div class="text-center">
+          <span class="text-[8px] font-arcade text-slate-400 block">ROUND 03</span>
+          <span class="text-xs font-arcade text-[#ffbe0b]">BEST OF 7</span>
+        </div>
+        <div class="h-6 w-[2px] bg-slate-700"></div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-sm">⏱️</span>
+          <span id="turn-timer" class="text-sm sm:text-base font-arcade text-[#ffbe0b] font-bold">00:45</span>
+        </div>
+      </div>
+
+      <!-- Team Cobalt (P2) Counter & Audio Toggle -->
+      <div class="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
+        <div class="bg-black/60 px-2 py-1 border border-black pixel-corners text-[9px] font-mono text-[#00d2ff] tracking-widest">
+          ● ○ ○ ○
+        </div>
+        <div class="text-right">
+          <div class="flex items-center gap-1.5 justify-end">
+            <span class="px-1.5 py-0.5 bg-[#00d2ff]/20 text-[#00d2ff] text-[8px] font-mono border border-[#00d2ff]/40 font-bold">OPPONENT</span>
+            <span class="text-xs font-arcade text-[#00d2ff]">COBALT</span>
+          </div>
+          <div class="text-[9px] font-arcade text-white mt-0.5">
+            TARGETS: <span class="text-[#00d2ff] font-bold">6 / 8 LEFT</span>
+          </div>
+        </div>
+        <span class="text-xl">🚀</span>
+
+        <button id="audio-toggle" class="pixel-btn px-2 py-1.5 bg-[#211c36] text-[#ffbe0b] text-[8px] font-arcade flex items-center gap-1 cursor-pointer hover:bg-[#2b2447] ml-2">
+          <span id="audio-icon">🔊</span>
+        </button>
+      </div>
+
+    </header>
+
+    <!-- 2. Active Clue Announcement Banner -->
+    <div class="pixel-box p-3.5 bg-gradient-to-r from-[#2a1324] via-[#1b1429] to-[#161324] border-2 border-[#ff2a5f] flex flex-col sm:flex-row items-center justify-between gap-3 shadow-[0_0_14px_rgba(255,42,95,0.25),4px_4px_0_#000]">
+      
+      <div class="flex items-center gap-3 w-full sm:w-auto">
+        <div class="w-9 h-9 bg-[#ff2a5f] border-2 border-black pixel-corners flex items-center justify-center text-lg shadow-[2px_2px_0_#000]">
+          🎯
+        </div>
+        <div>
+          <div class="text-[8px] font-arcade text-slate-400">
+            TEAM RUBY'S TURN • SPYMASTER ALEX TRANSMITTED:
+          </div>
+          <div class="text-sm sm:text-base font-arcade text-white tracking-wider flex items-center gap-2 mt-0.5">
+            <span>CLUE:</span>
+            <span class="text-[#ffbe0b] font-black underline decoration-2 underline-offset-4">"SUBWAY"</span>
+            <span class="px-2 py-0.5 bg-[#ffbe0b] text-black font-bold text-xs pixel-corners">[ 2 ]</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guesses Remaining Badge -->
+      <div class="flex items-center gap-2 bg-black/70 px-3 py-1.5 border border-[#3f3565] pixel-corners text-[9px] font-arcade text-slate-300 w-full sm:w-auto justify-between">
+        <span class="text-slate-400">GUESSES:</span>
+        <span id="guesses-badge" class="text-[#00f5a0] font-bold">2 REMAINING</span>
+        <span class="text-[8px] text-slate-500 font-mono">(+1 BONUS)</span>
+      </div>
+
+    </div>
+
+    <!-- 3. The 5×5 Cartridge Card Matrix -->
+    <main class="w-full">
+      <div id="cards-grid" class="grid grid-cols-5 gap-2 sm:gap-3 w-full">
+        <!-- 25 cards will be dynamically rendered and reactive -->
+      </div>
+    </main>
+
+    <!-- 4. Quick Live Match Activity Ticker -->
+    <div class="pixel-box p-2.5 bg-[#161324] flex items-center justify-between text-[9px] font-mono text-slate-400">
+      <div class="flex items-center gap-2 truncate">
+        <span class="text-[#ffbe0b] font-arcade text-[8px]">LOG:</span>
+        <span id="log-ticker">Alex transmitted clue SUBWAY [ 2 ]. Sarah (You) nominated TRAIN.</span>
+      </div>
+      <span class="text-[8px] font-arcade text-slate-500 whitespace-nowrap ml-2">TAP CARDS TO NOMINATE</span>
+    </div>
+
+  </div>
+
+  <!-- 5. Pinned Bottom Operative Action Deck -->
+  <div class="fixed bottom-0 left-0 w-full bg-[#161324]/95 backdrop-blur border-t-4 border-black p-3 sm:p-4 shadow-[0_-4px_0_0_#000] z-50">
+    <div class="max-w-4xl mx-auto flex items-center gap-2 sm:gap-4">
+      
+      <!-- Pass Turn Button -->
+      <button id="btn-pass-turn" class="pixel-btn bg-[#211c36] text-slate-300 hover:text-white font-arcade text-[9px] sm:text-xs px-3 sm:px-5 py-3.5 cursor-pointer flex items-center gap-1.5 whitespace-nowrap border-2 border-slate-600">
+        <span>⏭️</span> PASS TURN
+      </button>
+
+      <!-- Active Guess Confirmation Button -->
+      <button id="btn-confirm-guess" class="pixel-btn flex-1 bg-gradient-to-r from-[#ffbe0b] to-[#ff9100] text-black font-arcade text-xs sm:text-sm py-3.5 tracking-wider flex items-center justify-center gap-2 cursor-pointer hover:brightness-110 shadow-[0_0_16px_rgba(255,190,11,0.6),3px_3px_0_#000]">
+        <span>🕹️</span> <span id="confirm-btn-label">CONFIRM NOMINATION: "TRAIN" ▶</span>
+      </button>
+
+    </div>
+  </div>
+
+  <!-- Interactive Logic & Web Audio Synthesizer -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Audio Engine
+      let soundEnabled = true;
+      let audioCtx = null;
+
+      function getAudioContext() {
+        if (!audioCtx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        return audioCtx;
+      }
+
+      function playTone(freq = 440, type = 'square', duration = 0.08) {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.3, ctx.currentTime + duration);
+          gain.gain.setValueAtTime(0.12, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + duration);
+        } catch (e) {}
+      }
+
+      function playCoinJingle() {
+        if (!soundEnabled) return;
+        try {
+          const ctx = getAudioContext();
+          if (!ctx) return;
+          const now = ctx.currentTime;
+          [987.77, 1318.51].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+            gain.gain.setValueAtTime(0.12, now + idx * 0.08);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.08);
+            osc.stop(now + idx * 0.08 + 0.16);
+          });
+        } catch (e) {}
+      }
+
+      const audioToggle = document.getElementById('audio-toggle');
+      const audioIcon = document.getElementById('audio-icon');
+      audioToggle.addEventListener('click', () => {
+        soundEnabled = !soundEnabled;
+        audioIcon.textContent = soundEnabled ? '🔊' : '🔇';
+        if (soundEnabled) playCoinJingle();
+      });
+
+      // 25 Board Words and initial states
+      // Invariant: Secret roles are ONLY revealed when claimed!
+      const boardData = [
+        { id: 1, word: 'APPLE', state: 'unrevealed', secretRole: 'neutral' },
+        { id: 2, word: 'BEACH', state: 'unrevealed', secretRole: 'cobalt' },
+        { id: 3, word: 'CLOCK', state: 'revealed-ruby', secretRole: 'ruby', claimedBy: 'Alex' },
+        { id: 4, word: 'DANCE', state: 'unrevealed', secretRole: 'ruby' },
+        { id: 5, word: 'EAGLE', state: 'unrevealed', secretRole: 'neutral' },
+
+        { id: 6, word: 'FLAME', state: 'unrevealed', secretRole: 'ruby' },
+        { id: 7, word: 'GHOST', state: 'unrevealed', secretRole: 'cobalt' },
+        { id: 8, word: 'HEART', state: 'unrevealed', secretRole: 'ruby' },
+        { id: 9, word: 'IGLOO', state: 'revealed-cobalt', secretRole: 'cobalt', claimedBy: 'David' },
+        { id: 10, word: 'JUMP', state: 'unrevealed', secretRole: 'neutral' },
+
+        { id: 11, word: 'KITE', state: 'unrevealed', secretRole: 'neutral' },
+        { id: 12, word: 'TRAIN', state: 'nominated', secretRole: 'ruby', nominatedBy: 'Sarah (You)', token: '🎩' },
+        { id: 13, word: 'MOUSE', state: 'unrevealed', secretRole: 'cobalt' },
+        { id: 14, word: 'NIGHT', state: 'unrevealed', secretRole: 'neutral' },
+        { id: 15, word: 'OCEAN', state: 'unrevealed', secretRole: 'ruby' },
+
+        { id: 16, word: 'PAPER', state: 'unrevealed', secretRole: 'neutral' },
+        { id: 17, word: 'QUEEN', state: 'unrevealed', secretRole: 'ruby' },
+        { id: 18, word: 'RIVER', state: 'unrevealed', secretRole: 'cobalt' },
+        { id: 19, word: 'SNAKE', state: 'unrevealed', secretRole: 'hazard' },
+        { id: 20, word: 'TIGER', state: 'unrevealed', secretRole: 'cobalt' },
+
+        { id: 21, word: 'UMBRA', state: 'revealed-neutral', secretRole: 'neutral', claimedBy: 'Marcus' },
+        { id: 22, word: 'VOICE', state: 'unrevealed', secretRole: 'ruby' },
+        { id: 23, word: 'WATER', state: 'unrevealed', secretRole: 'ruby' },
+        { id: 24, word: 'XYLON', state: 'unrevealed', secretRole: 'cobalt' },
+        { id: 25, word: 'ZEBRA', state: 'unrevealed', secretRole: 'neutral' }
+      ];
+
+      const cardsGrid = document.getElementById('cards-grid');
+      const confirmBtn = document.getElementById('btn-confirm-guess');
+      const confirmBtnLabel = document.getElementById('confirm-btn-label');
+      const btnPassTurn = document.getElementById('btn-pass-turn');
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      const logTicker = document.getElementById('log-ticker');
+      const rubyTargets = document.getElementById('ruby-targets');
+
+      let currentNominatedCard = boardData.find(c => c.state === 'nominated') || null;
+      let rubyRemaining = 5;
+
+      function showToast(msg) {
+        toastText.textContent = msg;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 2200);
+      }
+
+      const CREST_CONFIG = {
+        'revealed-ruby': { text: '<span>♥</span> RUBY', cls: 'text-[8px] font-arcade text-white flex items-center gap-1' },
+        'revealed-cobalt': { text: '<span>✦</span> COBALT', cls: 'text-[8px] font-arcade text-black flex items-center gap-1' },
+        'revealed-neutral': { text: 'BYSTANDER', cls: 'text-[8px] font-arcade text-slate-400' },
+        'revealed-hazard': { text: '☠ HAZARD', cls: 'text-[8px] font-arcade text-red-500 font-bold' }
+      };
+
+      function createCardHeader(card, isRevealed, isNominated) {
+        const topRow = document.createElement('div');
+        topRow.className = 'w-full flex justify-between items-center text-[8px] sm:text-[9px] font-mono';
+
+        const numSpan = document.createElement('span');
+        numSpan.className = isRevealed ? 'opacity-80' : 'text-slate-400';
+        numSpan.textContent = String(card.id).padStart(2, '0');
+        topRow.appendChild(numSpan);
+
+        if (isNominated) {
+          const badge = document.createElement('span');
+          badge.className = 'px-1.5 py-0.5 bg-[#ffbe0b] text-black font-arcade text-[7px] sm:text-[8px] border border-black flex items-center gap-1 font-bold animate-pulse-nom';
+          badge.innerHTML = `<span>${card.token || '🎩'}</span> 1UP`;
+          topRow.appendChild(badge);
+        } else {
+          const cfg = CREST_CONFIG[card.state];
+          if (cfg) {
+            const crest = document.createElement('span');
+            crest.className = cfg.cls;
+            crest.innerHTML = cfg.text;
+            topRow.appendChild(crest);
+          }
+        }
+        return topRow;
+      }
+
+      function createCardWord(card, isRevealed) {
+        const wordSpan = document.createElement('span');
+        wordSpan.className = 'font-sans font-black text-xs sm:text-sm md:text-base tracking-wider uppercase my-auto text-center';
+        if (isRevealed) {
+          if (card.state === 'revealed-ruby') wordSpan.className += ' text-white';
+          else if (card.state === 'revealed-cobalt') wordSpan.className += ' text-black';
+          else if (card.state === 'revealed-neutral') wordSpan.className += ' line-through text-slate-400';
+          else if (card.state === 'revealed-hazard') wordSpan.className += ' line-through text-red-500';
+        } else {
+          wordSpan.className += ' text-[#0e0c1a]';
+        }
+        wordSpan.textContent = card.word;
+        return wordSpan;
+      }
+
+      function createCardFooter(card, isRevealed, isNominated) {
+        const footerRow = document.createElement('div');
+        footerRow.className = 'w-full text-center text-[7px] sm:text-[8px] font-mono truncate';
+        if (isNominated) {
+          footerRow.className += ' text-amber-600 font-bold';
+          footerRow.textContent = "Sarah's Pick 🎩";
+        } else if (isRevealed) {
+          footerRow.className += ' opacity-80';
+          footerRow.textContent = `Claimed by ${card.claimedBy || 'Team'}`;
+        } else {
+          footerRow.className += ' text-transparent';
+          footerRow.textContent = '—';
+        }
+        return footerRow;
+      }
+
+      function createCardElement(card) {
+        const btn = document.createElement('button');
+        const isRevealed = card.state.startsWith('revealed');
+        const isNominated = card.state === 'nominated';
+
+        btn.className = `game-card p-2 sm:p-3 aspect-[4/3] flex flex-col justify-between items-center transition-all relative ${card.state}`;
+        if (!isRevealed) {
+          btn.classList.add('bg-[#fbf6ec]', 'text-[#0e0c1a]');
+        }
+        if (isNominated) {
+          btn.classList.add('nominated');
+        }
+
+        btn.appendChild(createCardHeader(card, isRevealed, isNominated));
+        btn.appendChild(createCardWord(card, isRevealed));
+        btn.appendChild(createCardFooter(card, isRevealed, isNominated));
+
+        if (!isRevealed) {
+          btn.addEventListener('click', () => {
+            if (currentNominatedCard) {
+              currentNominatedCard.state = 'unrevealed';
+            }
+            card.state = 'nominated';
+            card.token = '🎩';
+            card.nominatedBy = 'Sarah (You)';
+            currentNominatedCard = card;
+
+            playTone(580, 'triangle', 0.08);
+            updateConfirmButton();
+            renderBoard();
+            logTicker.textContent = `Sarah (You) 🎩 nominated "${card.word}". Ready to confirm.`;
+          });
+        }
+        return btn;
+      }
+
+      function renderBoard() {
+        cardsGrid.innerHTML = '';
+        boardData.forEach(card => {
+          cardsGrid.appendChild(createCardElement(card));
+        });
+      }
+
+      function updateConfirmButton() {
+        if (currentNominatedCard) {
+          confirmBtn.disabled = false;
+          confirmBtn.className = 'pixel-btn flex-1 bg-gradient-to-r from-[#ffbe0b] to-[#ff9100] text-black font-arcade text-xs sm:text-sm py-3.5 tracking-wider flex items-center justify-center gap-2 cursor-pointer hover:brightness-110 shadow-[0_0_16px_rgba(255,190,11,0.6),3px_3px_0_#000]';
+          confirmBtnLabel.textContent = `CONFIRM NOMINATION: "${currentNominatedCard.word}" ▶`;
+        } else {
+          confirmBtn.disabled = true;
+          confirmBtn.className = 'pixel-btn flex-1 bg-[#211c36] text-slate-500 font-arcade text-xs sm:text-sm py-3.5 tracking-wider flex items-center justify-center gap-2 cursor-not-allowed border-2 border-slate-700';
+          confirmBtnLabel.textContent = 'SELECT A CARD TO NOMINATE';
+        }
+      }
+
+      // Confirm Guess Action
+      confirmBtn.addEventListener('click', () => {
+        if (!currentNominatedCard) return;
+
+        const word = currentNominatedCard.word;
+        const role = currentNominatedCard.secretRole;
+
+        if (role === 'ruby') {
+          currentNominatedCard.state = 'revealed-ruby';
+          currentNominatedCard.claimedBy = 'Sarah (You)';
+          rubyRemaining--;
+          rubyTargets.textContent = `${rubyRemaining} / 8 LEFT`;
+          playCoinJingle();
+          showToast(`🎉 CORRECT! "${word}" IS TEAM RUBY!`);
+          logTicker.textContent = `Team Ruby confirmed "${word}" — CORRECT! (+1 TARGET)`;
+        } else if (role === 'cobalt') {
+          currentNominatedCard.state = 'revealed-cobalt';
+          currentNominatedCard.claimedBy = 'Team Ruby (Mistake)';
+          playTone(280, 'sawtooth', 0.15);
+          showToast(`⚠️ WHOOPS! "${word}" BELONGS TO COBALT!`);
+          logTicker.textContent = `Team Ruby revealed Cobalt card "${word}". Turn ends!`;
+        } else if (role === 'neutral') {
+          currentNominatedCard.state = 'revealed-neutral';
+          currentNominatedCard.claimedBy = 'Bystander';
+          playTone(320, 'sine', 0.1);
+          showToast(`💤 BYSTANDER! "${word}" IS NEUTRAL.`);
+          logTicker.textContent = `Team Ruby revealed Neutral card "${word}". Turn ends!`;
+        } else if (role === 'hazard') {
+          currentNominatedCard.state = 'revealed-hazard';
+          currentNominatedCard.claimedBy = 'Hazard Trigger';
+          playTone(150, 'sawtooth', 0.3);
+          showToast(`☠️ HAZARD DETONATED! "${word}" ELIMINATES RUBY!`);
+          logTicker.textContent = `CRITICAL FAILURE: Ruby hit the Hazard "${word}"!`;
+        }
+
+        currentNominatedCard = null;
+        updateConfirmButton();
+        renderBoard();
+      });
+
+      // Pass Turn Action
+      btnPassTurn.addEventListener('click', () => {
+        playTone(350, 'triangle', 0.1);
+        showToast('⏭️ TURN PASSED TO TEAM COBALT');
+        logTicker.textContent = 'Team Ruby elected to pass remaining guesses. Cobalt turn begins.';
+      });
+
+      renderBoard();
+      updateConfirmButton();
+    });
+  </script>
+</body>
+</html>

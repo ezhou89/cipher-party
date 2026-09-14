@@ -1,29 +1,28 @@
-import type { TeamId } from "@cipher-party/protocol";
+import type { ClientProjection } from "@cipher-party/protocol";
 
-export interface BoardResultProps {
-  winner: TeamId | null;
-  completionReason: "targets" | "hazard" | null;
+import { TEAM_PRESENTATION } from "../../lib/team-presentation";
+
+interface BoardResultProps {
+  board: NonNullable<ClientProjection["board"]>;
 }
 
-export function BoardResult({ winner, completionReason }: BoardResultProps) {
-  if (!winner) return null;
-
-  const teamTitle = winner === "red" ? "Red Team Wins!" : "Blue Team Wins!";
-  const reasonText =
-    completionReason === "targets"
-      ? "All targets identified!"
-      : "Opponent revealed the hazard!";
+export function BoardResult({ board }: BoardResultProps) {
+  if (board.winner === null || board.completionReason === null) {
+    return null;
+  }
+  const winner = TEAM_PRESENTATION[board.winner];
 
   return (
-    <section
-      className={`board-result-banner board-result--${winner}`}
-      role="region"
-      aria-label="Board result"
-    >
-      <div className="board-result-content">
-        <h2 className="board-result-title">🏆 {teamTitle}</h2>
-        <p className="board-result-reason">{reasonText}</p>
-      </div>
+    <section className="board-result" aria-label="Board result">
+      <p className="card-index">Board sealed</p>
+      <h2>
+        <span aria-hidden="true">{winner.symbol}</span> {winner.label} wins
+      </h2>
+      <p>
+        {board.completionReason === "targets"
+          ? "All of the winning team’s targets were revealed."
+          : "The hazard ended the board."}
+      </p>
     </section>
   );
 }

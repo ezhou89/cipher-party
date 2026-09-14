@@ -50,10 +50,10 @@ const labels = [
   "Temple",
   "Thunder",
   "Willow",
-  "Window"
+  "Window",
 ] as const;
 
 export const neutralWords: TextCard[] = labels.map((label, index) => ({
   id: `neutral-${String(index + 1).padStart(3, "0")}`,
-  label
+  label,
 }));

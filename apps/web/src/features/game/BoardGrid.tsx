@@ -1,59 +1,76 @@
-import { useMemo } from "react";
-import type { CardId, Ownership, PublicCard } from "@cipher-party/protocol";
+import type { PublicCard } from "@cipher-party/protocol";
+import { useId, type CSSProperties } from "react";
+
 import { BoardCard } from "./BoardCard";
 
-export interface BoardGridProps {
+type PublicOwner = Extract<PublicCard, { revealed: true }>["owner"];
+
+interface BoardGridProps {
   cards: PublicCard[];
-  order: CardId[];
-  keyRecord?: Record<CardId, Ownership> | undefined;
-  nomination: { playerId: string; cardId: string } | null;
-  canNominate: boolean;
+  order: string[];
+  rows: 5 | 6;
+  columns: 5 | 6;
+  nominatedCardId: string | null;
+  disabled: boolean;
   onNominate?: (cardId: string) => void;
+  keyOwnerForCard?: (cardId: string) => PublicOwner | undefined;
 }
 
 export function BoardGrid({
   cards,
   order,
-  keyRecord,
-  nomination,
-  canNominate,
-  onNominate
+  rows,
+  columns,
+  nominatedCardId,
+  disabled,
+  onNominate,
+  keyOwnerForCard,
 }: BoardGridProps) {
-  const cardsById = useMemo(() => {
-    const map = new Map<CardId, PublicCard>();
-    for (const c of cards) {
-      map.set(c.id, c);
-    }
-    return map;
-  }, [cards]);
+  const cardsById = new Map(cards.map((card) => [card.id, card]));
+  const navigationHintId = useId();
+  const scrollable = columns > 5;
 
   return (
     <section
-      className="board-grid-section"
-      role="region"
-      aria-label="Game board"
+      className={`board-region${scrollable ? " is-scrollable" : ""}`}
+      aria-label="Classic board"
+      {...(scrollable
+        ? { "aria-describedby": navigationHintId, tabIndex: 0 }
+        : {})}
     >
-      <div className="board-grid">
+      {scrollable ? (
+        <p className="board-navigation-hint" id={navigationHintId}>
+          {columns} columns by {rows} rows. Scroll or arrow keys to explore.
+        </p>
+      ) : null}
+      <ol
+        className="board-grid"
+        style={
+          {
+            "--board-columns": String(columns),
+            "--board-rows": String(rows),
+          } as CSSProperties
+        }
+      >
         {order.map((cardId) => {
           const card = cardsById.get(cardId);
-          if (!card) return null;
-
-          const isNominated = nomination?.cardId === cardId;
-          const isDisabled = !canNominate || card.revealed;
-          const keyOwner = keyRecord ? keyRecord[cardId] : undefined;
-
+          if (card === undefined) {
+            return null;
+          }
+          const keyOwner = keyOwnerForCard?.(cardId);
           return (
-            <BoardCard
-              key={card.id}
-              card={card}
-              {...(keyOwner !== undefined ? { keyOwner } : {})}
-              nominated={isNominated}
-              disabled={isDisabled}
-              {...(onNominate !== undefined ? { onNominate } : {})}
-            />
+            <li key={cardId}>
+              <BoardCard
+                card={card}
+                nominated={nominatedCardId === cardId}
+                disabled={disabled}
+                {...(onNominate === undefined ? {} : { onNominate })}
+                {...(keyOwner === undefined ? {} : { keyOwner })}
+              />
+            </li>
           );
         })}
-      </div>
+      </ol>
     </section>
   );
 }

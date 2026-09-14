@@ -1,13 +1,19 @@
+import "./validation-bootstrap";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { createAppRouter } from "./app/router";
+import "./styles/tokens.css";
 import "./styles/globals.css";
 
-const rootElement = document.getElementById("root");
-if (rootElement) {
-  createRoot(rootElement).render(
-    <StrictMode>
-      <App />
-    </StrictMode>
-  );
+const root = document.getElementById("root");
+
+if (!root) {
+  throw new Error("Application root is missing");
 }
+
+createRoot(root).render(
+  <StrictMode>
+    <App router={createAppRouter()} />
+  </StrictMode>,
+);

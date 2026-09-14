@@ -1,71 +1,73 @@
 import { z } from "zod";
 
-function hasControlCharacters(value: string): boolean {
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if ((code >= 0 && code <= 31) || code === 127) {
-      return true;
-    }
-  }
-  return false;
-}
+const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 export const DisplayNameSchema = z
   .string()
   .refine(
-    (value) => !hasControlCharacters(value),
-    "Display name has control characters"
+    // Display names are text-only and must reject the ASCII control ranges.
+    // eslint-disable-next-line no-control-regex
+    (value) => !/[\u0000-\u001F\u007F]/u.test(value),
+    "Display name has control characters",
   )
   .transform((value) => value.trim().normalize("NFC"))
   .pipe(
     z
       .string()
-      .min(1, "Display name cannot be empty")
+      .min(1)
       .refine(
         (value) =>
           Array.from(
             new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(
-              value
-            )
+              value,
+            ),
           ).length <= 24,
-        "Display name is too long"
-      )
+        "Display name is too long",
+      ),
   );
 
-export const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const CreateRoomRequestSchema = z
+  .object({ displayName: DisplayNameSchema })
+  .strict();
 
-export function generateRoomCode(): string {
+export const JoinRoomRequestSchema = z
+  .object({
+    displayName: DisplayNameSchema,
+    asSpectator: z.boolean().optional().default(false),
+  })
+  .strict();
+
+export function normalizeRoomCode(value: string): string | null {
+  if (
+    value.length !== 6 ||
+    Array.from(value).some((character) => {
+      const code = character.charCodeAt(0);
+      return !(
+        (code >= 0x30 && code <= 0x39) ||
+        (code >= 0x41 && code <= 0x5a) ||
+        (code >= 0x61 && code <= 0x7a)
+      );
+    })
+  ) {
+    return null;
+  }
+  const normalized = value
+    .toUpperCase()
+    .replaceAll("O", "0")
+    .replace(/[IL]/gu, "1");
+  if (
+    normalized.length !== 6 ||
+    Array.from(normalized).some(
+      (character) => !CROCKFORD_ALPHABET.includes(character),
+    )
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+export function randomRoomCode(): string {
   const bytes = new Uint8Array(6);
   crypto.getRandomValues(bytes);
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += CROCKFORD_ALPHABET[bytes[i]! % CROCKFORD_ALPHABET.length];
-  }
-  return code;
+  return Array.from(bytes, (byte) => CROCKFORD_ALPHABET[byte & 31]!).join("");
 }
-
-export function normalizeRoomCode(input: string): string {
-  return input
-    .toUpperCase()
-    .replace(/O/g, "0")
-    .replace(/[IL]/g, "1")
-    .replace(/[\s-]/g, "");
-}
-
-export const RoomCodeSchema = z
-  .string()
-  .transform(normalizeRoomCode)
-  .refine(
-    (val) =>
-      val.length === 6 && /^[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{6}$/.test(val),
-    "Invalid room code"
-  );
-
-export const CreateRoomRequestSchema = z.object({
-  displayName: DisplayNameSchema
-});
-
-export const JoinRoomRequestSchema = z.object({
-  displayName: DisplayNameSchema,
-  asSpectator: z.boolean().optional().default(false)
-});

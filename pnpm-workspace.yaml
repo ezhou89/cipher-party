@@ -7,6 +7,4 @@ allowBuilds:
   workerd: true
 
 updateNotifier: false
-storeDir: "/Users/eugenezhou/Code/cipher-party/.pnpm-store"
-patchedDependencies:
-  "@cloudflare/vitest-plugin": patches/@cloudflare__vitest-plugin.patch
+storeDir: ".pnpm-store"

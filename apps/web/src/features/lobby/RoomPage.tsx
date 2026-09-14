@@ -1,178 +1,245 @@
-import { useState, type FormEvent } from "react";
-import { useParams } from "react-router-dom";
-import { joinRoom, ApiRequestError } from "../../lib/api";
-import { createSeatStore, type SeatStore } from "../../lib/seat-store";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
+
+import type { SeatStore } from "../../lib/seat-store";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
-import { LobbyView } from "./LobbyView";
 import { GameView } from "../game/GameView";
-import { useRoom, type UseRoomOptions } from "./useRoom";
+import { LobbyView } from "./LobbyView";
+import { useRoom, type RoomSocketClient } from "./useRoom";
 
-const defaultSeatStore = createSeatStore();
-
-export interface RoomPageProps {
-  seatStore?: SeatStore;
-  roomOptions?: UseRoomOptions;
-  baseUrl?: string;
+interface RoomPageProps {
+  seatStore: SeatStore;
+  createRoomSocket?: () => RoomSocketClient;
 }
 
-export function RoomPage({
-  seatStore = defaultSeatStore,
-  roomOptions,
-  baseUrl = ""
-}: RoomPageProps) {
-  const { code } = useParams<{ code: string }>();
-
-  const {
-    loadingCredentials,
-    needsJoin,
-    connection,
-    projection,
-    isCommandPending,
-    send,
-    setCredentials
-  } = useRoom(code, { seatStore, ...roomOptions });
-
-  const [joinName, setJoinName] = useState("");
+export function RoomPage({ seatStore, createRoomSocket }: RoomPageProps) {
+  const room = useRoom({
+    seatStore,
+    ...(createRoomSocket === undefined ? {} : { createRoomSocket }),
+  });
+  const errorRef = useRef<HTMLDivElement>(null);
   const [asSpectator, setAsSpectator] = useState(false);
-  const [joinLoading, setJoinLoading] = useState(false);
-  const [joinError, setJoinError] = useState<string | null>(null);
 
-  if (!code) {
-    return (
-      <div className="room-error-page">
-        <h2>Invalid Room Code</h2>
-        <p>No room code was specified in the URL.</p>
-      </div>
-    );
-  }
-
-  if (loadingCredentials) {
-    return (
-      <div className="room-loading" role="status" aria-live="polite">
-        <p>Loading credentials...</p>
-      </div>
-    );
-  }
-
-  if (needsJoin) {
-    async function handleJoinSubmit(e: FormEvent) {
-      e.preventDefault();
-      const trimmed = joinName.trim();
-      if (!trimmed) {
-        setJoinError("Display name cannot be empty");
-        return;
-      }
-      setJoinError(null);
-      setJoinLoading(true);
-
-      try {
-        const result = await joinRoom(code!, trimmed, asSpectator, baseUrl);
-        const creds = {
-          code: code!,
-          playerId: result.playerId,
-          seatToken: result.seatToken
-        };
-        await seatStore.put(creds);
-        setCredentials(creds);
-      } catch (err) {
-        if (err instanceof ApiRequestError) {
-          setJoinError(err.message);
-        } else {
-          setJoinError(
-            err instanceof Error ? err.message : "Failed to join room"
-          );
-        }
-      } finally {
-        setJoinLoading(false);
-      }
+  useEffect(() => {
+    if (room.error !== null) {
+      errorRef.current?.focus();
     }
+  }, [room.error]);
 
+  const submitJoin = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void room.join(String(form.get("display-name") ?? ""), asSpectator);
+  };
+
+  if (room.code === null) {
     return (
-      <div className="home-container">
-        <main className="home-card" aria-labelledby="join-room-title">
-          <h2 id="join-room-title">Join Room {code}</h2>
-          <p className="card-desc">
-            Enter your name to join this private room.
-          </p>
+      <main className="app-shell room-shell room-message">
+        <p className="eyebrow">Invite unavailable</p>
+        <h1>That room code is not valid</h1>
+        <div
+          className="error-summary"
+          role="alert"
+          ref={errorRef}
+          tabIndex={-1}
+        >
+          Room codes use six ASCII letters or numbers.
+        </div>
+        <Link className="text-link" to="/">
+          Return home
+        </Link>
+      </main>
+    );
+  }
 
-          {joinError && (
-            <div role="alert" className="error-summary" tabIndex={-1}>
-              {joinError}
-            </div>
-          )}
+  if (room.credentialStatus === "loading") {
+    return (
+      <main className="app-shell room-shell room-message">
+        <p className="eyebrow">Private room</p>
+        <h1>Room {room.code}</h1>
+        <ConnectionBadge connection="idle" />
+        <p>Checking this device for your saved seat…</p>
+      </main>
+    );
+  }
 
-          <form onSubmit={handleJoinSubmit} className="home-form">
-            <div className="form-group">
-              <label htmlFor="room-page-name">Your Name</label>
+  if (room.credentialStatus === "invalid") {
+    return (
+      <main className="app-shell room-shell room-message">
+        <p className="eyebrow">Seat recovery</p>
+        <h1>Saved seat needs attention</h1>
+        {room.error === null ? null : (
+          <div
+            className="error-summary"
+            role="alert"
+            ref={errorRef}
+            tabIndex={-1}
+          >
+            {room.error}
+          </div>
+        )}
+        <p>
+          This device cannot use its saved room credential. Remove it to join as
+          a new seat; the host can coordinate recovery separately.
+        </p>
+        <button
+          type="button"
+          disabled={room.pending}
+          onClick={() => void room.discardCredentials()}
+        >
+          Forget saved seat and rejoin
+        </button>
+      </main>
+    );
+  }
+
+  if (room.credentialStatus === "missing") {
+    return (
+      <main className="app-shell room-shell join-shell">
+        <header className="room-identity-strip">
+          <div>
+            <p className="eyebrow">Private invitation</p>
+            <h1>Room {room.code}</h1>
+          </div>
+          <Link className="text-link" to="/">
+            Use another code
+          </Link>
+        </header>
+        {room.error === null ? null : (
+          <div
+            className="error-summary"
+            role="alert"
+            ref={errorRef}
+            tabIndex={-1}
+          >
+            {room.error}
+          </div>
+        )}
+        <form
+          className="entry-card invite-join-card"
+          aria-label={`Join room ${room.code}`}
+          onSubmit={submitJoin}
+        >
+          <div>
+            <p className="card-index">Seat request</p>
+            <h2>Choose how you will join</h2>
+            <p>Your private seat credential will stay on this device.</p>
+          </div>
+          <label htmlFor="display-name">Display name</label>
+          <input
+            id="display-name"
+            name="display-name"
+            autoComplete="nickname"
+            required
+          />
+          <fieldset className="join-role-choice">
+            <legend>Seat type</legend>
+            <label>
               <input
-                id="room-page-name"
-                name="displayName"
-                type="text"
-                autoComplete="nickname"
-                maxLength={24}
-                value={joinName}
-                onChange={(e) => setJoinName(e.target.value)}
-                placeholder="e.g. Agent Shadow"
-                disabled={joinLoading}
-                required
+                type="radio"
+                name="seat-type"
+                checked={!asSpectator}
+                onChange={() => setAsSpectator(false)}
               />
-            </div>
-            <div className="form-group form-check">
-              <label htmlFor="room-page-spectator" className="checkbox-label">
-                <input
-                  id="room-page-spectator"
-                  name="asSpectator"
-                  type="checkbox"
-                  checked={asSpectator}
-                  onChange={(e) => setAsSpectator(e.target.checked)}
-                  disabled={joinLoading}
-                />
-                Join as Spectator
-              </label>
-            </div>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={joinLoading}
-            >
-              {joinLoading ? "Joining..." : "Join Room"}
-            </button>
-          </form>
-        </main>
-      </div>
+              Join as player
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="seat-type"
+                aria-label="Join as spectator"
+                checked={asSpectator}
+                onChange={() => setAsSpectator(true)}
+              />
+              Join as spectator
+            </label>
+          </fieldset>
+          <button type="submit" disabled={room.pending}>
+            {room.pending ? "Joining room…" : "Join this room"}
+          </button>
+        </form>
+      </main>
     );
   }
 
-  if (!projection) {
+  if (room.projection === null) {
     return (
-      <div
-        className="room-connecting-container"
-        role="status"
-        aria-live="polite"
-      >
-        <h2 className="title">Connecting to Room {code}...</h2>
-        <ConnectionBadge state={connection} />
-      </div>
+      <main className="app-shell room-shell room-message">
+        <p className="eyebrow">Private room</p>
+        <h1>Room {room.code}</h1>
+        <ConnectionBadge connection={room.connection} />
+        {room.error === null ? null : (
+          <div
+            className="error-summary"
+            role="alert"
+            ref={errorRef}
+            tabIndex={-1}
+          >
+            {room.error}
+          </div>
+        )}
+        {room.connection === "closed" ? (
+          <p>
+            Automatic reconnect has stopped. Your saved seat stays on this
+            device until you choose to forget it.
+          </p>
+        ) : (
+          <p>Synchronizing the latest public room state…</p>
+        )}
+        {room.connection === "closed" ? (
+          <button
+            type="button"
+            disabled={room.pending}
+            onClick={() => void room.discardCredentials()}
+          >
+            Forget saved seat and rejoin
+          </button>
+        ) : null}
+      </main>
     );
   }
 
-  if (projection.roomPhase === "lobby") {
+  if (room.projection.roomPhase === "lobby") {
     return (
-      <LobbyView
-        projection={projection}
-        connectionState={connection}
-        onSendCommand={send}
-        isCommandPending={isCommandPending}
-      />
+      <>
+        {room.error === null ? null : (
+          <div
+            className="floating-error error-summary"
+            role="alert"
+            ref={errorRef}
+            tabIndex={-1}
+          >
+            {room.error}
+          </div>
+        )}
+        <LobbyView
+          projection={room.projection}
+          connection={room.connection}
+          pending={room.pending}
+          send={room.send}
+        />
+      </>
     );
   }
 
   return (
-    <GameView
-      projection={projection}
-      connectionState={connection}
-      onSendCommand={send}
-      isCommandPending={isCommandPending}
-    />
+    <>
+      {room.error === null ? null : (
+        <div
+          className="floating-error error-summary"
+          role="alert"
+          ref={errorRef}
+          tabIndex={-1}
+        >
+          {room.error}
+        </div>
+      )}
+      <GameView
+        projection={room.projection}
+        connection={room.connection}
+        pending={room.pending}
+        send={room.send}
+      />
+    </>
   );
 }

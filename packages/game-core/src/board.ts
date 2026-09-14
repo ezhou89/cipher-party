@@ -1,5 +1,10 @@
 import type { CardId, Ownership, TeamId, TextCard } from "./domain";
 import { createSeededRandom, shuffled } from "./random";
+import {
+  classicBoardSpec,
+  configuredTeams,
+  type TeamCount,
+} from "./team-rules";
 
 export interface BoardCard extends TextCard {
   owner: Ownership;
@@ -7,6 +12,10 @@ export interface BoardCard extends TextCard {
 }
 
 export interface ClassicBoard {
+  teamCount: TeamCount;
+  configuredTeams: TeamId[];
+  rows: 5 | 6;
+  columns: 5 | 6;
   order: CardId[];
   cards: Record<CardId, BoardCard>;
   startingTeam: TeamId;
@@ -16,56 +25,60 @@ export function createClassicBoard(input: {
   cards: readonly TextCard[];
   seed: string;
   startingTeam: TeamId;
+  teamCount?: TeamCount;
 }): ClassicBoard {
-  const uniqueCardIds = new Set(input.cards.map((c) => c.id));
-  if (input.cards.length < 25 || uniqueCardIds.size < 25) {
-    throw new Error("Classic board requires at least 25 unique cards");
+  const teamCount = input.teamCount ?? 2;
+  const spec = classicBoardSpec(teamCount);
+  const teams = configuredTeams(teamCount);
+  const cardIds = new Set(input.cards.map((card) => card.id));
+  if (cardIds.size < spec.cardCount) {
+    throw new Error(
+      `Classic board requires at least ${spec.cardCount} unique cards`,
+    );
+  }
+  if (cardIds.size !== input.cards.length) {
+    throw new Error("Classic board requires unique card IDs");
+  }
+  if (!teams.includes(input.startingTeam)) {
+    throw new Error("Classic board starting team must be configured");
   }
 
-  // Tier 1: Pool sampling
-  const sampledCards = shuffled(
+  const selectedCards = shuffled(
     input.cards,
-    createSeededRandom(input.seed + "/cards")
-  ).slice(0, 25);
-
-  // Tier 2: Grid permutation
+    createSeededRandom(`${input.seed}/cards`),
+  ).slice(0, spec.cardCount);
   const orderedCards = shuffled(
-    sampledCards,
-    createSeededRandom(input.seed + "/grid-order")
+    selectedCards,
+    createSeededRandom(`${input.seed}/grid-order`),
   );
-
-  // Tier 3: Keycard ownership decoupling
-  const opposingTeam: TeamId = input.startingTeam === "red" ? "blue" : "red";
-  const ownerships: Ownership[] = [
-    ...Array<Ownership>(9).fill(input.startingTeam),
-    ...Array<Ownership>(8).fill(opposingTeam),
-    ...Array<Ownership>(7).fill("neutral"),
-    "hazard"
-  ];
-
-  const shuffledOwnerships = shuffled(
-    ownerships,
-    createSeededRandom(input.seed + "/ownership")
+  const owners = shuffled<Ownership>(
+    [
+      ...Array<Ownership>(spec.startingTargets).fill(input.startingTeam),
+      ...teams
+        .filter((teamId) => teamId !== input.startingTeam)
+        .flatMap((teamId) => Array<Ownership>(spec.otherTargets).fill(teamId)),
+      ...Array<Ownership>(spec.neutralCards).fill("neutral"),
+      "hazard",
+    ],
+    createSeededRandom(`${input.seed}/ownership`),
   );
+  const boardCards: Record<CardId, BoardCard> = Object.create(null);
+  const order: CardId[] = [];
 
-  const order: CardId[] = orderedCards.map((c) => c.id);
-  const cards: Record<CardId, BoardCard> = {};
-
-  for (let index = 0; index < 25; index += 1) {
-    const card = orderedCards[index]!;
-    const owner = shuffledOwnerships[index]!;
-    cards[card.id] = {
-      id: card.id,
-      label: card.label,
-      owner,
-      revealed: false
-    };
+  for (const [index, card] of orderedCards.entries()) {
+    const owner = owners[index]!;
+    boardCards[card.id] = { ...card, owner, revealed: false };
+    order.push(card.id);
   }
 
   return {
+    teamCount,
+    configuredTeams: [...teams],
+    rows: spec.rows,
+    columns: spec.columns,
     order,
-    cards,
-    startingTeam: input.startingTeam
+    cards: boardCards,
+    startingTeam: input.startingTeam,
   };
 }
 
@@ -73,11 +86,15 @@ export function countOwnership(board: ClassicBoard): Record<Ownership, number> {
   const counts: Record<Ownership, number> = {
     red: 0,
     blue: 0,
+    green: 0,
+    yellow: 0,
     neutral: 0,
-    hazard: 0
+    hazard: 0,
   };
+
   for (const card of Object.values(board.cards)) {
     counts[card.owner] += 1;
   }
+
   return counts;
 }

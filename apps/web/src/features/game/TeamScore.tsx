@@ -1,47 +1,47 @@
-import type { PublicCard, TeamId } from "@cipher-party/protocol";
+import type { ClientProjection } from "@cipher-party/protocol";
+import type { CSSProperties } from "react";
 
-export interface TeamScoreProps {
-  cards: PublicCard[];
-  activeTeam: TeamId;
+import { TEAM_PRESENTATION } from "../../lib/team-presentation";
+
+interface TeamScoreProps {
+  board: NonNullable<ClientProjection["board"]>;
 }
 
-export function TeamScore({ cards, activeTeam }: TeamScoreProps) {
-  const redRevealed = cards.filter(
-    (c) => c.revealed && c.owner === "red"
-  ).length;
-  const blueRevealed = cards.filter(
-    (c) => c.revealed && c.owner === "blue"
-  ).length;
+export function TeamScore({ board }: TeamScoreProps) {
+  const summaries = new Map(
+    board.teamSummaries.map((summary) => [summary.teamId, summary]),
+  );
 
   return (
-    <div
-      className="team-scores-container"
-      role="region"
-      aria-label="Team scores"
+    <section
+      className="team-score"
+      aria-label="Team progress"
+      style={{ "--team-count": String(board.teamCount) } as CSSProperties}
     >
-      <div
-        className={`team-score-card team-score-red ${activeTeam === "red" ? "team-score--active" : ""}`}
-      >
-        <span className="team-score-symbol" aria-hidden="true">
-          ♥
-        </span>
-        <div className="team-score-info">
-          <span className="team-score-name">Ruby (Red)</span>
-          <span className="team-score-count">{redRevealed} Revealed</span>
-        </div>
-      </div>
-
-      <div
-        className={`team-score-card team-score-blue ${activeTeam === "blue" ? "team-score--active" : ""}`}
-      >
-        <span className="team-score-symbol" aria-hidden="true">
-          ✦
-        </span>
-        <div className="team-score-info">
-          <span className="team-score-name">Cobalt (Blue)</span>
-          <span className="team-score-count">{blueRevealed} Revealed</span>
-        </div>
-      </div>
-    </div>
+      {board.configuredTeams.map((teamId) => {
+        const presentation = TEAM_PRESENTATION[teamId];
+        const summary = summaries.get(teamId);
+        const eliminated = summary?.eliminated ?? false;
+        return (
+          <strong
+            key={teamId}
+            className={`team-score-${teamId}${board.activeTeam === teamId ? " is-current" : ""}${eliminated ? " is-eliminated" : ""}`}
+            data-team-pattern={presentation.pattern}
+          >
+            <span className="team-callsign">{presentation.callsign}</span>
+            <span>
+              {presentation.symbol} {presentation.label} revealed targets{" "}
+              {summary?.revealedTargets ?? 0}
+            </span>
+            {eliminated ? (
+              <>
+                {" "}
+                <span className="team-state">Eliminated</span>
+              </>
+            ) : null}
+          </strong>
+        );
+      })}
+    </section>
   );
 }

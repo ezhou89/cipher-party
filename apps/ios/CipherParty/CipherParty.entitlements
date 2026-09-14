@@ -4,7 +4,7 @@
 <dict>
     <key>com.apple.developer.associated-domains</key>
     <array>
-        <string>applinks:oddlyuseful.studio</string>
+        <string>applinks:$(UNIVERSAL_LINK_HOST)</string>
     </array>
 </dict>
 </plist>

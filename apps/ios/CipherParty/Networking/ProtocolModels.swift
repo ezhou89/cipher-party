@@ -127,6 +127,112 @@ private func requireRange(
     return value
 }
 
+private func expectedTeams(for teamCount: TeamCount) -> [TeamID] {
+    Array(TeamID.allCases.prefix(teamCount.rawValue))
+}
+
+private func boardGeometry(for teamCount: TeamCount) -> (rows: Int, columns: Int, cardCount: Int) {
+    switch teamCount {
+    case .two:
+        return (5, 5, 25)
+    case .three:
+        return (5, 6, 30)
+    case .four:
+        return (6, 6, 36)
+    }
+}
+
+private func requireUniqueStrings(_ values: [String], field: String) throws {
+    guard Set(values).count == values.count else {
+        throw ProtocolDecodingError.invalidValue(field: field, constraint: "unique values")
+    }
+}
+
+private func requireConfiguredTeams(_ values: [TeamID], teamCount: TeamCount, field: String) throws {
+    let expected = expectedTeams(for: teamCount)
+    guard values == expected else {
+        throw ProtocolDecodingError.invalidValue(
+            field: field,
+            constraint: "the ordered red/blue/green/yellow prefix matching teamCount"
+        )
+    }
+}
+
+private func validatePublicBoard(
+    _ board: PublicBoardProjection,
+    projectionTeamCount: TeamCount? = nil,
+    projectionTeams: [TeamID]? = nil
+) throws {
+    if let projectionTeamCount, board.teamCount != projectionTeamCount {
+        throw ProtocolDecodingError.invalidValue(
+            field: "board.teamCount",
+            constraint: "the projection teamCount"
+        )
+    }
+
+    let geometry = boardGeometry(for: board.teamCount)
+    guard board.rows == geometry.rows,
+          board.columns == geometry.columns,
+          board.order.count == geometry.cardCount,
+          board.cards.count == geometry.cardCount
+    else {
+        throw ProtocolDecodingError.invalidValue(
+            field: "board",
+            constraint: "the canonical dimensions for teamCount"
+        )
+    }
+
+    try requireConfiguredTeams(board.configuredTeams, teamCount: board.teamCount, field: "board.configuredTeams")
+    if let projectionTeams, board.configuredTeams != projectionTeams {
+        throw ProtocolDecodingError.invalidValue(
+            field: "board.configuredTeams",
+            constraint: "the projection configuredTeams"
+        )
+    }
+
+    try requireUniqueStrings(board.order, field: "board.order")
+    let cardIds = board.cards.map(\.id)
+    try requireUniqueStrings(cardIds, field: "board.cards")
+    guard Set(cardIds) == Set(board.order) else {
+        throw ProtocolDecodingError.invalidValue(
+            field: "board.cards",
+            constraint: "exactly the cards in board.order"
+        )
+    }
+
+    guard Set(board.eliminatedTeams).count == board.eliminatedTeams.count,
+          board.eliminatedTeams.allSatisfy({ board.configuredTeams.contains($0) })
+    else {
+        throw ProtocolDecodingError.invalidValue(
+            field: "board.eliminatedTeams",
+            constraint: "unique configured teams"
+        )
+    }
+
+    guard board.teamSummaries.map(\.teamId) == board.configuredTeams,
+          Set(board.teamSummaries.map(\.teamId)).count == board.teamSummaries.count
+    else {
+        throw ProtocolDecodingError.invalidValue(
+            field: "board.teamSummaries",
+            constraint: "one summary for each configured team in order"
+        )
+    }
+
+    for summary in board.teamSummaries {
+        let revealedTargets = board.cards.filter {
+            $0.revealed && $0.owner == Ownership(rawValue: summary.teamId.rawValue)
+        }.count
+        guard summary.revealedTargets == revealedTargets,
+              summary.eliminated == board.eliminatedTeams.contains(summary.teamId)
+        else {
+            throw ProtocolDecodingError.invalidValue(
+                field: "board.teamSummaries",
+                constraint: "current public card facts"
+            )
+        }
+    }
+}
+
 private func normalizedClueWord(_ value: String, field: String) throws -> String {
     let normalized = value
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -173,8 +279,33 @@ extension StrictProtocolString {
 enum TeamID: String, CaseIterable, Equatable, Hashable, Sendable, StrictProtocolString {
     case red
     case blue
+    case green
+    case yellow
 
     static let protocolField = "teamId"
+}
+
+enum TeamCount: Int, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case two = 2
+    case three = 3
+    case four = 4
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(Int.self)
+        guard let value = Self(rawValue: rawValue) else {
+            throw ProtocolDecodingError.invalidValue(
+                field: "teamCount",
+                constraint: "2, 3, or 4"
+            )
+        }
+        self = value
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 enum SeatRole: String, CaseIterable, Equatable, Hashable, Sendable, StrictProtocolString {
@@ -207,6 +338,8 @@ enum PlayPhase: String, CaseIterable, Equatable, Hashable, Sendable, StrictProto
 enum Ownership: String, CaseIterable, Equatable, Hashable, Sendable, StrictProtocolString {
     case red
     case blue
+    case green
+    case yellow
     case neutral
     case hazard
 
@@ -365,10 +498,6 @@ struct PublicCard: Codable, Equatable, Sendable {
     }
 
     init(from decoder: Decoder) throws {
-        try decoder.validateProtocolKeys(
-            CodingKeys.self,
-            required: [.id, .label, .revealed]
-        )
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try requireNonEmpty(
             container.decode(String.self, forKey: .id),
@@ -376,7 +505,28 @@ struct PublicCard: Codable, Equatable, Sendable {
         )
         label = try container.decode(String.self, forKey: .label)
         revealed = try container.decode(Bool.self, forKey: .revealed)
-        owner = try container.decodeOptionalNonNull(Ownership.self, forKey: .owner)
+
+        let allowedKeys: [CodingKeys] = revealed ? CodingKeys.allCases : [.id, .label, .revealed]
+        let requiredKeys: [CodingKeys] = revealed
+            ? [.id, .label, .revealed, .owner]
+            : [.id, .label, .revealed]
+        try decoder.validateProtocolKeys(
+            CodingKeys.self,
+            allowed: allowedKeys,
+            required: requiredKeys
+        )
+
+        if revealed {
+            guard try !container.decodeNil(forKey: .owner) else {
+                throw ProtocolDecodingError.invalidValue(
+                    field: CodingKeys.owner.rawValue,
+                    constraint: "a non-null owner for revealed cards"
+                )
+            }
+            owner = try container.decode(Ownership.self, forKey: .owner)
+        } else {
+            owner = nil
+        }
     }
 }
 
@@ -427,7 +577,43 @@ struct Nomination: Codable, Equatable, Sendable {
     }
 }
 
+struct PublicTeamSummary: Codable, Equatable, Sendable {
+    let teamId: TeamID
+    let revealedTargets: Int
+    let eliminated: Bool
+
+    private enum CodingKeys: String, CodingKey, CaseIterable {
+        case teamId
+        case revealedTargets
+        case eliminated
+    }
+
+    init(from decoder: Decoder) throws {
+        try decoder.validateProtocolKeys(CodingKeys.self)
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        teamId = try container.decode(TeamID.self, forKey: .teamId)
+        revealedTargets = try requireNonnegative(
+            container.decode(Int.self, forKey: .revealedTargets),
+            field: CodingKeys.revealedTargets.rawValue
+        )
+        eliminated = try container.decode(Bool.self, forKey: .eliminated)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(teamId, forKey: .teamId)
+        try container.encode(revealedTargets, forKey: .revealedTargets)
+        try container.encode(eliminated, forKey: .eliminated)
+    }
+}
+
 struct PublicBoardProjection: Codable, Equatable, Sendable {
+    let teamCount: TeamCount
+    let rows: Int
+    let columns: Int
+    let configuredTeams: [TeamID]
+    let eliminatedTeams: [TeamID]
+    let teamSummaries: [PublicTeamSummary]
     let order: [String]
     let cards: [PublicCard]
     let activeTeam: TeamID
@@ -439,6 +625,12 @@ struct PublicBoardProjection: Codable, Equatable, Sendable {
     let completionReason: CompletionReason?
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
+        case teamCount
+        case rows
+        case columns
+        case configuredTeams
+        case eliminatedTeams
+        case teamSummaries
         case order
         case cards
         case activeTeam
@@ -453,28 +645,119 @@ struct PublicBoardProjection: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         try decoder.validateProtocolKeys(CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        order = try container.decode([String].self, forKey: .order)
-        for cardId in order {
+        let decodedTeamCount = try container.decode(TeamCount.self, forKey: .teamCount)
+        let decodedRows = try requireRange(
+            container.decode(Int.self, forKey: .rows),
+            field: CodingKeys.rows.rawValue,
+            minimum: 5,
+            maximum: 6
+        )
+        let decodedColumns = try requireRange(
+            container.decode(Int.self, forKey: .columns),
+            field: CodingKeys.columns.rawValue,
+            minimum: 5,
+            maximum: 6
+        )
+        let decodedConfiguredTeams = try container.decode([TeamID].self, forKey: .configuredTeams)
+        let decodedEliminatedTeams = try container.decode([TeamID].self, forKey: .eliminatedTeams)
+        let decodedTeamSummaries = try container.decode([PublicTeamSummary].self, forKey: .teamSummaries)
+        let decodedOrder = try container.decode([String].self, forKey: .order)
+        for cardId in decodedOrder {
             _ = try requireNonEmpty(cardId, field: CodingKeys.order.rawValue)
         }
-        cards = try container.decode([PublicCard].self, forKey: .cards)
-        activeTeam = try container.decode(TeamID.self, forKey: .activeTeam)
-        phase = try container.decode(PlayPhase.self, forKey: .phase)
-        clue = try container.decodeRequiredNullable(Clue.self, forKey: .clue)
-        guessesRemaining = try requireNonnegative(
+        let decodedCards = try container.decode([PublicCard].self, forKey: .cards)
+        let decodedActiveTeam = try container.decode(TeamID.self, forKey: .activeTeam)
+        let decodedPhase = try container.decode(PlayPhase.self, forKey: .phase)
+        let decodedClue = try container.decodeRequiredNullable(Clue.self, forKey: .clue)
+        let decodedGuessesRemaining = try requireNonnegative(
             container.decode(Int.self, forKey: .guessesRemaining),
             field: CodingKeys.guessesRemaining.rawValue
         )
-        nomination = try container.decodeRequiredNullable(Nomination.self, forKey: .nomination)
-        winner = try container.decodeRequiredNullable(TeamID.self, forKey: .winner)
-        completionReason = try container.decodeRequiredNullable(
+        let decodedNomination = try container.decodeRequiredNullable(Nomination.self, forKey: .nomination)
+        let decodedWinner = try container.decodeRequiredNullable(TeamID.self, forKey: .winner)
+        let decodedCompletionReason = try container.decodeRequiredNullable(
             CompletionReason.self,
             forKey: .completionReason
         )
+
+        let decodedBoard = PublicBoardProjection(
+            teamCount: decodedTeamCount,
+            rows: decodedRows,
+            columns: decodedColumns,
+            configuredTeams: decodedConfiguredTeams,
+            eliminatedTeams: decodedEliminatedTeams,
+            teamSummaries: decodedTeamSummaries,
+            order: decodedOrder,
+            cards: decodedCards,
+            activeTeam: decodedActiveTeam,
+            phase: decodedPhase,
+            clue: decodedClue,
+            guessesRemaining: decodedGuessesRemaining,
+            nomination: decodedNomination,
+            winner: decodedWinner,
+            completionReason: decodedCompletionReason
+        )
+        try validatePublicBoard(decodedBoard)
+
+        teamCount = decodedTeamCount
+        rows = decodedRows
+        columns = decodedColumns
+        configuredTeams = decodedConfiguredTeams
+        eliminatedTeams = decodedEliminatedTeams
+        teamSummaries = decodedTeamSummaries
+        order = decodedOrder
+        cards = decodedCards
+        activeTeam = decodedActiveTeam
+        phase = decodedPhase
+        clue = decodedClue
+        guessesRemaining = decodedGuessesRemaining
+        nomination = decodedNomination
+        winner = decodedWinner
+        completionReason = decodedCompletionReason
+    }
+
+    private init(
+        teamCount: TeamCount,
+        rows: Int,
+        columns: Int,
+        configuredTeams: [TeamID],
+        eliminatedTeams: [TeamID],
+        teamSummaries: [PublicTeamSummary],
+        order: [String],
+        cards: [PublicCard],
+        activeTeam: TeamID,
+        phase: PlayPhase,
+        clue: Clue?,
+        guessesRemaining: Int,
+        nomination: Nomination?,
+        winner: TeamID?,
+        completionReason: CompletionReason?
+    ) {
+        self.teamCount = teamCount
+        self.rows = rows
+        self.columns = columns
+        self.configuredTeams = configuredTeams
+        self.eliminatedTeams = eliminatedTeams
+        self.teamSummaries = teamSummaries
+        self.order = order
+        self.cards = cards
+        self.activeTeam = activeTeam
+        self.phase = phase
+        self.clue = clue
+        self.guessesRemaining = guessesRemaining
+        self.nomination = nomination
+        self.winner = winner
+        self.completionReason = completionReason
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(teamCount, forKey: .teamCount)
+        try container.encode(rows, forKey: .rows)
+        try container.encode(columns, forKey: .columns)
+        try container.encode(configuredTeams, forKey: .configuredTeams)
+        try container.encode(eliminatedTeams, forKey: .eliminatedTeams)
+        try container.encode(teamSummaries, forKey: .teamSummaries)
         try container.encode(order, forKey: .order)
         try container.encode(cards, forKey: .cards)
         try container.encode(activeTeam, forKey: .activeTeam)
@@ -519,7 +802,14 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
     case clueSubmitted(revision: Int, at: String, teamId: TeamID, word: String, count: Int)
     case clueChallenged(revision: Int, at: String, teamId: TeamID)
     case challengeResolved(revision: Int, at: String, decision: ChallengeDecision)
-    case cardRevealed(revision: Int, at: String, teamId: TeamID, cardId: String, owner: Ownership)
+    case cardRevealed(
+        revision: Int,
+        at: String,
+        teamId: TeamID,
+        cardId: String,
+        owner: Ownership,
+        eliminatedTeam: TeamID?
+    )
     case turnEnded(revision: Int, at: String, teamId: TeamID)
     case roomPaused(revision: Int, at: String)
     case roomResumed(revision: Int, at: String)
@@ -534,6 +824,7 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
         case decision
         case cardId
         case owner
+        case eliminatedTeam
     }
 
     var type: EntryType {
@@ -552,24 +843,31 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(EntryType.self, forKey: .type)
         let variantKeys: [CodingKeys]
+        let requiredKeys: [CodingKeys]
         switch type {
         case .clueSubmitted:
             variantKeys = [.revision, .at, .type, .teamId, .word, .count]
+            requiredKeys = variantKeys
         case .clueChallenged:
             variantKeys = [.revision, .at, .type, .teamId]
+            requiredKeys = variantKeys
         case .challengeResolved:
             variantKeys = [.revision, .at, .type, .decision]
+            requiredKeys = variantKeys
         case .cardRevealed:
-            variantKeys = [.revision, .at, .type, .teamId, .cardId, .owner]
+            variantKeys = [.revision, .at, .type, .teamId, .cardId, .owner, .eliminatedTeam]
+            requiredKeys = [.revision, .at, .type, .teamId, .cardId, .owner]
         case .turnEnded:
             variantKeys = [.revision, .at, .type, .teamId]
+            requiredKeys = variantKeys
         case .roomPaused, .roomResumed:
             variantKeys = [.revision, .at, .type]
+            requiredKeys = variantKeys
         }
         try decoder.validateProtocolKeys(
             CodingKeys.self,
             allowed: variantKeys,
-            required: variantKeys
+            required: requiredKeys
         )
         let revision = try requireNonnegative(
             container.decode(Int.self, forKey: .revision),
@@ -612,6 +910,17 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
                 decision: container.decode(ChallengeDecision.self, forKey: .decision)
             )
         case .cardRevealed:
+            let decodedOwner = try container.decode(Ownership.self, forKey: .owner)
+            let decodedEliminatedTeam = try container.decodeOptionalNonNull(
+                TeamID.self,
+                forKey: .eliminatedTeam
+            )
+            if decodedEliminatedTeam != nil, decodedOwner != .hazard {
+                throw ProtocolDecodingError.invalidValue(
+                    field: CodingKeys.eliminatedTeam.rawValue,
+                    constraint: "only a hazard reveal may eliminate a team"
+                )
+            }
             self = try .cardRevealed(
                 revision: revision,
                 at: at,
@@ -620,7 +929,8 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
                     container.decode(String.self, forKey: .cardId),
                     field: CodingKeys.cardId.rawValue
                 ),
-                owner: container.decode(Ownership.self, forKey: .owner)
+                owner: decodedOwner,
+                eliminatedTeam: decodedEliminatedTeam
             )
         case .turnEnded:
             self = try .turnEnded(
@@ -656,13 +966,16 @@ enum PublicHistoryEntry: Codable, Equatable, Sendable {
             try container.encode(revision, forKey: .revision)
             try container.encode(at, forKey: .at)
             try container.encode(decision, forKey: .decision)
-        case let .cardRevealed(revision, at, teamId, cardId, owner):
+        case let .cardRevealed(revision, at, teamId, cardId, owner, eliminatedTeam):
             try container.encode(EntryType.cardRevealed, forKey: .type)
             try container.encode(revision, forKey: .revision)
             try container.encode(at, forKey: .at)
             try container.encode(teamId, forKey: .teamId)
             try container.encode(cardId, forKey: .cardId)
             try container.encode(owner, forKey: .owner)
+            if let eliminatedTeam {
+                try container.encode(eliminatedTeam, forKey: .eliminatedTeam)
+            }
         case let .turnEnded(revision, at, teamId):
             try container.encode(EntryType.turnEnded, forKey: .type)
             try container.encode(revision, forKey: .revision)
@@ -689,6 +1002,8 @@ struct ProjectionBase: Codable, Equatable, Sendable {
     let inviteUrl: String
     let roomPhase: RoomPhase
     let locked: Bool
+    let teamCount: TeamCount
+    let configuredTeams: [TeamID]
     let viewer: ViewerContext
     let permissions: ProjectionPermissions
     let seats: [SeatSummary]
@@ -702,6 +1017,8 @@ struct ProjectionBase: Codable, Equatable, Sendable {
         case inviteUrl
         case roomPhase
         case locked
+        case teamCount
+        case configuredTeams
         case viewer
         case permissions
         case seats
@@ -713,7 +1030,7 @@ struct ProjectionBase: Codable, Equatable, Sendable {
         try decoder.requireProtocolKeys(Array(CodingKeys.allCases))
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decode(Int.self, forKey: .protocolVersion)
-        guard version == 1 else {
+        guard version == 2 else {
             throw ProtocolDecodingError.unsupportedProtocolVersion(version)
         }
 
@@ -725,26 +1042,52 @@ struct ProjectionBase: Codable, Equatable, Sendable {
             )
         }
 
-        protocolVersion = version
-        revision = try requireNonnegative(
+        let decodedRevision = try requireNonnegative(
             container.decode(Int.self, forKey: .revision),
             field: CodingKeys.revision.rawValue
         )
-        code = try requireNonEmpty(
+        let decodedCode = try requireNonEmpty(
             container.decode(String.self, forKey: .code),
             field: CodingKeys.code.rawValue
         )
-        inviteUrl = try requireNonEmpty(
+        let decodedInviteUrl = try requireNonEmpty(
             container.decode(String.self, forKey: .inviteUrl),
             field: CodingKeys.inviteUrl.rawValue
         )
-        roomPhase = try container.decode(RoomPhase.self, forKey: .roomPhase)
-        locked = try container.decode(Bool.self, forKey: .locked)
-        viewer = try container.decode(ViewerContext.self, forKey: .viewer)
-        permissions = try container.decode(ProjectionPermissions.self, forKey: .permissions)
-        seats = try container.decode([SeatSummary].self, forKey: .seats)
+        let decodedRoomPhase = try container.decode(RoomPhase.self, forKey: .roomPhase)
+        let decodedLocked = try container.decode(Bool.self, forKey: .locked)
+        let decodedTeamCount = try container.decode(TeamCount.self, forKey: .teamCount)
+        let decodedConfiguredTeams = try container.decode([TeamID].self, forKey: .configuredTeams)
+        try requireConfiguredTeams(
+            decodedConfiguredTeams,
+            teamCount: decodedTeamCount,
+            field: CodingKeys.configuredTeams.rawValue
+        )
+        let decodedViewer = try container.decode(ViewerContext.self, forKey: .viewer)
+        let decodedPermissions = try container.decode(ProjectionPermissions.self, forKey: .permissions)
+        let decodedSeats = try container.decode([SeatSummary].self, forKey: .seats)
+        let decodedBoard = try container.decodeRequiredNullable(PublicBoardProjection.self, forKey: .board)
+        if let decodedBoard {
+            try validatePublicBoard(
+                decodedBoard,
+                projectionTeamCount: decodedTeamCount,
+                projectionTeams: decodedConfiguredTeams
+            )
+        }
+
+        protocolVersion = version
+        revision = decodedRevision
+        code = decodedCode
+        inviteUrl = decodedInviteUrl
+        roomPhase = decodedRoomPhase
+        locked = decodedLocked
+        teamCount = decodedTeamCount
+        configuredTeams = decodedConfiguredTeams
+        viewer = decodedViewer
+        permissions = decodedPermissions
+        seats = decodedSeats
         publicHistory = history
-        board = try container.decodeRequiredNullable(PublicBoardProjection.self, forKey: .board)
+        board = decodedBoard
     }
 
     func encode(to encoder: Encoder) throws {
@@ -755,6 +1098,8 @@ struct ProjectionBase: Codable, Equatable, Sendable {
         try container.encode(inviteUrl, forKey: .inviteUrl)
         try container.encode(roomPhase, forKey: .roomPhase)
         try container.encode(locked, forKey: .locked)
+        try container.encode(teamCount, forKey: .teamCount)
+        try container.encode(configuredTeams, forKey: .configuredTeams)
         try container.encode(viewer, forKey: .viewer)
         try container.encode(permissions, forKey: .permissions)
         try container.encode(seats, forKey: .seats)
@@ -780,6 +1125,8 @@ enum ClientProjection: Codable, Equatable, Sendable {
         case inviteUrl
         case roomPhase
         case locked
+        case teamCount
+        case configuredTeams
         case viewer
         case permissions
         case seats
@@ -833,6 +1180,8 @@ enum ClientProjection: Codable, Equatable, Sendable {
             .inviteUrl,
             .roomPhase,
             .locked,
+            .teamCount,
+            .configuredTeams,
             .viewer,
             .permissions,
             .seats,
@@ -854,9 +1203,19 @@ enum ClientProjection: Codable, Equatable, Sendable {
             try Self.rejectHiddenKey(in: container, role: role)
             self = .operative(base)
         case .clueGiver:
+            let key = try container.decode([String: Ownership].self, forKey: .key)
+            let boardCardIds = Set(base.board?.order ?? [])
+            guard key.count == boardCardIds.count,
+                  Set(key.keys) == boardCardIds
+            else {
+                throw ProtocolDecodingError.invalidValue(
+                    field: CodingKeys.key.rawValue,
+                    constraint: "exactly the current board card IDs"
+                )
+            }
             self = try .clueGiver(
                 base: base,
-                key: container.decode([String: Ownership].self, forKey: .key)
+                key: key
             )
         case .spectator:
             try Self.rejectHiddenKey(in: container, role: role)
@@ -889,6 +1248,7 @@ enum ClientProjection: Codable, Equatable, Sendable {
 enum ClassicCommand: Codable, Equatable, Sendable {
     enum CommandType: String, CaseIterable, Equatable, Hashable, Sendable, StrictProtocolString {
         case randomizeTeams = "randomize_teams"
+        case setTeamCount = "set_team_count"
         case assignSeat = "assign_seat"
         case setRole = "set_role"
         case lockRoom = "lock_room"
@@ -907,6 +1267,7 @@ enum ClassicCommand: Codable, Equatable, Sendable {
     }
 
     case randomizeTeams
+    case setTeamCount(teamCount: TeamCount)
     case assignSeat(playerId: String, teamId: TeamID?)
     case setRole(playerId: String, role: SeatRole)
     case lockRoom(locked: Bool)
@@ -925,6 +1286,7 @@ enum ClassicCommand: Codable, Equatable, Sendable {
         case type
         case playerId
         case teamId
+        case teamCount
         case role
         case locked
         case word
@@ -936,6 +1298,7 @@ enum ClassicCommand: Codable, Equatable, Sendable {
     var type: CommandType {
         switch self {
         case .randomizeTeams: return .randomizeTeams
+        case .setTeamCount: return .setTeamCount
         case .assignSeat: return .assignSeat
         case .setRole: return .setRole
         case .lockRoom: return .lockRoom
@@ -965,6 +1328,8 @@ enum ClassicCommand: Codable, Equatable, Sendable {
              .pauseRoom,
              .resumeRoom:
             variantKeys = [.type]
+        case .setTeamCount:
+            variantKeys = [.type, .teamCount]
         case .assignSeat:
             variantKeys = [.type, .playerId, .teamId]
         case .setRole:
@@ -987,6 +1352,10 @@ enum ClassicCommand: Codable, Equatable, Sendable {
         switch type {
         case .randomizeTeams:
             self = .randomizeTeams
+        case .setTeamCount:
+            self = try .setTeamCount(
+                teamCount: container.decode(TeamCount.self, forKey: .teamCount)
+            )
         case .assignSeat:
             self = try .assignSeat(
                 playerId: requireNonEmpty(
@@ -1056,6 +1425,8 @@ enum ClassicCommand: Codable, Equatable, Sendable {
         try container.encode(type, forKey: .type)
 
         switch self {
+        case let .setTeamCount(teamCount):
+            try container.encode(teamCount, forKey: .teamCount)
         case let .assignSeat(playerId, teamId):
             try container.encode(playerId, forKey: .playerId)
             try container.encodeIfPresent(teamId, forKey: .teamId)
@@ -1097,7 +1468,7 @@ struct CommandEnvelope: Codable, Equatable, Sendable {
         expectedRevision: Int,
         command: ClassicCommand
     ) {
-        protocolVersion = 1
+        protocolVersion = 2
         self.commandId = commandId
         self.expectedRevision = expectedRevision
         self.command = command
@@ -1114,7 +1485,7 @@ struct CommandEnvelope: Codable, Equatable, Sendable {
         try decoder.validateProtocolKeys(CodingKeys.self)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let version = try container.decode(Int.self, forKey: .protocolVersion)
-        guard version == 1 else {
+        guard version == 2 else {
             throw ProtocolDecodingError.unsupportedProtocolVersion(version)
         }
         protocolVersion = version

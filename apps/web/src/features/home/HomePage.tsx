@@ -1,223 +1,218 @@
-import { useState, useRef, useEffect, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+
 import {
+  ApiError,
   createRoom,
   joinRoom,
-  normalizeRoomCode,
-  ApiRequestError
+  normalizeRoomCodeInput,
 } from "../../lib/api";
-import { createSeatStore, type SeatStore } from "../../lib/seat-store";
+import type { SeatStore } from "../../lib/seat-store";
 
-const defaultSeatStore = createSeatStore();
-
-export interface HomePageProps {
-  seatStore?: SeatStore;
-  baseUrl?: string;
+interface HomePageProps {
+  seatStore: SeatStore;
 }
 
-export function HomePage({
-  seatStore = defaultSeatStore,
-  baseUrl = ""
-}: HomePageProps) {
+type PendingAction = "create" | "join" | null;
+
+interface VisibleError {
+  focusGeneration: number;
+  message: string;
+}
+
+function publicMessage(error: unknown): string {
+  return error instanceof ApiError
+    ? error.message
+    : "Cipher Party could not complete that request. Please try again.";
+}
+
+export function HomePage({ seatStore }: HomePageProps) {
   const navigate = useNavigate();
-
-  const [createName, setCreateName] = useState("");
-  const [createLoading, setCreateLoading] = useState(false);
-
-  const [joinCode, setJoinCode] = useState("");
-  const [joinName, setJoinName] = useState("");
-  const [asSpectator, setAsSpectator] = useState(false);
-  const [joinLoading, setJoinLoading] = useState(false);
-
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState<PendingAction>(null);
+  const [error, setError] = useState<VisibleError | null>(null);
+  const errorFocusGeneration = error?.focusGeneration;
 
   useEffect(() => {
-    if (errorMessage && errorRef.current) {
-      errorRef.current.focus();
+    if (errorFocusGeneration !== undefined) {
+      errorRef.current?.focus();
     }
-  }, [errorMessage]);
+  }, [errorFocusGeneration]);
 
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = createName.trim();
-    if (!trimmed) {
-      setErrorMessage("Display name cannot be empty");
+  const showError = (message: string) => {
+    setError((current) => ({
+      focusGeneration: (current?.focusGeneration ?? 0) + 1,
+      message,
+    }));
+  };
+
+  const handleCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (pending !== null) {
       return;
     }
-
-    setErrorMessage(null);
-    setCreateLoading(true);
+    const form = new FormData(event.currentTarget);
+    const displayName = String(form.get("create-display-name") ?? "").trim();
+    if (displayName === "") {
+      showError("Enter a display name to create a room.");
+      return;
+    }
+    setError(null);
+    setPending("create");
     try {
-      const result = await createRoom(trimmed, baseUrl);
+      const room = await createRoom(displayName);
       await seatStore.put({
-        code: result.code,
-        playerId: result.playerId,
-        seatToken: result.seatToken,
-        hostToken: result.hostToken
+        code: room.code,
+        playerId: room.playerId,
+        seatToken: room.seatToken,
+        hostToken: room.hostToken,
       });
-      navigate(`/room/${result.code}`);
-    } catch (err) {
-      if (err instanceof ApiRequestError) {
-        setErrorMessage(err.message);
-      } else {
-        setErrorMessage(
-          err instanceof Error ? err.message : "Failed to create room"
-        );
-      }
+      await navigate(`/room/${room.code}`);
+    } catch (requestError) {
+      showError(publicMessage(requestError));
     } finally {
-      setCreateLoading(false);
+      setPending(null);
     }
-  }
+  };
 
-  async function handleJoin(e: FormEvent) {
-    e.preventDefault();
-    const trimmedName = joinName.trim();
-    const normalizedCode = normalizeRoomCode(joinCode);
-
-    if (!normalizedCode) {
-      setErrorMessage("Room code is required");
+  const handleJoin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (pending !== null) {
       return;
     }
-    if (!trimmedName) {
-      setErrorMessage("Display name cannot be empty");
+    const form = new FormData(event.currentTarget);
+    const code = normalizeRoomCodeInput(String(form.get("room-code") ?? ""));
+    const displayName = String(form.get("join-display-name") ?? "").trim();
+    if (code === null) {
+      showError("Room codes use six ASCII letters or numbers.");
       return;
     }
-
-    setErrorMessage(null);
-    setJoinLoading(true);
+    if (displayName === "") {
+      showError("Enter a display name to join the room.");
+      return;
+    }
+    setError(null);
+    setPending("join");
     try {
-      const result = await joinRoom(
-        normalizedCode,
-        trimmedName,
-        asSpectator,
-        baseUrl
-      );
+      const room = await joinRoom(code, displayName, false);
       await seatStore.put({
-        code: normalizedCode,
-        playerId: result.playerId,
-        seatToken: result.seatToken
+        code: room.code,
+        playerId: room.playerId,
+        seatToken: room.seatToken,
       });
-      navigate(`/room/${normalizedCode}`);
-    } catch (err) {
-      if (err instanceof ApiRequestError) {
-        setErrorMessage(err.message);
-      } else {
-        setErrorMessage(
-          err instanceof Error ? err.message : "Failed to join room"
-        );
-      }
+      await navigate(`/room/${room.code}`);
+    } catch (requestError) {
+      showError(publicMessage(requestError));
     } finally {
-      setJoinLoading(false);
+      setPending(null);
     }
-  }
+  };
 
   return (
-    <div className="home-container">
-      <header className="home-header">
-        <p className="eyebrow">Private Multiplayer</p>
-        <h1 className="title">Cipher Party</h1>
-        <p className="subtitle">Word and picture association game</p>
+    <main className="app-shell home-shell">
+      <header className="masthead">
+        <a className="wordmark" href="/" aria-label="Cipher Party home">
+          <span aria-hidden="true" className="wordmark-mark">
+            CP
+          </span>
+          <span>Cipher Party</span>
+        </a>
+        <span className="privacy-note">Private rooms · No account</span>
       </header>
 
-      {errorMessage && (
+      <section className="hero" aria-labelledby="home-title">
+        <p className="eyebrow">Private word-association games</p>
+        <h1 id="home-title">Gather your crew. Find the connection.</h1>
+        <p className="lede">
+          Bring your friends, split into two teams, and uncover a shared field
+          of clues. Your invite stays private and your seat stays on this
+          device.
+        </p>
+      </section>
+
+      {error === null ? null : (
         <div
+          className="error-summary"
+          role="alert"
           ref={errorRef}
           tabIndex={-1}
-          role="alert"
-          className="error-summary"
-          aria-live="assertive"
         >
-          {errorMessage}
+          <strong>We could not continue.</strong>
+          <span>{error.message}</span>
         </div>
       )}
 
-      <main className="home-cards">
-        <section className="home-card" aria-labelledby="create-heading">
-          <h2 id="create-heading">Create Room</h2>
-          <p className="card-desc">Start a new private game as the host.</p>
-          <form onSubmit={handleCreate} className="home-form">
-            <div className="form-group">
-              <label htmlFor="create-name">Your Name</label>
-              <input
-                id="create-name"
-                name="displayName"
-                type="text"
-                autoComplete="nickname"
-                maxLength={24}
-                value={createName}
-                onChange={(e) => setCreateName(e.target.value)}
-                placeholder="e.g. Agent Phoenix"
-                disabled={createLoading}
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={createLoading}
-            >
-              {createLoading ? "Creating..." : "Create Room"}
-            </button>
-          </form>
-        </section>
+      <div className="entry-table" aria-label="Room entry desk">
+        <form
+          className="entry-card entry-card-primary"
+          aria-labelledby="create-room-title"
+          onSubmit={(event) => void handleCreate(event)}
+        >
+          <div>
+            <p className="card-index" aria-hidden="true">
+              Player 01
+            </p>
+            <h2 id="create-room-title">Create Room</h2>
+            <p>
+              Start a new private table and receive an invite for your crew.
+            </p>
+          </div>
+          <label htmlFor="create-display-name">Your display name</label>
+          <input
+            id="create-display-name"
+            name="create-display-name"
+            autoComplete="nickname"
+            required
+          />
+          <button type="submit" disabled={pending !== null}>
+            {pending === "create" ? "Creating room…" : "Create Room"}
+          </button>
+        </form>
 
-        <section className="home-card" aria-labelledby="join-heading">
-          <h2 id="join-heading">Join Room</h2>
-          <p className="card-desc">Enter an invite code to join friends.</p>
-          <form onSubmit={handleJoin} className="home-form">
-            <div className="form-group">
-              <label htmlFor="join-code">Room Code</label>
-              <input
-                id="join-code"
-                name="roomCode"
-                type="text"
-                maxLength={16}
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                placeholder="6-character code"
-                disabled={joinLoading}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="join-name">Your Name</label>
-              <input
-                id="join-name"
-                name="displayName"
-                type="text"
-                autoComplete="nickname"
-                maxLength={24}
-                value={joinName}
-                onChange={(e) => setJoinName(e.target.value)}
-                placeholder="e.g. Operative Shadow"
-                disabled={joinLoading}
-                required
-              />
-            </div>
-            <div className="form-group form-check">
-              <label htmlFor="join-spectator" className="checkbox-label">
-                <input
-                  id="join-spectator"
-                  name="asSpectator"
-                  type="checkbox"
-                  checked={asSpectator}
-                  onChange={(e) => setAsSpectator(e.target.checked)}
-                  disabled={joinLoading}
-                />
-                Join as Spectator
-              </label>
-            </div>
-            <button
-              type="submit"
-              className="btn btn-secondary"
-              disabled={joinLoading}
-            >
-              {joinLoading ? "Joining..." : "Join Room"}
-            </button>
-          </form>
-        </section>
-      </main>
-    </div>
+        <form
+          className="entry-card"
+          aria-labelledby="join-room-title"
+          onSubmit={(event) => void handleJoin(event)}
+        >
+          <div>
+            <p className="card-index" aria-hidden="true">
+              Player 02
+            </p>
+            <h2 id="join-room-title">Join Room</h2>
+            <p>Enter the six-character code a host shared with you.</p>
+          </div>
+          <label htmlFor="room-code">Room code</label>
+          <input
+            id="room-code"
+            name="room-code"
+            autoComplete="off"
+            autoCapitalize="characters"
+            inputMode="text"
+            spellCheck={false}
+            maxLength={12}
+            required
+          />
+          <label htmlFor="join-display-name">Join display name</label>
+          <input
+            id="join-display-name"
+            name="join-display-name"
+            autoComplete="nickname"
+            required
+          />
+          <button
+            className="button-secondary"
+            type="submit"
+            disabled={pending !== null}
+          >
+            {pending === "join" ? "Joining room…" : "Join Room"}
+          </button>
+        </form>
+      </div>
+
+      <p className="trust-line">
+        <span aria-hidden="true">✦</span> Voice chat stays wherever your group
+        already talks.
+      </p>
+    </main>
   );
 }

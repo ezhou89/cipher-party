@@ -32,6 +32,7 @@ Do not silently reinterpret a higher-priority document. Stop and surface a confl
 - Cloudflare Workers, Durable Objects, R2, and Workers AI are the approved platform.
 - Theme packs may contain host-supplied images, but the shipped app contains no unlicensed franchise artwork.
 - AI assistance generates editable text suggestions only in the MVP.
+- `creative/source/**` contains immutable provenance, not runtime assets; never execute or rewrite those originals.
 - Temporary room state and assets expire after 24 hours of inactivity.
 - Co-op, powers, double agents, team switching, TV mode, full skins, public packs, and persistent accounts are post-MVP.
 
@@ -60,8 +61,8 @@ docs/PROJECT_SNAPSHOT.md is the compact handoff for every agent.
 
 Before reporting completion, run the exact checks required by the active task. Once the workspace is scaffolded, the repository-wide baseline is:
 
-- npm run check
-- npm run test:e2e for tasks that change a user-visible multiplayer flow
+- pnpm run check
+- pnpm run test:e2e for tasks that change a user-visible multiplayer flow
 - git diff --check
 - git status --short
 

@@ -1,303 +1,802 @@
-import type {
-  ClientProjection,
-  CommandEnvelope,
-  ServerMessage
-} from "@cipher-party/protocol";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  RoomSocket,
-  type RoomConnectionState,
-  type RoomSocketState
-} from "./room-socket";
+import type { ClientProjection, ServerMessage } from "@cipher-party/protocol";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { RoomSocket, type RoomSocketDependencies } from "./room-socket";
 import type { SeatCredentials } from "./seat-store";
 
-function sampleProjection(revision = 0): ClientProjection {
+const credentials: SeatCredentials = {
+  code: "ABC123",
+  playerId: "player-1",
+  seatToken: "durable-seat-token",
+  hostToken: "durable-host-token",
+};
+
+const permissions = {
+  configure: false,
+  moderate: false,
+  submitClue: false,
+  challengeClue: false,
+  nominate: false,
+  confirmReveal: false,
+  endTurn: false,
+  resolveChallenge: false,
+  pause: false,
+  resume: false,
+};
+
+function projection(revision: number): ClientProjection {
   return {
-    protocolVersion: 1,
-    viewRole: "operative",
-    code: "ABC234",
-    inviteUrl: "http://127.0.0.1:5173/room/ABC234",
+    protocolVersion: 2,
     revision,
+    code: credentials.code,
+    inviteUrl: `https://play.example/room/${credentials.code}`,
     roomPhase: "lobby",
     locked: false,
+    teamCount: 2,
+    configuredTeams: ["red", "blue"],
+    viewRole: "unassigned",
     viewer: {
-      playerId: "player-1",
-      teamId: "red",
-      role: "operative",
-      isHost: false
+      playerId: credentials.playerId,
+      teamId: null,
+      role: "unassigned",
+      isHost: true,
     },
-    permissions: {
-      configure: false,
-      moderate: false,
-      submitClue: false,
-      challengeClue: false,
-      nominate: true,
-      confirmReveal: true,
-      endTurn: true,
-      resolveChallenge: false,
-      pause: false,
-      resume: false
-    },
-    seats: [],
+    permissions,
+    seats: [
+      {
+        playerId: credentials.playerId,
+        displayName: "Player",
+        teamId: null,
+        role: "unassigned",
+        connected: true,
+      },
+    ],
     publicHistory: [],
-    board: null
+    board: null,
   };
 }
 
-type MockListener = (event: Event | MessageEvent | CloseEvent) => void;
+class FakeWebSocket {
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+  readonly sent: string[] = [];
+  readyState = FakeWebSocket.CONNECTING;
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
 
-class MockWebSocket {
-  static instances: MockWebSocket[] = [];
-  url: string;
-  readyState = 0; // CONNECTING
-  sent: string[] = [];
-  private listeners: Record<string, MockListener[]> = {};
+  constructor(readonly url: string) {}
 
-  constructor(url: string) {
-    this.url = url;
-    MockWebSocket.instances.push(this);
-    setTimeout(() => {
-      this.readyState = 1; // OPEN
-      this.dispatchEvent("open", new Event("open"));
-    }, 0);
+  open(): void {
+    this.readyState = FakeWebSocket.OPEN;
+    this.onopen?.(new Event("open"));
   }
 
-  addEventListener(type: string, listener: MockListener) {
-    this.listeners[type] = this.listeners[type] || [];
-    this.listeners[type].push(listener);
+  receive(message: ServerMessage | unknown): void {
+    this.onmessage?.(
+      new MessageEvent("message", { data: JSON.stringify(message) }),
+    );
   }
 
-  removeEventListener(type: string, listener: MockListener) {
-    if (!this.listeners[type]) return;
-    this.listeners[type] = this.listeners[type].filter((l) => l !== listener);
-  }
-
-  dispatchEvent(type: string, event: Event | MessageEvent | CloseEvent) {
-    const list = this.listeners[type] || [];
-    for (const listener of list) {
-      listener(event);
+  send(data: string): void {
+    if (this.readyState !== FakeWebSocket.OPEN) {
+      throw new Error("socket is not open");
     }
-  }
-
-  send(data: string) {
     this.sent.push(data);
   }
 
-  close(code = 1000, reason = "") {
-    this.readyState = 3; // CLOSED
-    this.dispatchEvent("close", new CloseEvent("close", { code, reason }));
+  close(code = 1000, reason = ""): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.(new CloseEvent("close", { code, reason, wasClean: true }));
   }
 
-  simulateServerMessage(msg: ServerMessage) {
-    this.dispatchEvent(
-      "message",
-      new MessageEvent("message", { data: JSON.stringify(msg) })
-    );
+  failClose(): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.(new CloseEvent("close", { code: 1006, wasClean: false }));
+  }
+
+  remoteClose(code: number, reason = ""): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    this.onclose?.(new CloseEvent("close", { code, reason, wasClean: true }));
   }
 }
 
-describe("RoomSocket Client", () => {
-  beforeEach(() => {
-    MockWebSocket.instances = [];
-    vi.useFakeTimers();
+function harness(options: { hostToken?: boolean } = {}) {
+  const sockets: FakeWebSocket[] = [];
+  const fetchCalls: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
+    [];
+  let ticket = 0;
+  const fetchImpl: typeof fetch = vi.fn(async (input, init) => {
+    fetchCalls.push({ input, ...(init === undefined ? {} : { init }) });
+    ticket += 1;
+    return Response.json({
+      ticket: `ticket-${ticket}`.padEnd(43, "x"),
+      expiresAt: Date.now() + 60_000,
+    });
   });
+  const dependencies: RoomSocketDependencies = {
+    fetch: fetchImpl,
+    createWebSocket(url) {
+      const socket = new FakeWebSocket(url);
+      sockets.push(socket);
+      return socket;
+    },
+    location: { protocol: "https:", host: "play.example" },
+    randomUUID: () => "018f6c2e-6f44-7ef0-8000-000000000001",
+    now: Date.now,
+    setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+    clearTimeout: (handle) => window.clearTimeout(handle),
+  };
+  const credentialsWithoutHost: SeatCredentials = {
+    code: credentials.code,
+    playerId: credentials.playerId,
+    seatToken: credentials.seatToken,
+  };
+  return {
+    client: new RoomSocket(dependencies),
+    sockets,
+    fetchCalls,
+    fetchImpl,
+    credentials:
+      options.hostToken === false ? credentialsWithoutHost : credentials,
+  };
+}
 
-  afterEach(() => {
-    vi.useRealTimers();
+function stateOf(client: RoomSocket) {
+  let latest: Parameters<Parameters<RoomSocket["subscribe"]>[0]>[0] | null =
+    null;
+  const unsubscribe = client.subscribe((state) => {
+    latest = state;
   });
+  return { get: () => latest!, unsubscribe };
+}
 
-  it("connects by requesting ticket with Authorization header and connects with ticket only", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        ticket: "ticket-12345",
-        expiresAt: Date.now() + 60_000
-      })
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function ticketResponse(ticket: string): Response {
+  return Response.json({
+    ticket: ticket.padEnd(43, "x"),
+    expiresAt: Date.now() + 60_000,
+  });
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("RoomSocket connection and strict projections", () => {
+  it.each([true, false])(
+    "requests a ticket with durable credentials in headers, never the WebSocket URL (host=%s)",
+    async (withHostToken) => {
+      const test = harness({ hostToken: withHostToken });
+
+      await test.client.connect(test.credentials);
+
+      expect(test.fetchCalls).toHaveLength(1);
+      const call = test.fetchCalls[0]!;
+      expect(String(call.input)).toBe("/api/rooms/ABC123/tickets");
+      const headers = new Headers(call.init?.headers);
+      expect(headers.get("authorization")).toBe(
+        `Bearer ${credentials.seatToken}`,
+      );
+      expect(headers.get("x-cipher-host-token")).toBe(
+        withHostToken ? credentials.hostToken : null,
+      );
+      expect(test.sockets[0]!.url).toBe(
+        "wss://play.example/api/rooms/ABC123/connect?ticket=ticket-1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      );
+      expect(test.sockets[0]!.url).not.toContain(credentials.seatToken);
+      expect(test.sockets[0]!.url).not.toContain(credentials.hostToken);
+      expect(test.sockets[0]!.url).not.toContain(credentials.playerId);
+      test.client.close();
+    },
+  );
+
+  it("updates from strict nondecreasing projections and ignores malformed or regressing frames", async () => {
+    const test = harness();
+    const observed = stateOf(test.client);
+    await test.client.connect(credentials);
+    const socket = test.sockets[0]!;
+    socket.open();
+    socket.receive({
+      type: "projection",
+      projection: { ...projection(9), key: { secret: "hazard" } },
+    });
+    expect(observed.get()).toMatchObject({
+      connection: "open",
+      projection: null,
     });
 
-    const socket = new RoomSocket({
-      fetchFn: fetchMock,
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket
+    socket.receive({ type: "projection", projection: projection(5) });
+    expect(observed.get()).toMatchObject({
+      connection: "open",
+      projection: { revision: 5 },
     });
+    socket.receive({ type: "projection", projection: projection(4) });
+    expect(observed.get().projection?.revision).toBe(5);
+    socket.receive({ type: "projection", projection: projection(5) });
+    expect(observed.get().projection?.revision).toBe(5);
+    test.client.close();
+  });
 
-    const creds: SeatCredentials = {
-      code: "ABC234",
-      playerId: "p1",
-      seatToken: "seat-token-abc",
-      hostToken: "host-token-xyz"
+  it("rejects a malformed ticket response before constructing a WebSocket", async () => {
+    const test = harness();
+    const malformedFetch: typeof fetch = vi.fn(async () =>
+      Response.json({ ticket: credentials.seatToken }),
+    );
+    const dependencies: RoomSocketDependencies = {
+      fetch: malformedFetch,
+      createWebSocket: () => {
+        throw new Error("must not construct a socket");
+      },
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
     };
+    const client = new RoomSocket(dependencies);
 
-    const connectPromise = socket.connect(creds);
-    await vi.runAllTimersAsync();
-    await connectPromise;
-
-    // Check fetch ticket request
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/rooms/ABC234/tickets",
-      expect.objectContaining({
-        method: "POST",
-        headers: {
-          Authorization: "Bearer seat-token-abc",
-          "X-Cipher-Host-Token": "host-token-xyz"
-        }
-      })
-    );
-
-    // Check WebSocket URL carries ticket only, never durable tokens
-    const ws = MockWebSocket.instances[0]!;
-    expect(ws.url).toContain("ticket=ticket-12345");
-    expect(ws.url).not.toContain("seat-token-abc");
-    expect(ws.url).not.toContain("host-token-xyz");
+    await expect(client.connect(credentials)).rejects.toThrow(/malformed/u);
+    expect(test.sockets).toEqual([]);
   });
 
-  it("updates state and projection when projection frames arrive", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ ticket: "t-1", expiresAt: Date.now() + 60_000 })
+  it("strictly rejects ticket responses with extra keys", async () => {
+    const fetchImpl: typeof fetch = vi.fn(async () =>
+      Response.json({
+        ticket: "ticket-extra".padEnd(43, "x"),
+        expiresAt: Date.now() + 60_000,
+        playerId: "must-not-be-accepted",
+      }),
+    );
+    const client = new RoomSocket({
+      fetch: fetchImpl,
+      createWebSocket: (url) => new FakeWebSocket(url),
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
     });
 
-    const socket = new RoomSocket({
-      fetchFn: fetchMock,
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket
+    await expect(client.connect(credentials)).rejects.toThrow(/malformed/u);
+  });
+});
+
+describe("RoomSocket authoritative command tracking", () => {
+  it("uses UUID/current revision and clears in-flight only for both supported frame orders", async () => {
+    const test = harness();
+    await test.client.connect(credentials);
+    const socket = test.sockets[0]!;
+    socket.open();
+    socket.receive({ type: "projection", projection: projection(5) });
+
+    const firstId = test.client.send({ type: "lock_room", locked: true });
+    expect(firstId).toBe("018f6c2e-6f44-7ef0-8000-000000000001");
+    expect(JSON.parse(socket.sent[0]!)).toEqual({
+      protocolVersion: 2,
+      commandId: firstId,
+      expectedRevision: 5,
+      command: { type: "lock_room", locked: true },
     });
-
-    const stateHolder = { current: null as RoomSocketState | null };
-    socket.subscribe((state) => {
-      stateHolder.current = state;
+    expect(() =>
+      test.client.send({ type: "lock_room", locked: false }),
+    ).toThrow(/in flight/u);
+    socket.receive({
+      type: "command_result",
+      commandId: firstId,
+      result: { ok: true, revision: 6 },
     });
+    expect(() =>
+      test.client.send({ type: "lock_room", locked: false }),
+    ).toThrow(/in flight/u);
+    socket.receive({ type: "projection", projection: projection(6) });
 
-    await socket.connect({
-      code: "ABC234",
-      playerId: "p1",
-      seatToken: "token-1"
+    const secondId = test.client.send({ type: "lock_room", locked: false });
+    socket.receive({ type: "projection", projection: projection(7) });
+    expect(() => test.client.send({ type: "lock_room", locked: true })).toThrow(
+      /in flight/u,
+    );
+    socket.receive({
+      type: "command_result",
+      commandId: secondId,
+      result: { ok: true, revision: 7 },
     });
-    await vi.runAllTimersAsync();
-
-    expect(stateHolder.current?.connection).toBe("open");
-
-    const ws = MockWebSocket.instances[0]!;
-    ws.simulateServerMessage({
-      type: "projection",
-      projection: sampleProjection(3)
-    });
-
-    expect(stateHolder.current?.projection?.revision).toBe(3);
+    expect(() =>
+      test.client.send({ type: "lock_room", locked: true }),
+    ).not.toThrow();
+    test.client.close();
   });
 
-  it("sends commands with current revision and rejects concurrent commands in flight", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ ticket: "t-1", expiresAt: Date.now() + 60_000 })
-    });
+  it("waits for a fresh projection after stale_revision before allowing another command", async () => {
+    const test = harness();
+    const observed = stateOf(test.client);
+    await test.client.connect(credentials);
+    const socket = test.sockets[0]!;
+    socket.open();
+    socket.receive({ type: "projection", projection: projection(5) });
+    const commandId = test.client.send({ type: "lock_room", locked: true });
 
-    const socket = new RoomSocket({
-      fetchFn: fetchMock,
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket
-    });
-
-    await socket.connect({
-      code: "ABC234",
-      playerId: "p1",
-      seatToken: "token-1"
-    });
-    await vi.runAllTimersAsync();
-
-    const ws = MockWebSocket.instances[0]!;
-    ws.simulateServerMessage({
-      type: "projection",
-      projection: sampleProjection(5)
-    });
-
-    // Send first command
-    const commandId = socket.send({ type: "lock_room", locked: true });
-    expect(commandId).toMatch(/^[0-9a-f-]{36}$/);
-
-    const sentEnvelope = JSON.parse(ws.sent[0]!) as CommandEnvelope;
-    expect(sentEnvelope.commandId).toBe(commandId);
-    expect(sentEnvelope.expectedRevision).toBe(5);
-    expect(sentEnvelope.command).toEqual({ type: "lock_room", locked: true });
-
-    // Second send while earlier command is in flight is rejected
-    expect(() => socket.send({ type: "lock_room", locked: false })).toThrow(
-      /in flight/i
-    );
-
-    // Simulate server returns command_result and new projection
-    ws.simulateServerMessage({
+    socket.receive({
       type: "command_result",
       commandId,
-      result: { ok: true, revision: 6 }
+      result: {
+        ok: false,
+        revision: 5,
+        code: "stale_revision",
+        message: "Expected revision is stale",
+      },
     });
 
-    // Still blocked until projection at least as new arrives
-    expect(() => socket.send({ type: "lock_room", locked: false })).toThrow(
-      /in flight/i
-    );
-
-    ws.simulateServerMessage({
-      type: "projection",
-      projection: sampleProjection(6)
+    expect(observed.get().lastResult).toMatchObject({
+      ok: false,
+      code: "stale_revision",
     });
-
-    // Now second command can be sent
     expect(() =>
-      socket.send({ type: "lock_room", locked: false })
+      test.client.send({ type: "lock_room", locked: false }),
+    ).toThrow(/in flight/u);
+    socket.receive({ type: "projection", projection: projection(5) });
+    expect(() =>
+      test.client.send({ type: "lock_room", locked: false }),
     ).not.toThrow();
+    test.client.close();
   });
 
-  it("retries unexpected close at 500ms, 1s, 2s, capped at 5s, and user close cancels retries", async () => {
-    let ticketCount = 0;
-    const fetchMock = vi.fn().mockImplementation(async () => {
-      ticketCount++;
-      return {
-        ok: true,
-        json: async () => ({
-          ticket: `ticket-${ticketCount}`,
-          expiresAt: Date.now() + 60_000
-        })
-      };
-    });
+  it("retains and resends the identical in-flight envelope after a fresh reconnect projection", async () => {
+    vi.useFakeTimers();
+    const test = harness();
+    await test.client.connect(credentials);
+    const first = test.sockets[0]!;
+    first.open();
+    first.receive({ type: "projection", projection: projection(5) });
+    test.client.send({ type: "lock_room", locked: true });
+    const originalEnvelope = first.sent[0]!;
+    first.failClose();
 
-    const socket = new RoomSocket({
-      fetchFn: fetchMock,
-      wsFactory: (url) => new MockWebSocket(url) as unknown as WebSocket
-    });
-
-    const states: RoomConnectionState[] = [];
-    socket.subscribe((s) => {
-      states.push(s.connection);
-    });
-
-    await socket.connect({
-      code: "ABC234",
-      playerId: "p1",
-      seatToken: "token-1"
-    });
-    await vi.runAllTimersAsync();
-
-    expect(MockWebSocket.instances.length).toBe(1);
-
-    // Unexpected close (e.g. network dropped)
-    MockWebSocket.instances[0]!.close(1006, "Abnormal closure");
-    expect(states[states.length - 1]).toBe("reconnecting");
-
-    // Advance 500ms -> retry 1
     await vi.advanceTimersByTimeAsync(500);
-    expect(MockWebSocket.instances.length).toBe(2);
+    const second = test.sockets[1]!;
+    second.open();
+    expect(second.sent).toEqual([]);
+    expect(() =>
+      test.client.send({ type: "lock_room", locked: false }),
+    ).toThrow(/in flight/u);
+    second.receive({ type: "projection", projection: projection(6) });
+    expect(second.sent).toEqual([originalEnvelope]);
+    expect(JSON.parse(second.sent[0]!).commandId).toBe(
+      "018f6c2e-6f44-7ef0-8000-000000000001",
+    );
+    test.client.close();
+  });
+});
 
-    // Unexpected close again
-    MockWebSocket.instances[1]!.close(1006, "Abnormal closure");
+describe("RoomSocket reconnect lifecycle", () => {
+  it("waits a full throttled reconnect deadline before resending its retained command", async () => {
+    vi.useFakeTimers();
+    const test = harness();
+    await test.client.connect(credentials);
+    const first = test.sockets[0]!;
+    first.open();
+    first.receive({ type: "projection", projection: projection(5) });
+    test.client.send({ type: "lock_room", locked: true });
+    const envelope = first.sent[0];
+    vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+      Response.json(
+        { error: { code: "rate_limited", message: "untrusted" } },
+        { status: 429, headers: { "Retry-After": "60" } },
+      ),
+    );
+    first.failClose();
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(test.fetchImpl).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    const replacement = test.sockets[1]!;
+    replacement.open();
+    expect(replacement.sent).toEqual([]);
+    replacement.receive({ type: "projection", projection: projection(6) });
+    expect(replacement.sent).toEqual([envelope]);
+    test.client.close();
+  });
 
-    // Advance 1000ms -> retry 2
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(MockWebSocket.instances.length).toBe(3);
+  it("ignores a retired ticket's terminal status after an explicit new connection", async () => {
+    vi.useFakeTimers();
+    const test = harness();
+    const observed = stateOf(test.client);
+    const oldTicket = deferred<Response>();
+    vi.mocked(test.fetchImpl).mockImplementationOnce(() => oldTicket.promise);
+    const retired = test.client.connect(credentials).catch(() => undefined);
+    await test.client.connect(credentials);
+    const current = test.sockets[0]!;
+    current.open();
+    current.receive({ type: "projection", projection: projection(3) });
+    oldTicket.resolve(new Response("denied", { status: 401 }));
+    await retired;
+    expect(observed.get()).toMatchObject({
+      connection: "open",
+      projection: { revision: 3 },
+      error: null,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    test.client.close();
+  });
 
-    // Explicit close by user cancels retries
-    socket.close();
-    expect(states[states.length - 1]).toBe("closed");
+  it.each([401, 404])(
+    "stops HTTP %s recovery and clears projection, result, and pending command",
+    async (status) => {
+      vi.useFakeTimers();
+      const test = harness();
+      const observed = stateOf(test.client);
+      await test.client.connect(credentials);
+      const socket = test.sockets[0]!;
+      socket.open();
+      socket.receive({ type: "projection", projection: projection(5) });
+      const commandId = test.client.send({ type: "lock_room", locked: true });
+      socket.receive({
+        type: "command_result",
+        commandId,
+        result: { ok: true, revision: 6 },
+      });
+      vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+        new Response("untrusted non-JSON", { status }),
+      );
+      socket.failClose();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(observed.get()).toMatchObject({
+        connection: "closed",
+        projection: null,
+        lastResult: null,
+        error: status === 401 ? "credential_invalid" : "room_unavailable",
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      expect(() =>
+        test.client.send({ type: "lock_room", locked: false }),
+      ).toThrow(/not ready/u);
+      socket.receive({ type: "projection", projection: projection(99) });
+      socket.remoteClose(1013);
+      expect(observed.get().projection).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
-    // Advance time further -> no more retries
-    await vi.advanceTimersByTimeAsync(10000);
-    expect(MockWebSocket.instances.length).toBe(3);
+  it.each([
+    [1008, "untrusted reason", "connection_rejected"],
+    [1001, "Room expired", "room_expired"],
+  ] as const)(
+    "stops terminal close %s with safe local error",
+    async (code, reason, error) => {
+      vi.useFakeTimers();
+      const test = harness();
+      const observed = stateOf(test.client);
+      await test.client.connect(credentials);
+      const socket = test.sockets[0]!;
+      socket.open();
+      socket.receive({ type: "projection", projection: projection(5) });
+      test.client.send({ type: "lock_room", locked: true });
+      socket.remoteClose(code, reason);
+      expect(observed.get()).toMatchObject({
+        connection: "closed",
+        projection: null,
+        lastResult: null,
+        error,
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      expect(() =>
+        test.client.send({ type: "lock_room", locked: true }),
+      ).toThrow(/not ready/u);
+    },
+  );
+
+  it.each([
+    [1001, "Going away", 500],
+    [1013, "Busy", 10_000],
+  ] as const)(
+    "retries transient close %s after its cooldown with the identical command",
+    async (code, reason, delay) => {
+      vi.useFakeTimers();
+      const test = harness();
+      await test.client.connect(credentials);
+      const socket = test.sockets[0]!;
+      socket.open();
+      socket.receive({ type: "projection", projection: projection(5) });
+      test.client.send({ type: "lock_room", locked: true });
+      const envelope = socket.sent[0];
+      socket.remoteClose(code, reason);
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(test.sockets).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      const replacement = test.sockets[1]!;
+      replacement.open();
+      replacement.receive({ type: "projection", projection: projection(6) });
+      expect(replacement.sent).toEqual([envelope]);
+      test.client.close();
+    },
+  );
+
+  it.each(["60", "Fri, 11 Sep 2026 19:01:00 GMT"])(
+    "honors initial 429 Retry-After %s",
+    async (retryAfter) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.UTC(2026, 8, 11, 19));
+      const test = harness();
+      vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+        new Response("busy", {
+          status: 429,
+          headers: { "Retry-After": retryAfter },
+        }),
+      );
+      await expect(test.client.connect(credentials)).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(test.fetchImpl).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(test.sockets).toHaveLength(1);
+      test.client.close();
+    },
+  );
+
+  it.each(["0", "-1", "Infinity", "nonsense"])(
+    "backs off reconnects for Retry-After %s",
+    async (retryAfter) => {
+      vi.useFakeTimers();
+      const test = harness();
+      await test.client.connect(credentials);
+      test.sockets[0]!.open();
+      test.sockets[0]!.receive({
+        type: "projection",
+        projection: projection(5),
+      });
+      vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+        new Response("busy", {
+          status: 429,
+          headers: { "Retry-After": retryAfter },
+        }),
+      );
+      test.sockets[0]!.failClose();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(test.fetchImpl).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(test.fetchImpl).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(test.sockets).toHaveLength(2);
+      test.client.close();
+    },
+  );
+
+  it("splits a long Retry-After deadline across safe timers and cancels it on close", async () => {
+    vi.useFakeTimers();
+    const test = harness();
+    vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+      new Response("busy", {
+        status: 429,
+        headers: { "Retry-After": "2147485" },
+      }),
+    );
+    await expect(test.client.connect(credentials)).rejects.toThrow();
+    await vi.advanceTimersByTimeAsync(2_147_483_647);
+    expect(test.fetchImpl).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_352);
+    expect(test.fetchImpl).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(test.sockets).toHaveLength(1);
+    test.sockets[0]!.remoteClose(1013);
+    test.client.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([401, 404])(
+    "classifies initial malformed HTTP %s as terminal",
+    async (status) => {
+      vi.useFakeTimers();
+      const test = harness();
+      const observed = stateOf(test.client);
+      vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+        new Response("untrusted", { status }),
+      );
+      await expect(test.client.connect(credentials)).rejects.toThrow();
+      expect(observed.get()).toMatchObject({
+        connection: "closed",
+        error: status === 401 ? "credential_invalid" : "room_unavailable",
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["network", "server"])(
+    "retries an initial %s failure",
+    async (kind) => {
+      vi.useFakeTimers();
+      const test = harness();
+      if (kind === "network")
+        vi.mocked(test.fetchImpl).mockRejectedValueOnce(
+          new TypeError("offline"),
+        );
+      else
+        vi.mocked(test.fetchImpl).mockResolvedValueOnce(
+          new Response("unavailable", { status: 503 }),
+        );
+      await expect(test.client.connect(credentials)).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(499);
+      expect(test.fetchImpl).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(test.sockets).toHaveLength(1);
+      test.client.close();
+    },
+  );
+
+  it("ignores a stale explicit-connect rejection after newer credentials connect", async () => {
+    const firstTicket = deferred<Response>();
+    const secondTicket = deferred<Response>();
+    const sockets: FakeWebSocket[] = [];
+    const fetchImpl: typeof fetch = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(() => firstTicket.promise)
+      .mockImplementationOnce(() => secondTicket.promise);
+    const client = new RoomSocket({
+      fetch: fetchImpl,
+      createWebSocket(url) {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    });
+    const observed = stateOf(client);
+    const firstConnect = client.connect(credentials);
+    const replacementCredentials: SeatCredentials = {
+      code: "DEF456",
+      playerId: "player-2",
+      seatToken: "replacement-seat-token",
+    };
+    const secondConnect = client.connect(replacementCredentials);
+    secondTicket.resolve(ticketResponse("new-ticket"));
+    await secondConnect;
+    const replacement = sockets[0]!;
+    replacement.open();
+    replacement.receive({ type: "projection", projection: projection(1) });
+    expect(observed.get().connection).toBe("open");
+
+    firstTicket.reject(new Error("stale ticket rejection"));
+    await expect(firstConnect).rejects.toThrow("stale ticket rejection");
+
+    expect(observed.get().connection).toBe("open");
+    expect(sockets).toEqual([replacement]);
+    replacement.receive({ type: "projection", projection: projection(2) });
+    expect(observed.get().projection?.revision).toBe(2);
+    client.close();
+  });
+
+  it("ignores a stale reconnect-ticket rejection after a newer explicit connect", async () => {
+    vi.useFakeTimers();
+    const reconnectTicket = deferred<Response>();
+    const explicitTicket = deferred<Response>();
+    const sockets: FakeWebSocket[] = [];
+    const fetchImpl: typeof fetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ticketResponse("initial-ticket"))
+      .mockImplementationOnce(() => reconnectTicket.promise)
+      .mockImplementationOnce(() => explicitTicket.promise);
+    const client = new RoomSocket({
+      fetch: fetchImpl,
+      createWebSocket(url) {
+        const socket = new FakeWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+      location: { protocol: "https:", host: "play.example" },
+      randomUUID: () => crypto.randomUUID(),
+      setTimeout: (callback, delay) => window.setTimeout(callback, delay),
+      clearTimeout: (handle) => window.clearTimeout(handle),
+    });
+    const observed = stateOf(client);
+    await client.connect(credentials);
+    sockets[0]!.open();
+    sockets[0]!.receive({ type: "projection", projection: projection(1) });
+    sockets[0]!.failClose();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const replacementCredentials: SeatCredentials = {
+      code: "DEF456",
+      playerId: "player-2",
+      seatToken: "replacement-seat-token",
+    };
+    const explicitConnect = client.connect(replacementCredentials);
+    explicitTicket.resolve(ticketResponse("explicit-ticket"));
+    await explicitConnect;
+    const replacement = sockets[1]!;
+    replacement.open();
+    replacement.receive({ type: "projection", projection: projection(2) });
+
+    reconnectTicket.reject(new Error("stale reconnect rejection"));
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(sockets).toHaveLength(2);
+    expect(observed.get()).toMatchObject({
+      connection: "open",
+      projection: { revision: 2 },
+    });
+    replacement.receive({ type: "projection", projection: projection(3) });
+    expect(observed.get().projection?.revision).toBe(3);
+    client.close();
+  });
+
+  it("guards stale callbacks, obtains a new ticket, and backs off 500ms/1s/2s/4s/5s capped", async () => {
+    vi.useFakeTimers();
+    const test = harness();
+    const observed = stateOf(test.client);
+    await test.client.connect(credentials);
+    const first = test.sockets[0]!;
+    first.open();
+    first.receive({ type: "projection", projection: projection(1) });
+    first.failClose();
+    expect(observed.get().connection).toBe("reconnecting");
+
+    const delays = [500, 1_000, 2_000, 4_000, 5_000, 5_000];
+    for (const [index, delay] of delays.entries()) {
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(test.sockets).toHaveLength(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(test.sockets).toHaveLength(index + 2);
+      const current = test.sockets[index + 1]!;
+      current.open();
+      if (index === 0) {
+        first.receive({ type: "projection", projection: projection(99) });
+        first.open();
+        expect(observed.get().projection?.revision).toBe(1);
+      }
+      current.failClose();
+    }
+    expect(test.fetchCalls).toHaveLength(7);
+    expect(
+      test.sockets.map((socket) =>
+        new URL(socket.url).searchParams.get("ticket"),
+      ),
+    ).toEqual([
+      "ticket-1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ticket-2xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ticket-3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ticket-4xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ticket-5xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ticket-6xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ticket-7xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    ]);
+    test.client.close();
+  });
+
+  it("manual close cancels retry timers and blocks old socket callbacks", async () => {
+    vi.useFakeTimers();
+    const test = harness();
+    const observed = stateOf(test.client);
+    await test.client.connect(credentials);
+    const socket = test.sockets[0]!;
+    socket.open();
+    socket.receive({ type: "projection", projection: projection(1) });
+    socket.failClose();
+
+    test.client.close();
+    socket.receive({ type: "projection", projection: projection(99) });
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(test.sockets).toHaveLength(1);
+    expect(test.fetchCalls).toHaveLength(1);
+    expect(observed.get()).toMatchObject({
+      connection: "closed",
+      projection: { revision: 1 },
+    });
   });
 });

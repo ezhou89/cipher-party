@@ -1,10 +1,14 @@
-import { openDB, type DBSchema, type IDBPDatabase } from "idb";
+import { openDB } from "idb";
+
+const DATABASE_NAME = "cipher-party";
+const DATABASE_VERSION = 1;
+const SEAT_STORE = "seats";
 
 export interface SeatCredentials {
   code: string;
   playerId: string;
   seatToken: string;
-  hostToken?: string | undefined;
+  hostToken?: string;
 }
 
 export interface SeatStore {
@@ -13,40 +17,73 @@ export interface SeatStore {
   delete(code: string): Promise<void>;
 }
 
-interface CipherPartyDB extends DBSchema {
-  seats: {
-    key: string;
-    value: SeatCredentials;
-  };
-}
-
-const DB_NAME = "cipher-party";
-const DB_VERSION = 1;
-const STORE_NAME = "seats";
-
-function getDB(): Promise<IDBPDatabase<CipherPartyDB>> {
-  return openDB<CipherPartyDB>(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: "code" });
+async function withSeatDatabase<T>(
+  operation: (database: Awaited<ReturnType<typeof openDB>>) => Promise<T>,
+): Promise<T> {
+  const database = await openDB(DATABASE_NAME, DATABASE_VERSION, {
+    upgrade(upgradeDatabase) {
+      if (!upgradeDatabase.objectStoreNames.contains(SEAT_STORE)) {
+        upgradeDatabase.createObjectStore(SEAT_STORE, { keyPath: "code" });
       }
-    }
+    },
   });
+  try {
+    return await operation(database);
+  } finally {
+    database.close();
+  }
 }
 
-export function createSeatStore(): SeatStore {
-  return {
-    async get(code: string): Promise<SeatCredentials | undefined> {
-      const db = await getDB();
-      return db.get(STORE_NAME, code);
-    },
-    async put(credentials: SeatCredentials): Promise<void> {
-      const db = await getDB();
-      await db.put(STORE_NAME, credentials);
-    },
-    async delete(code: string): Promise<void> {
-      const db = await getDB();
-      await db.delete(STORE_NAME, code);
-    }
-  };
+function copyCredentials(credentials: SeatCredentials): SeatCredentials {
+  return credentials.hostToken === undefined
+    ? {
+        code: credentials.code,
+        playerId: credentials.playerId,
+        seatToken: credentials.seatToken,
+      }
+    : {
+        code: credentials.code,
+        playerId: credentials.playerId,
+        seatToken: credentials.seatToken,
+        hostToken: credentials.hostToken,
+      };
+}
+
+export class IndexedDbSeatStore implements SeatStore {
+  async get(code: string): Promise<SeatCredentials | undefined> {
+    const value = await withSeatDatabase((database) =>
+      database.get(SEAT_STORE, code),
+    );
+    return value === undefined
+      ? undefined
+      : copyCredentials(value as SeatCredentials);
+  }
+
+  async put(credentials: SeatCredentials): Promise<void> {
+    await withSeatDatabase(async (database) => {
+      await database.put(SEAT_STORE, copyCredentials(credentials));
+    });
+  }
+
+  async delete(code: string): Promise<void> {
+    await withSeatDatabase(async (database) => {
+      await database.delete(SEAT_STORE, code);
+    });
+  }
+}
+
+const defaultSeatStore: SeatStore = new IndexedDbSeatStore();
+
+export function saveCredentials(credentials: SeatCredentials): Promise<void> {
+  return defaultSeatStore.put(credentials);
+}
+
+export function loadCredentials(
+  code: string,
+): Promise<SeatCredentials | undefined> {
+  return defaultSeatStore.get(code);
+}
+
+export function deleteCredentials(code: string): Promise<void> {
+  return defaultSeatStore.delete(code);
 }

@@ -1,10 +1,19 @@
+import { TEAM_IDS } from "@cipher-party/game-core";
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
+
+export const TeamIdSchema = z.enum(TEAM_IDS);
+
+export const TeamCountSchema = z.union([
+  z.literal(2),
+  z.literal(3),
+  z.literal(4),
+]);
 
 const graphemeCount = (value: string) =>
   Array.from(
-    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value)
+    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(value),
   ).length;
 
 const clueWord = z
@@ -17,25 +26,31 @@ const clueWord = z
       .min(1)
       .refine(
         (value) => graphemeCount(value) <= 40,
-        "Clue must be at most 40 graphemes"
+        "Clue must be at most 40 graphemes",
       )
-      .regex(/^[\p{L}\p{M}\p{N}'’-]+$/u)
+      .regex(/^[\p{L}\p{M}\p{N}'’-]+$/u),
   );
 
 export const ClientCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("randomize_teams") }).strict(),
   z
     .object({
+      type: z.literal("set_team_count"),
+      teamCount: TeamCountSchema,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("assign_seat"),
       playerId: z.string().min(1),
-      teamId: z.enum(["red", "blue"]).nullable()
+      teamId: TeamIdSchema.nullable(),
     })
     .strict(),
   z
     .object({
       type: z.literal("set_role"),
       playerId: z.string().min(1),
-      role: z.enum(["unassigned", "clue-giver", "operative", "spectator"])
+      role: z.enum(["unassigned", "clue-giver", "operative", "spectator"]),
     })
     .strict(),
   z.object({ type: z.literal("lock_room"), locked: z.boolean() }).strict(),
@@ -44,32 +59,26 @@ export const ClientCommandSchema = z.discriminatedUnion("type", [
     .object({
       type: z.literal("submit_clue"),
       word: clueWord,
-      count: z.number().int().min(1).max(9)
+      count: z.number().int().min(1).max(9),
     })
     .strict(),
   z.object({ type: z.literal("challenge_clue") }).strict(),
   z
     .object({
       type: z.literal("resolve_challenge"),
-      decision: z.enum(["accept", "reject"])
+      decision: z.enum(["accept", "reject"]),
     })
     .strict(),
   z
-    .object({
-      type: z.literal("nominate_card"),
-      cardId: z.string().min(1)
-    })
+    .object({ type: z.literal("nominate_card"), cardId: z.string().min(1) })
     .strict(),
   z.object({ type: z.literal("clear_nomination") }).strict(),
   z
-    .object({
-      type: z.literal("confirm_reveal"),
-      cardId: z.string().min(1)
-    })
+    .object({ type: z.literal("confirm_reveal"), cardId: z.string().min(1) })
     .strict(),
   z.object({ type: z.literal("end_turn") }).strict(),
   z.object({ type: z.literal("pause_room") }).strict(),
-  z.object({ type: z.literal("resume_room") }).strict()
+  z.object({ type: z.literal("resume_room") }).strict(),
 ]);
 
 export const CommandEnvelopeSchema = z
@@ -77,7 +86,7 @@ export const CommandEnvelopeSchema = z
     protocolVersion: z.literal(PROTOCOL_VERSION),
     commandId: z.string().uuid(),
     expectedRevision: z.number().int().nonnegative(),
-    command: ClientCommandSchema
+    command: ClientCommandSchema,
   })
   .strict();
 

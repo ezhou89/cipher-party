@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "revision": 5,
   "code": "ABC234",
   "inviteUrl": "https://oddlyuseful.studio/room/ABC234",
@@ -42,12 +42,159 @@
   ],
   "publicHistory": [],
   "board": {
-    "order": ["café", "moon", "river", "hazard"],
+    "order": [
+      "café",
+      "moon",
+      "river",
+      "hazard",
+      "filler-5",
+      "filler-6",
+      "filler-7",
+      "filler-8",
+      "filler-9",
+      "filler-10",
+      "filler-11",
+      "filler-12",
+      "filler-13",
+      "filler-14",
+      "filler-15",
+      "filler-16",
+      "filler-17",
+      "filler-18",
+      "filler-19",
+      "filler-20",
+      "filler-21",
+      "filler-22",
+      "filler-23",
+      "filler-24",
+      "filler-25"
+    ],
     "cards": [
-      { "id": "café", "label": "Café", "revealed": false },
-      { "id": "moon", "label": "Moon", "revealed": false },
-      { "id": "river", "label": "River", "revealed": false },
-      { "id": "hazard", "label": "Hazard", "revealed": false }
+      {
+        "id": "café",
+        "label": "Café",
+        "revealed": false
+      },
+      {
+        "id": "moon",
+        "label": "Moon",
+        "revealed": false
+      },
+      {
+        "id": "river",
+        "label": "River",
+        "revealed": false
+      },
+      {
+        "id": "hazard",
+        "label": "Hazard",
+        "revealed": false
+      },
+      {
+        "id": "filler-5",
+        "label": "Filler 5",
+        "revealed": false
+      },
+      {
+        "id": "filler-6",
+        "label": "Filler 6",
+        "revealed": false
+      },
+      {
+        "id": "filler-7",
+        "label": "Filler 7",
+        "revealed": false
+      },
+      {
+        "id": "filler-8",
+        "label": "Filler 8",
+        "revealed": false
+      },
+      {
+        "id": "filler-9",
+        "label": "Filler 9",
+        "revealed": false
+      },
+      {
+        "id": "filler-10",
+        "label": "Filler 10",
+        "revealed": false
+      },
+      {
+        "id": "filler-11",
+        "label": "Filler 11",
+        "revealed": false
+      },
+      {
+        "id": "filler-12",
+        "label": "Filler 12",
+        "revealed": false
+      },
+      {
+        "id": "filler-13",
+        "label": "Filler 13",
+        "revealed": false
+      },
+      {
+        "id": "filler-14",
+        "label": "Filler 14",
+        "revealed": false
+      },
+      {
+        "id": "filler-15",
+        "label": "Filler 15",
+        "revealed": false
+      },
+      {
+        "id": "filler-16",
+        "label": "Filler 16",
+        "revealed": false
+      },
+      {
+        "id": "filler-17",
+        "label": "Filler 17",
+        "revealed": false
+      },
+      {
+        "id": "filler-18",
+        "label": "Filler 18",
+        "revealed": false
+      },
+      {
+        "id": "filler-19",
+        "label": "Filler 19",
+        "revealed": false
+      },
+      {
+        "id": "filler-20",
+        "label": "Filler 20",
+        "revealed": false
+      },
+      {
+        "id": "filler-21",
+        "label": "Filler 21",
+        "revealed": false
+      },
+      {
+        "id": "filler-22",
+        "label": "Filler 22",
+        "revealed": false
+      },
+      {
+        "id": "filler-23",
+        "label": "Filler 23",
+        "revealed": false
+      },
+      {
+        "id": "filler-24",
+        "label": "Filler 24",
+        "revealed": false
+      },
+      {
+        "id": "filler-25",
+        "label": "Filler 25",
+        "revealed": false
+      }
     ],
     "activeTeam": "red",
     "phase": "clue",
@@ -55,12 +202,52 @@
     "guessesRemaining": 0,
     "nomination": null,
     "winner": null,
-    "completionReason": null
+    "completionReason": null,
+    "teamCount": 2,
+    "rows": 5,
+    "columns": 5,
+    "configuredTeams": ["red", "blue"],
+    "eliminatedTeams": [],
+    "teamSummaries": [
+      {
+        "teamId": "red",
+        "revealedTargets": 0,
+        "eliminated": false
+      },
+      {
+        "teamId": "blue",
+        "revealedTargets": 0,
+        "eliminated": false
+      }
+    ]
   },
   "key": {
     "café": "red",
     "moon": "blue",
     "river": "neutral",
-    "hazard": "hazard"
-  }
+    "hazard": "hazard",
+    "filler-5": "neutral",
+    "filler-6": "neutral",
+    "filler-7": "neutral",
+    "filler-8": "neutral",
+    "filler-9": "neutral",
+    "filler-10": "neutral",
+    "filler-11": "neutral",
+    "filler-12": "neutral",
+    "filler-13": "neutral",
+    "filler-14": "neutral",
+    "filler-15": "neutral",
+    "filler-16": "neutral",
+    "filler-17": "neutral",
+    "filler-18": "neutral",
+    "filler-19": "neutral",
+    "filler-20": "neutral",
+    "filler-21": "neutral",
+    "filler-22": "neutral",
+    "filler-23": "neutral",
+    "filler-24": "neutral",
+    "filler-25": "neutral"
+  },
+  "teamCount": 2,
+  "configuredTeams": ["red", "blue"]
 }

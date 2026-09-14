@@ -1,34 +1,30 @@
 import type {
   ClientCommand,
-  ClientProjection,
   CommandEnvelope,
-  ServerMessage
+  ServerMessage,
 } from "@cipher-party/protocol";
-import { env, runInDurableObject, SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
-import type { RoomDurableObject } from "../src/room/room-durable-object";
-import type { RoomState } from "../src/room/room-state";
+import {
+  evictDurableObject,
+  env,
+  runDurableObjectAlarm,
+  runInDurableObject,
+} from "cloudflare:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-function testUuid(index: number): string {
-  return `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
-}
-
-function envelope(
-  expectedRevision: number,
-  command: ClientCommand,
-  commandId = testUuid(1)
-): CommandEnvelope {
-  return {
-    protocolVersion: 1,
-    commandId,
-    expectedRevision,
-    command
-  };
-}
+import { hashToken } from "../src/auth/token";
+import type { Env } from "../src/env";
+import worker from "../src/index";
+import {
+  PersistentRoomController,
+  type RoomDurableObject,
+} from "../src/room/room-durable-object";
+import type { RoomSocketAttachment } from "../src/room/room-websocket";
+import { createLobbyState, type RoomState } from "../src/room/room-state";
+import { ROOM_IDLE_TTL_MS, RoomStorage } from "../src/room/room-storage";
+import { RoomSession } from "../src/room/room-session";
 
 interface CreateRoomResponse {
   code: string;
-  inviteUrl: string;
   playerId: string;
   seatToken: string;
   hostToken: string;
@@ -42,421 +38,1295 @@ interface JoinRoomResponse {
 
 interface TicketResponse {
   ticket: string;
-  expiresAt: number;
 }
 
-type RunInDO = <T, R = void>(
-  stub: unknown,
-  callback: (instance: T, state: DurableObjectState) => R | Promise<R>
-) => Promise<R>;
+type RoomsEnv = { ROOMS: DurableObjectNamespace<RoomDurableObject> };
 
-const runInRoomDO = runInDurableObject as unknown as RunInDO;
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIAL_TIME = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
+let commandSequence = 0;
 
-class TestWebSocketQueue {
-  private queue: ServerMessage[] = [];
-  private waiter: ((msg: ServerMessage) => void) | null = null;
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
-  constructor(private readonly ws: WebSocket) {
-    this.ws.addEventListener("message", (event: MessageEvent) => {
-      const msg = JSON.parse(event.data as string) as ServerMessage;
-      if (this.waiter) {
-        const cb = this.waiter;
-        this.waiter = null;
-        cb(msg);
+class SocketProbe {
+  readonly socket: WebSocket;
+  readonly frames: ServerMessage[] = [];
+  readonly #waiting: Array<(frame: ServerMessage) => void> = [];
+
+  constructor(socket: WebSocket) {
+    this.socket = socket;
+    socket.addEventListener("message", (event) => {
+      const frame = JSON.parse(String(event.data)) as ServerMessage;
+      const waiter = this.#waiting.shift();
+      if (waiter === undefined) {
+        this.frames.push(frame);
       } else {
-        this.queue.push(msg);
+        waiter(frame);
       }
     });
+    socket.accept();
   }
 
-  nextMessage(): Promise<ServerMessage> {
-    const queued = this.queue.shift();
-    if (queued) {
-      return Promise.resolve(queued);
+  next(): Promise<ServerMessage> {
+    const frame = this.frames.shift();
+    if (frame !== undefined) {
+      return Promise.resolve(frame);
     }
-    return new Promise((resolve) => {
-      this.waiter = resolve;
-    });
+    return new Promise((resolve) => this.#waiting.push(resolve));
+  }
+
+  send(command: ClientCommand, expectedRevision: number): string {
+    const message = envelope(expectedRevision, command);
+    this.socket.send(JSON.stringify(message));
+    return message.commandId;
+  }
+
+  close(): void {
+    this.socket.close(1000, "test complete");
   }
 }
 
-async function createTestRoom(hostName = "Host"): Promise<CreateRoomResponse> {
-  const res = await SELF.fetch("http://127.0.0.1:5173/api/rooms", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ displayName: hostName })
-  });
-  return (await res.json()) as CreateRoomResponse;
+function request(path: string, init: RequestInit = {}): Promise<Response> {
+  return worker.fetch(
+    new Request(`https://request.invalid${path}`, init),
+    env as unknown as Env,
+  );
 }
 
-async function joinTestRoom(
+async function createRoom(displayName = "Host"): Promise<CreateRoomResponse> {
+  const response = await request("/api/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ displayName }),
+  });
+  expect(response.status).toBe(201);
+  return (await response.json()) as CreateRoomResponse;
+}
+
+async function joinRoom(
   code: string,
-  displayName: string,
-  asSpectator = false
+  displayName = "Guest",
 ): Promise<JoinRoomResponse> {
-  const res = await SELF.fetch(`http://127.0.0.1:5173/api/rooms/${code}/join`, {
+  const response = await request(`/api/rooms/${code}/join`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ displayName, asSpectator })
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ displayName, asSpectator: false }),
   });
-  return (await res.json()) as JoinRoomResponse;
+  expect(response.status).toBe(200);
+  return (await response.json()) as JoinRoomResponse;
 }
 
-async function getTestTicket(
+async function issueHttpTicket(
+  room: Pick<CreateRoomResponse, "code" | "seatToken"> & {
+    hostToken?: string;
+  },
+): Promise<TicketResponse> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${room.seatToken}`,
+  };
+  if (room.hostToken !== undefined) {
+    headers["X-Cipher-Host-Token"] = room.hostToken;
+  }
+  const response = await request(`/api/rooms/${room.code}/tickets`, {
+    method: "POST",
+    headers,
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as TicketResponse;
+}
+
+function connectResponse(code: string, ticket: string): Promise<Response> {
+  return request(`/api/rooms/${code}/connect?ticket=${ticket}`, {
+    headers: { Upgrade: "websocket" },
+  });
+}
+
+async function connect(code: string, ticket: string): Promise<SocketProbe> {
+  const response = await connectResponse(code, ticket);
+  expect(response.status).toBe(101);
+  expect(response.webSocket).not.toBeNull();
+  return new SocketProbe(response.webSocket!);
+}
+
+function rooms(): DurableObjectNamespace<RoomDurableObject> {
+  return (env as RoomsEnv).ROOMS;
+}
+
+function roomStub(code: string): DurableObjectStub<RoomDurableObject> {
+  return rooms().get(rooms().idFromName(code));
+}
+
+function envelope(
+  expectedRevision: number,
+  command: ClientCommand,
+): CommandEnvelope {
+  commandSequence += 1;
+  return {
+    protocolVersion: 2,
+    commandId: `00000000-0000-4000-8000-${String(commandSequence).padStart(12, "0")}`,
+    expectedRevision,
+    command,
+  };
+}
+
+async function configuredRoom(code: string): Promise<{
+  state: RoomState;
+  seatTokens: Record<
+    "host" | "redOperative" | "blueClue" | "blueOperative",
+    string
+  >;
+  hostToken: string;
+}> {
+  const seatTokens = {
+    host: "A".repeat(43),
+    redOperative: "B".repeat(43),
+    blueClue: "C".repeat(43),
+    blueOperative: "D".repeat(43),
+  };
+  const hostToken = "E".repeat(43);
+  const [
+    hostHash,
+    redOperativeHash,
+    blueClueHash,
+    blueOperativeHash,
+    hostTokenHash,
+  ] = await Promise.all([
+    hashToken(seatTokens.host),
+    hashToken(seatTokens.redOperative),
+    hashToken(seatTokens.blueClue),
+    hashToken(seatTokens.blueOperative),
+    hashToken(hostToken),
+  ]);
+  const state = createLobbyState({
+    code,
+    inviteUrl: `https://cipher.example/room/${code}`,
+    boardSeed: `seed-${code}`,
+    hostPlayerId: "host",
+    displayName: "Red Clue",
+    seatTokenHash: hostHash,
+    hostTokenHash,
+    createdAt: new Date(REAL_PROCESS_TIME_MS).toISOString(),
+  });
+  state.startingTeam = "red";
+  state.seats = [
+    {
+      ...state.seats[0]!,
+      teamId: "red",
+      role: "clue-giver",
+      connected: true,
+    },
+    {
+      playerId: "red-operative",
+      displayName: "Red Operative",
+      seatClass: "active",
+      teamId: "red",
+      role: "operative",
+      connected: true,
+      seatTokenHash: redOperativeHash,
+    },
+    {
+      playerId: "blue-clue",
+      displayName: "Blue Clue",
+      seatClass: "active",
+      teamId: "blue",
+      role: "clue-giver",
+      connected: true,
+      seatTokenHash: blueClueHash,
+    },
+    {
+      playerId: "blue-operative",
+      displayName: "Blue Operative",
+      seatClass: "active",
+      teamId: "blue",
+      role: "operative",
+      connected: true,
+      seatTokenHash: blueOperativeHash,
+    },
+  ];
+  await roomStub(code).initialize(state);
+  await expect(
+    roomStub(code).dispatch(
+      { playerId: "host", hostAuthority: true },
+      envelope(0, { type: "start_board" }),
+    ),
+  ).resolves.toEqual({ ok: true, revision: 1 });
+  return { state, seatTokens, hostToken };
+}
+
+async function issueRpcTicket(
   code: string,
   seatToken: string,
-  hostToken?: string
+  hostToken: string | null = null,
 ): Promise<string> {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${seatToken}`
-  };
-  if (hostToken) {
-    headers["X-Cipher-Host-Token"] = hostToken;
+  const result = await roomStub(code).issueTicket({
+    seatToken,
+    hostToken,
+    now: Date.now(),
+  });
+  if (!result.ok) {
+    throw new Error(`ticket issue failed: ${result.code}`);
   }
-  const res = await SELF.fetch(
-    `http://127.0.0.1:5173/api/rooms/${code}/tickets`,
-    {
-      method: "POST",
-      headers
-    }
-  );
-  const data = (await res.json()) as TicketResponse;
-  return data.ticket;
+  return result.ticket;
 }
 
-function connectWebSocket(code: string, ticket: string): Promise<Response> {
-  return SELF.fetch(
-    `http://127.0.0.1:5173/api/rooms/${code}/connect?ticket=${ticket}`,
-    {
-      headers: { Upgrade: "websocket" }
+async function serverSocket(
+  code: string,
+  playerId: string,
+): Promise<WebSocket> {
+  return runInDurableObject(roomStub(code), (_instance, state) => {
+    const socket = state
+      .getWebSockets(playerId)
+      .find((candidate) => candidate.readyState === WebSocket.OPEN);
+    if (socket === undefined) {
+      throw new Error(`missing server socket for ${playerId}`);
     }
-  );
+    return socket;
+  });
 }
 
-describe("Room WebSocket Gateway and Realtime Protocol", () => {
-  it("upgrades with status 101 for a valid ticket and delivers initial projection", async () => {
-    const room = await createTestRoom();
-    const ticket = await getTestTicket(
-      room.code,
-      room.seatToken,
-      room.hostToken
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("room WebSocket admission", () => {
+  it.each([
+    ["malformed JSON", "{"],
+    ["invalid schema", "{}"],
+    ["oversized text", "x".repeat(16_385)],
+    ["binary", new ArrayBuffer(1)],
+  ] as const)(
+    "does not repair stale presence for a budget-admitted %s frame",
+    async (_name, frame) => {
+      const created = await createRoom();
+      await runInDurableObject(
+        roomStub(created.code),
+        async (instance, state) => {
+          // Real OPEN inventory with stale persisted offline presence, as can
+          // occur after an interrupted presence write. No client owns this claim.
+          const pair = new WebSocketPair();
+          state.acceptWebSocket(pair[1], [created.playerId]);
+          pair[1].serializeAttachment({
+            connectionId: crypto.randomUUID(),
+            playerId: created.playerId,
+            hostAuthority: true,
+          });
+          pair[0].accept();
+          const before = instance.getSnapshot()!;
+          expect(before.seats[0]?.connected).toBe(false);
+          const write = vi.spyOn(RoomStorage.prototype, "write");
+          const send = vi.spyOn(pair[1], "send");
+          await instance.webSocketMessage(pair[1], frame);
+          expect(write.mock.calls.length).toBe(0);
+          expect(instance.getSnapshot()?.revision).toBe(before.revision);
+          expect(instance.getSnapshot()?.lastActivity).toBe(
+            before.lastActivity,
+          );
+          expect(instance.getSnapshot()?.seats[0]?.connected).toBe(false);
+          expect(send).toHaveBeenCalledOnce();
+          expect(JSON.parse(send.mock.calls[0]![0] as string)).toMatchObject({
+            type: "error",
+            code: "invalid_message",
+          });
+          await instance.webSocketMessage(
+            pair[1],
+            JSON.stringify(
+              envelope(before.revision, { type: "lock_room", locked: true }),
+            ),
+          );
+          expect(write.mock.calls.length).toBe(1);
+          expect(instance.getSnapshot()?.revision).toBe(before.revision + 1);
+          expect(instance.getSnapshot()?.lastActivity).toBe(
+            before.lastActivity,
+          );
+          expect(instance.getSnapshot()?.seats[0]?.connected).toBe(true);
+          write.mockRestore();
+          pair[0].close();
+        },
+      );
+    },
+  );
+
+  it("fails closed on corrupt persisted state without replacing it or returning an admission projection", async () => {
+    const created = await createRoom();
+    const ticket = (await issueHttpTicket(created)).ticket;
+    const before = await roomStub(created.code).getSnapshot();
+    const corrupt = { ...before!, schemaVersion: 1 };
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        await state.storage.put("room:snapshot", corrupt);
+      },
     );
-
-    const upgradeRes = await connectWebSocket(room.code, ticket);
-    expect(upgradeRes.status).toBe(101);
-
-    const ws = upgradeRes.webSocket;
-    expect(ws).toBeDefined();
-    ws!.accept();
-    const queue = new TestWebSocketQueue(ws!);
-
-    const firstMsg = await queue.nextMessage();
-    expect(firstMsg.type).toBe("projection");
-    if (firstMsg.type === "projection") {
-      expect(firstMsg.projection.code).toBe(room.code);
-      expect(firstMsg.projection.viewer.playerId).toBe(room.playerId);
-      expect(firstMsg.projection.viewer.isHost).toBe(true);
+    await evictDurableObject(roomStub(created.code));
+    const response = await connectResponse(created.code, ticket);
+    if (response.webSocket) {
+      response.webSocket.accept();
+      response.webSocket.close();
     }
-    ws!.close();
+    expect(response.status).toBe(401);
+    expect(await response.text()).toBe("Unauthorized");
+    expect(await roomStub(created.code).initialize(before!)).toEqual({
+      ok: false,
+      code: "already_initialized",
+    });
+    expect(await roomStub(created.code).getSnapshot()).toBeUndefined();
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        expect(
+          JSON.stringify(await state.storage.get("room:snapshot")) ===
+            JSON.stringify(corrupt),
+        ).toBe(true);
+      },
+    );
   });
 
-  it("returns 401 for a reused or expired ticket", async () => {
-    const room = await createTestRoom();
-    const ticket = await getTestTicket(room.code, room.seatToken);
+  it("repairs a failed last-socket disconnect on the next room event without extending activity", async () => {
+    const created = await createRoom();
+    const probe = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await probe.next();
+    const before = (await roomStub(created.code).getSnapshot())!;
+    const server = await serverSocket(created.code, created.playerId);
+    const write = vi
+      .spyOn(RoomStorage.prototype, "write")
+      .mockRejectedValue(new Error("injected write failure"));
+    await runInDurableObject(roomStub(created.code), async (instance) => {
+      server.close(1000, "closed");
+      await instance.webSocketClose(server).catch(() => undefined);
+    });
+    expect(
+      (await roomStub(created.code).getSnapshot())?.seats[0]?.connected,
+    ).toBe(true);
+    write.mockRestore();
+    await connectResponse(created.code, "x".repeat(43));
+    const after = (await roomStub(created.code).getSnapshot())!;
+    expect(after.seats[0]?.connected).toBe(false);
+    expect(after.lastActivity).toBe(before.lastActivity);
+    expect(after.revision).toBe(before.revision + 1);
+    const stableWrite = vi.spyOn(RoomStorage.prototype, "write");
+    await connectResponse(created.code, "x".repeat(43));
+    expect(stableWrite).not.toHaveBeenCalled();
+    probe.close();
+  });
 
-    // First connect uses ticket
-    const firstRes = await connectWebSocket(room.code, ticket);
-    expect(firstRes.status).toBe(101);
-    firstRes.webSocket!.accept();
-    firstRes.webSocket!.close();
+  it("reconciles stale persisted presence at object load using only OPEN attachments", async () => {
+    const created = await createRoom();
+    const before = (await roomStub(created.code).getSnapshot())!;
+    before.seats[0]!.connected = true;
+    await runInDurableObject(
+      roomStub(created.code),
+      async (_instance, state) => {
+        await state.storage.put("room:snapshot", before);
+      },
+    );
+    await evictDurableObject(roomStub(created.code));
+    const after = (await roomStub(created.code).getSnapshot())!;
+    expect(after.seats[0]?.connected).toBe(false);
+    expect(after.lastActivity).toBe(before.lastActivity);
+    expect(after.revision).toBe(before.revision + 1);
+  });
 
-    // Reusing ticket fails with 401
-    const secondRes = await connectWebSocket(room.code, ticket);
-    expect(secondRes.status).toBe(401);
-
-    // Expired ticket fails with 401
-    const secondTicket = await getTestTicket(room.code, room.seatToken);
-    const id = env.ROOMS.idFromName(room.code);
-    const stub = env.ROOMS.get(id);
-
-    // Expire ticket in both storage and in-memory session state
-    await runInRoomDO<RoomDurableObject>(stub, async (instance, state) => {
-      const snap = (await state.storage.get<RoomState>("room:snapshot"))!;
-      for (const t of snap.connectionTickets) {
-        t.expiresAt = Date.now() - 1000;
+  it("counts malformed and replayed frames across same-seat sockets and hibernation without changing attachments", async () => {
+    const room = await createRoom();
+    const first = await connect(
+      room.code,
+      (await issueHttpTicket(room)).ticket,
+    );
+    await first.next();
+    const second = await connect(
+      room.code,
+      (await issueHttpTicket(room)).ticket,
+    );
+    await Promise.all([first.next(), second.next()]);
+    const seatLimit = {
+      limit: vi
+        .fn<(input: { key: string }) => Promise<{ success: boolean }>>()
+        .mockResolvedValue({ success: true }),
+    };
+    const roomLimit = {
+      limit: vi
+        .fn<(input: { key: string }) => Promise<{ success: boolean }>>()
+        .mockResolvedValue({ success: true }),
+    };
+    const command = JSON.stringify(
+      envelope(2, { type: "lock_room", locked: true }),
+    );
+    const frames = [
+      "{",
+      "{}",
+      new Uint8Array([1]).buffer,
+      "x".repeat(16_385),
+      command,
+      command,
+    ];
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      const runtime = instance as unknown as { env: Env };
+      const previous = runtime.env;
+      runtime.env = {
+        ...previous,
+        CANONICAL_ORIGIN: "https://budget.invalid",
+        COMMAND_BY_SEAT: seatLimit,
+        COMMAND_BY_ROOM: roomLimit,
+      };
+      try {
+        const sockets = state.getWebSockets(room.playerId);
+        for (const [index, frame] of frames.entries())
+          await instance.webSocketMessage(sockets[index % 2]!, frame);
+        for (const socket of sockets)
+          expect(
+            Object.keys(
+              socket.deserializeAttachment() as RoomSocketAttachment,
+            ).sort(),
+          ).toEqual(["connectionId", "hostAuthority", "playerId"]);
+      } finally {
+        runtime.env = previous;
       }
-      await state.storage.put("room:snapshot", snap);
-      instance.setSessionStateForTest(snap);
+    });
+    expect(seatLimit.limit).toHaveBeenCalledTimes(6);
+    expect(roomLimit.limit).toHaveBeenCalledTimes(6);
+    await evictDurableObject(roomStub(room.code));
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      const runtime = instance as unknown as { env: Env };
+      const previous = runtime.env;
+      runtime.env = {
+        ...previous,
+        CANONICAL_ORIGIN: "https://budget.invalid",
+        COMMAND_BY_SEAT: seatLimit,
+        COMMAND_BY_ROOM: roomLimit,
+      };
+      try {
+        await instance.webSocketMessage(
+          state.getWebSockets(room.playerId)[0]!,
+          command,
+        );
+      } finally {
+        runtime.env = previous;
+      }
+    });
+    expect(seatLimit.limit).toHaveBeenCalledTimes(7);
+    expect(
+      new Set(seatLimit.limit.mock.calls.map(([input]) => input.key)).size,
+    ).toBe(1);
+    expect(
+      new Set(roomLimit.limit.mock.calls.map(([input]) => input.key)).size,
+    ).toBe(1);
+    first.close();
+    second.close();
+  });
+
+  it("allows the 64th attached room socket and rejects the next before accept", async () => {
+    const room = await createRoom();
+    const legacyClients: WebSocket[] = [];
+    await runInDurableObject(roomStub(room.code), (_instance, state) => {
+      for (let index = 0; index < 63; index += 1) {
+        const pair = new WebSocketPair();
+        state.acceptWebSocket(pair[1], [`legacy-${index}`]);
+        pair[1].serializeAttachment({
+          connectionId: crypto.randomUUID(),
+          playerId: `legacy-${index}`,
+          hostAuthority: false,
+        });
+        pair[0].accept();
+        legacyClients.push(pair[0]);
+      }
+    });
+    const last = await connect(room.code, (await issueHttpTicket(room)).ticket);
+    await last.next();
+    const deniedTicket = (await issueHttpTicket(room)).ticket;
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      const accept = vi.spyOn(state, "acceptWebSocket");
+      const response = await instance.fetch(
+        new Request(
+          `https://room.internal/api/rooms/${room.code}/connect?ticket=${deniedTicket}`,
+          { headers: { Upgrade: "websocket" } },
+        ),
+      );
+      expect(response.status).toBe(429);
+      expect(response.headers.get("Retry-After")).toBe("60");
+      expect(accept).not.toHaveBeenCalled();
+      expect(state.getWebSockets()).toHaveLength(64);
+      expect(
+        (
+          await instance.consumeTicket({
+            ticket: deniedTicket,
+            now: Date.now(),
+          })
+        ).ok,
+      ).toBe(false);
+    });
+    last.close();
+    await runInDurableObject(roomStub(room.code), () => {
+      for (const client of legacyClients) client.close();
+    });
+  });
+
+  it.each(["seat", "room", "missing", "failure"] as const)(
+    "stops frames before dispatch when the message budget denies %s",
+    async (dimension) => {
+      const room = await createRoom();
+      const probe = await connect(
+        room.code,
+        (await issueHttpTicket(room)).ticket,
+      );
+      await probe.next();
+      const dispatch = vi.spyOn(RoomSession.prototype, "dispatch");
+      const seat = {
+        limit: vi.fn(async () => ({ success: dimension !== "seat" })),
+      };
+      const roomLimit = {
+        limit: vi.fn(async () => ({ success: dimension !== "room" })),
+      };
+      if (dimension === "failure")
+        seat.limit.mockRejectedValue(new Error("platform failed"));
+      await runInDurableObject(roomStub(room.code), async (instance, state) => {
+        const runtime = instance as unknown as { env: Env };
+        const previous = runtime.env;
+        runtime.env = {
+          ...previous,
+          CANONICAL_ORIGIN: "https://budget.invalid",
+          COMMAND_BY_ROOM: roomLimit,
+          ...(dimension === "missing" ? {} : { COMMAND_BY_SEAT: seat }),
+        };
+        try {
+          const socket = state.getWebSockets()[0]!;
+          const close = vi.spyOn(socket, "close");
+          await instance.webSocketMessage(
+            socket,
+            JSON.stringify(envelope(1, { type: "lock_room", locked: true })),
+          );
+          expect(dispatch).not.toHaveBeenCalled();
+          expect(close).toHaveBeenCalledWith(1013, "Room connection is busy");
+          expect(roomLimit.limit).toHaveBeenCalledOnce();
+          if (dimension !== "missing")
+            expect(seat.limit).toHaveBeenCalledOnce();
+        } finally {
+          runtime.env = previous;
+        }
+      });
+      probe.close();
+    },
+  );
+
+  it("admits four concurrent seat sockets and rejects the fifth without evicting them", async () => {
+    const room = await createRoom();
+    const tickets = await Promise.all(
+      Array.from({ length: 5 }, () => issueHttpTicket(room)),
+    );
+    const responses = await Promise.all(
+      tickets.map(({ ticket }) => connectResponse(room.code, ticket)),
+    );
+    expect(responses.filter(({ status }) => status === 101)).toHaveLength(4);
+    expect(responses.filter(({ status }) => status === 429)).toHaveLength(1);
+    const inventory = await runInDurableObject(
+      roomStub(room.code),
+      (_instance, state) => state.getWebSockets().length,
+    );
+    expect(inventory).toBe(4);
+    for (const response of responses) {
+      if (response.webSocket !== null) {
+        const probe = new SocketProbe(response.webSocket);
+        await probe.next();
+        probe.close();
+      }
+    }
+  });
+
+  it("sends stale, unauthorized, and duplicate resync only to the sender while mutations reach all sockets", async () => {
+    const created = await createRoom();
+    const joined = await joinRoom(created.code);
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const guest = await connect(
+      created.code,
+      (await issueHttpTicket(joined)).ticket,
+    );
+    await Promise.all([guest.next(), host.next()]);
+    const otherSend = vi.spyOn(
+      await serverSocket(created.code, joined.playerId),
+      "send",
+    );
+    const accepted = envelope(3, { type: "lock_room", locked: true });
+    host.socket.send(JSON.stringify(accepted));
+    await host.next();
+    await host.next();
+    await guest.next();
+    expect(otherSend).toHaveBeenCalledTimes(1);
+    otherSend.mockClear();
+    for (const command of [
+      accepted,
+      envelope(0, { type: "lock_room", locked: false }),
+    ]) {
+      host.socket.send(JSON.stringify(command));
+      expect((await host.next()).type).toBe("command_result");
+      expect((await host.next()).type).toBe("projection");
+      expect(otherSend).not.toHaveBeenCalled();
+    }
+    const hostSend = vi.spyOn(
+      await serverSocket(created.code, created.playerId),
+      "send",
+    );
+    guest.socket.send(
+      JSON.stringify(envelope(4, { type: "lock_room", locked: false })),
+    );
+    expect(await guest.next()).toMatchObject({
+      type: "command_result",
+      result: { ok: false, code: "unauthorized", revision: 4 },
+    });
+    expect(await guest.next()).toMatchObject({
+      type: "projection",
+      projection: { revision: 4, locked: true },
+    });
+    expect(hostSend).not.toHaveBeenCalled();
+    host.close();
+    guest.close();
+  });
+
+  it("consumes a valid one-use ticket, persists presence, and sends a role-safe first frame", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIAL_TIME);
+    const room = await createRoom();
+    const { ticket } = await issueHttpTicket(room);
+
+    const socket = await connect(room.code, ticket);
+    const message = await socket.next();
+
+    expect(message).toMatchObject({
+      type: "projection",
+      projection: {
+        revision: 1,
+        viewRole: "unassigned",
+        viewer: { playerId: room.playerId, isHost: true },
+      },
+    });
+    expect(JSON.stringify(message)).not.toContain(room.seatToken);
+    expect(JSON.stringify(message)).not.toContain(room.hostToken);
+    expect(JSON.stringify(message)).not.toContain('"key"');
+    await expect(roomStub(room.code).getSnapshot()).resolves.toMatchObject({
+      revision: 1,
+      lastActivity: INITIAL_TIME.toISOString(),
+      seats: [{ playerId: room.playerId, connected: true }],
+      connectionTickets: [],
+    });
+    await runInDurableObject(roomStub(room.code), (_instance, state) => {
+      const attachment = state.getWebSockets()[0]!.deserializeAttachment() as
+        RoomSocketAttachment | undefined;
+      expect(Object.keys(attachment ?? {}).sort()).toEqual([
+        "connectionId",
+        "hostAuthority",
+        "playerId",
+      ]);
+      expect(attachment).toMatchObject({
+        playerId: room.playerId,
+        hostAuthority: true,
+      });
+      expect(JSON.stringify(attachment)).not.toContain(room.seatToken);
+      expect(JSON.stringify(attachment)).not.toContain(room.hostToken);
+      expect(JSON.stringify(attachment)).not.toContain("team");
+      expect(JSON.stringify(attachment)).not.toContain("role");
     });
 
-    const expiredRes = await connectWebSocket(room.code, secondTicket);
-    expect(expiredRes.status).toBe(401);
+    expect((await connectResponse(room.code, ticket)).status).toBe(401);
+    socket.close();
   });
 
-  it("handles valid commands, persists state, and broadcasts projections to all connected clients", async () => {
-    const room = await createTestRoom();
-    const player2 = await joinTestRoom(room.code, "Player 2");
+  it("returns the same opaque response for unavailable, malformed, expired, and non-upgrade admission", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIAL_TIME);
+    const room = await createRoom();
+    const { ticket } = await issueHttpTicket(room);
+    vi.setSystemTime(INITIAL_TIME.getTime() + 60_001);
 
-    const hostTicket = await getTestTicket(
+    const responses = await Promise.all([
+      connectResponse(room.code, ticket),
+      request(`/api/rooms/${room.code}/connect`, {
+        headers: { Upgrade: "websocket" },
+      }),
+      connectResponse(room.code, "not-a-ticket"),
+      connectResponse("ZZZZZZ", "A".repeat(43)),
+      request(`/api/rooms/${room.code}/connect?ticket=${"A".repeat(43)}`),
+      request(
+        `/api/rooms/${room.code}/connect?ticket=${"A".repeat(43)}&extra=1`,
+        { headers: { Upgrade: "websocket" } },
+      ),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([
+      401, 401, 401, 401, 401, 401,
+    ]);
+    expect(
+      await Promise.all(responses.map((response) => response.text())),
+    ).toEqual(Array.from({ length: 6 }, () => "Unauthorized"));
+  });
+
+  it("selects only one winner when the same one-use ticket is presented concurrently", async () => {
+    const room = await createRoom();
+    const { ticket } = await issueHttpTicket(room);
+
+    const responses = await Promise.all([
+      connectResponse(room.code, ticket),
+      connectResponse(room.code, ticket),
+    ]);
+
+    expect(responses.map(({ status }) => status).sort()).toEqual([101, 401]);
+    const accepted = responses.find(({ status }) => status === 101)!;
+    const socket = new SocketProbe(accepted.webSocket!);
+    await expect(socket.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: { revision: 1 },
+    });
+    await expect(roomStub(room.code).getSnapshot()).resolves.toMatchObject({
+      revision: 1,
+      connectionTickets: [],
+    });
+    socket.close();
+  });
+
+  it("closes and rolls presence offline when admission fails after ticket consumption", async () => {
+    const room = await createRoom();
+    const { ticket } = await issueHttpTicket(room);
+
+    await runInDurableObject(roomStub(room.code), async (instance, state) => {
+      vi.spyOn(state, "acceptWebSocket").mockImplementation(() => {
+        throw new Error("simulated admission failure");
+      });
+      const response = await instance.fetch(
+        new Request(
+          `https://room.internal/api/rooms/${room.code}/connect?ticket=${ticket}`,
+          { headers: { Upgrade: "websocket" } },
+        ),
+      );
+
+      expect(response.status).toBe(401);
+      expect(state.getWebSockets()).toHaveLength(0);
+    });
+    await expect(roomStub(room.code).getSnapshot()).resolves.toMatchObject({
+      revision: 0,
+      seats: [{ playerId: room.playerId, connected: false }],
+      connectionTickets: [],
+    });
+  });
+
+  it("keeps a delayed replacement online when the older socket closes before acceptance", async () => {
+    const room = await createRoom();
+    const first = await connect(
       room.code,
-      room.seatToken,
-      room.hostToken
+      (await issueHttpTicket(room)).ticket,
     );
-    const p2Ticket = await getTestTicket(room.code, player2.seatToken);
-
-    const hostRes = await connectWebSocket(room.code, hostTicket);
-    const hostWs = hostRes.webSocket!;
-    hostWs.accept();
-    const hostQueue = new TestWebSocketQueue(hostWs);
-    await hostQueue.nextMessage(); // host initial projection
-
-    const p2Res = await connectWebSocket(room.code, p2Ticket);
-    const p2Ws = p2Res.webSocket!;
-    p2Ws.accept();
-    const p2Queue = new TestWebSocketQueue(p2Ws);
-
-    // Host receives broadcast projection (revision 2) and p2 receives initial projection (revision 2)
-    const hostP2JoinedMsg = await hostQueue.nextMessage();
-    const p2InitialMsg = await p2Queue.nextMessage();
-    expect(hostP2JoinedMsg.type).toBe("projection");
-    expect(p2InitialMsg.type).toBe("projection");
-
-    // Host locks room
-    hostWs.send(
-      JSON.stringify(
-        envelope(2, { type: "lock_room", locked: true }, testUuid(100))
-      )
+    await first.next();
+    const replacementTicket = (await issueHttpTicket(room)).ticket;
+    const disconnectStarted = deferred<void>();
+    let closingStarted = false;
+    const originalDisconnect =
+      PersistentRoomController.prototype.reconcilePresence;
+    vi.spyOn(
+      PersistentRoomController.prototype,
+      "reconcilePresence",
+    ).mockImplementation(function (this: PersistentRoomController, ...args) {
+      if (closingStarted) disconnectStarted.resolve();
+      return originalDisconnect.apply(this, args);
+    });
+    const race = await runInDurableObject(
+      roomStub(room.code),
+      async (instance, state) => {
+        const oldServerSocket = state.getWebSockets(room.playerId)[0]!;
+        const originalDigest = crypto.subtle.digest.bind(crypto.subtle);
+        let delayed = false;
+        vi.spyOn(crypto.subtle, "digest").mockImplementation(
+          async (algorithm, data) => {
+            if (!delayed) {
+              delayed = true;
+              closingStarted = true;
+              oldServerSocket.close(1000, "replaced during admission");
+              void instance.webSocketClose(oldServerSocket);
+              await disconnectStarted.promise;
+            }
+            return originalDigest(algorithm, data);
+          },
+        );
+        const response = await instance.fetch(
+          new Request(
+            `https://room.internal/api/rooms/${room.code}/connect?ticket=${replacementTicket}`,
+            { headers: { Upgrade: "websocket" } },
+          ),
+        );
+        const replacement = new SocketProbe(response.webSocket!);
+        const initial = await replacement.next();
+        if (initial.type !== "projection") {
+          throw new Error("expected replacement projection");
+        }
+        const snapshot = await instance.getSnapshot();
+        const commandId = replacement.send(
+          { type: "lock_room", locked: true },
+          initial.projection.revision,
+        );
+        const commandResult = await replacement.next();
+        replacement.close();
+        return {
+          status: response.status,
+          initial,
+          snapshot,
+          commandId,
+          commandResult,
+        };
+      },
     );
 
-    const hostResult = await hostQueue.nextMessage();
-    expect(hostResult.type).toBe("command_result");
-    if (hostResult.type === "command_result") {
-      expect(hostResult.result.ok).toBe(true);
+    expect(race.status).toBe(101);
+    const initial = race.initial;
+    expect(initial).toMatchObject({
+      type: "projection",
+      projection: {
+        viewer: { playerId: room.playerId, isHost: true },
+        seats: expect.arrayContaining([
+          expect.objectContaining({
+            playerId: room.playerId,
+            connected: true,
+          }),
+        ]),
+      },
+    });
+    if (initial.type !== "projection") {
+      throw new Error("expected replacement projection");
     }
+    expect(race.snapshot).toMatchObject({
+      revision: initial.projection.revision,
+      seats: [{ playerId: room.playerId, connected: true }],
+    });
+    expect(race.commandResult).toEqual({
+      type: "command_result",
+      commandId: race.commandId,
+      result: { ok: true, revision: initial.projection.revision + 1 },
+    });
+  });
+});
 
-    // Host receives updated projection showing locked: true
-    const hostLockedMsg = await hostQueue.nextMessage();
-    expect(hostLockedMsg.type).toBe("projection");
-    if (hostLockedMsg.type === "projection") {
-      expect(hostLockedMsg.projection.locked).toBe(true);
-    }
+describe("role-safe WebSocket command flow", () => {
+  it("persists before command_result and broadcasts separately derived role projections", async () => {
+    const code = "R0AE01";
+    const { seatTokens, hostToken } = await configuredRoom(code);
+    const clue = await connect(
+      code,
+      await issueRpcTicket(code, seatTokens.host, hostToken),
+    );
+    expect(await clue.next()).toMatchObject({
+      type: "projection",
+      projection: { revision: 3, viewRole: "clue-giver" },
+    });
+    const operative = await connect(
+      code,
+      await issueRpcTicket(code, seatTokens.redOperative),
+    );
+    const [operativeAtThree, clueAtThree] = await Promise.all([
+      operative.next(),
+      clue.next(),
+    ]);
+    expect(operativeAtThree).toMatchObject({
+      type: "projection",
+      projection: { revision: 4, viewRole: "operative" },
+    });
+    expect(clueAtThree).toMatchObject({
+      type: "projection",
+      projection: { revision: 4, viewRole: "clue-giver" },
+    });
+    expect(JSON.stringify(clueAtThree)).toContain('"key"');
+    expect(JSON.stringify(operativeAtThree)).not.toContain('"key"');
+    expect(JSON.stringify(operativeAtThree)).not.toContain('"hazard"');
 
-    // P2 receives updated projection showing locked: true
-    const p2Update = await p2Queue.nextMessage();
-    expect(p2Update.type).toBe("projection");
-    if (p2Update.type === "projection") {
-      expect(p2Update.projection.locked).toBe(true);
-    }
+    const commandId = clue.send(
+      { type: "submit_clue", word: "ember", count: 2 },
+      4,
+    );
+    const result = await clue.next();
+    expect(result).toEqual({
+      type: "command_result",
+      commandId,
+      result: { ok: true, revision: 5 },
+    });
+    await expect(roomStub(code).getSnapshot()).resolves.toMatchObject({
+      revision: 5,
+      game: { clue: { word: "ember", count: 2 } },
+    });
+    const [clueProjection, operativeProjection] = await Promise.all([
+      clue.next(),
+      operative.next(),
+    ]);
+    expect(clueProjection).toMatchObject({
+      type: "projection",
+      projection: { revision: 5, viewRole: "clue-giver" },
+    });
+    expect(operativeProjection).toMatchObject({
+      type: "projection",
+      projection: { revision: 5, viewRole: "operative" },
+    });
+    expect(JSON.stringify(operativeProjection)).not.toContain('"key"');
 
-    hostWs.close();
-    p2Ws.close();
+    const operativeSend = vi.spyOn(
+      await serverSocket(code, "red-operative"),
+      "send",
+    );
+    const staleId = clue.send(
+      { type: "submit_clue", word: "again", count: 1 },
+      4,
+    );
+    await expect(clue.next()).resolves.toEqual({
+      type: "command_result",
+      commandId: staleId,
+      result: {
+        ok: false,
+        revision: 5,
+        code: "stale_revision",
+        message: "Expected revision is stale",
+      },
+    });
+    await expect(clue.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: { revision: 5 },
+    });
+    expect(operativeSend).not.toHaveBeenCalled();
+
+    clue.close();
+    operative.close();
   });
 
-  it("delivers different projections for red clue-giver vs red operative at the same revision", async () => {
-    const room = await createTestRoom();
-    const p2 = await joinTestRoom(room.code, "Red Op");
-    const p3 = await joinTestRoom(room.code, "Blue Clue");
-    const p4 = await joinTestRoom(room.code, "Blue Op");
+  it("isolates invalid JSON, schema, binary, and oversized frames from healthy sockets", async () => {
+    const created = await createRoom();
+    const joined = await joinRoom(created.code);
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const guest = await connect(
+      created.code,
+      (await issueHttpTicket(joined)).ticket,
+    );
+    await Promise.all([guest.next(), host.next()]);
+    const healthyServerSocket = await serverSocket(
+      created.code,
+      created.playerId,
+    );
+    const healthySend = vi.spyOn(healthyServerSocket, "send");
 
-    // Connect all to mark them connected
-    for (const p of [
-      { token: room.seatToken, host: room.hostToken },
-      { token: p2.seatToken },
-      { token: p3.seatToken },
-      { token: p4.seatToken }
-    ]) {
-      const t = await getTestTicket(room.code, p.token, p.host);
-      const res = await connectWebSocket(room.code, t);
-      res.webSocket!.accept();
-      res.webSocket!.close();
+    const invalidFrames: Array<string | ArrayBuffer> = [
+      "{",
+      JSON.stringify({ type: "replace_state", state: {} }),
+      new Uint8Array([1, 2, 3]).buffer,
+      "💥".repeat(4_097),
+    ];
+    for (const invalid of invalidFrames) {
+      guest.socket.send(invalid);
+      await expect(guest.next()).resolves.toEqual({
+        type: "error",
+        code: "invalid_message",
+        message: "Message did not match protocol",
+      });
     }
+    expect(healthySend).not.toHaveBeenCalled();
 
-    const id = env.ROOMS.idFromName(room.code);
-    const stub = env.ROOMS.get(id);
-    const snap = await stub.getSnapshot();
-
-    // Assign seats & roles: Host=red clue, p2=red op, p3=blue clue, p4=blue op
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision,
-        { type: "assign_seat", playerId: room.playerId, teamId: "red" },
-        testUuid(1)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 1,
-        { type: "set_role", playerId: room.playerId, role: "clue-giver" },
-        testUuid(2)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 2,
-        { type: "assign_seat", playerId: p2.playerId, teamId: "red" },
-        testUuid(3)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 3,
-        { type: "set_role", playerId: p2.playerId, role: "operative" },
-        testUuid(4)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 4,
-        { type: "assign_seat", playerId: p3.playerId, teamId: "blue" },
-        testUuid(5)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 5,
-        { type: "set_role", playerId: p3.playerId, role: "clue-giver" },
-        testUuid(6)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 6,
-        { type: "assign_seat", playerId: p4.playerId, teamId: "blue" },
-        testUuid(7)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(
-        snap.revision + 7,
-        { type: "set_role", playerId: p4.playerId, role: "operative" },
-        testUuid(8)
-      )
-    );
-    await stub.dispatch(
-      { playerId: room.playerId, hostAuthority: true },
-      envelope(snap.revision + 8, { type: "start_board" }, testUuid(9))
-    );
-
-    // Connect Red Clue (host) and Red Op (p2)
-    const hostT = await getTestTicket(
-      room.code,
-      room.seatToken,
-      room.hostToken
-    );
-    const p2T = await getTestTicket(room.code, p2.seatToken);
-
-    const hostConn = await connectWebSocket(room.code, hostT);
-    const hostWs = hostConn.webSocket!;
-    hostWs.accept();
-    const hostQueue = new TestWebSocketQueue(hostWs);
-    await hostQueue.nextMessage(); // host connected
-
-    const p2Conn = await connectWebSocket(room.code, p2T);
-    const p2Ws = p2Conn.webSocket!;
-    p2Ws.accept();
-    const p2Queue = new TestWebSocketQueue(p2Ws);
-
-    const hostMsg = (await hostQueue.nextMessage()) as {
-      type: "projection";
-      projection: ClientProjection;
-    };
-    const p2Msg = (await p2Queue.nextMessage()) as {
-      type: "projection";
-      projection: ClientProjection;
-    };
-
-    expect(hostMsg.projection.revision).toBe(p2Msg.projection.revision);
-    expect(hostMsg.projection.viewRole).toBe("clue-giver");
-    expect(p2Msg.projection.viewRole).toBe("operative");
-
-    // Clue-giver projection has the key; Operative projection has NO key!
-    expect("key" in hostMsg.projection).toBe(true);
-    expect("key" in p2Msg.projection).toBe(false);
-
-    hostWs.close();
-    p2Ws.close();
+    const commandId = host.send({ type: "lock_room", locked: true }, 3);
+    await expect(host.next()).resolves.toEqual({
+      type: "command_result",
+      commandId,
+      result: { ok: true, revision: 4 },
+    });
+    await expect(guest.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: { revision: 4, locked: true },
+    });
+    host.close();
+    guest.close();
   });
 
-  it("handles disconnect and reconnect preserving player presence cleanly", async () => {
-    const room = await createTestRoom();
-    const t1 = await getTestTicket(room.code, room.seatToken, room.hostToken);
-    const res1 = await connectWebSocket(room.code, t1);
-    const ws1 = res1.webSocket!;
-    ws1.accept();
-    const queue1 = new TestWebSocketQueue(ws1);
-    await queue1.nextMessage();
+  it("keeps an accepted command and healthy broadcasts when one socket send throws", async () => {
+    const created = await createRoom();
+    const joined = await joinRoom(created.code);
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const guest = await connect(
+      created.code,
+      (await issueHttpTicket(joined)).ticket,
+    );
+    await Promise.all([guest.next(), host.next()]);
+    const failingSocket = await serverSocket(created.code, joined.playerId);
+    vi.spyOn(failingSocket, "send").mockImplementation(() => {
+      throw new Error("simulated isolated send failure");
+    });
 
-    // Reconnect with new ticket before closing ws1
-    const t2 = await getTestTicket(room.code, room.seatToken, room.hostToken);
-    const res2 = await connectWebSocket(room.code, t2);
-    const ws2 = res2.webSocket!;
-    ws2.accept();
-    const queue2 = new TestWebSocketQueue(ws2);
-    await queue2.nextMessage();
+    const commandId = host.send({ type: "lock_room", locked: true }, 3);
 
-    // Close older socket ws1
-    ws1.close();
-
-    // Verify seat is STILL connected because ws2 is active
-    const id = env.ROOMS.idFromName(room.code);
-    const stub = env.ROOMS.get(id);
-    const snap = await stub.getSnapshot();
-    const hostSeat = snap.seats.find((s) => s.playerId === room.playerId);
-    expect(hostSeat?.connected).toBe(true);
-
-    ws2.close();
+    await expect(host.next()).resolves.toEqual({
+      type: "command_result",
+      commandId,
+      result: { ok: true, revision: 4 },
+    });
+    await expect(host.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: { revision: 4, locked: true },
+    });
+    await expect(roomStub(created.code).getSnapshot()).resolves.toMatchObject({
+      revision: 4,
+      locked: true,
+    });
+    host.close();
+    guest.close();
   });
 
-  it("rejects malformed message frames with invalid_message without closing other sockets", async () => {
-    const room = await createTestRoom();
-    const p2 = await joinTestRoom(room.code, "Player 2");
-
-    const t1 = await getTestTicket(room.code, room.seatToken, room.hostToken);
-    const t2 = await getTestTicket(room.code, p2.seatToken);
-
-    const res1 = await connectWebSocket(room.code, t1);
-    const ws1 = res1.webSocket!;
-    ws1.accept();
-    const queue1 = new TestWebSocketQueue(ws1);
-    await queue1.nextMessage(); // ws1 initial
-
-    const res2 = await connectWebSocket(room.code, t2);
-    const ws2 = res2.webSocket!;
-    ws2.accept();
-    const queue2 = new TestWebSocketQueue(ws2);
-    await queue1.nextMessage(); // ws1 broadcast when ws2 connects
-    await queue2.nextMessage(); // ws2 initial
-
-    // Send malformed text frame
-    ws1.send("NOT VALID JSON");
-
-    const err = await queue1.nextMessage();
-    expect(err.type).toBe("error");
-    if (err.type === "error") {
-      expect(err.code).toBe("invalid_message");
-    }
-
-    // ws2 remains open and healthy
-    ws1.send(
-      JSON.stringify(
-        envelope(2, { type: "lock_room", locked: true }, testUuid(200))
-      )
+  it("keeps an accepted command when only the sender command_result send throws", async () => {
+    const created = await createRoom();
+    const joined = await joinRoom(created.code);
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
     );
-    const hostResult = await queue1.nextMessage();
-    expect(hostResult.type).toBe("command_result");
+    await host.next();
+    const guest = await connect(
+      created.code,
+      (await issueHttpTicket(joined)).ticket,
+    );
+    await Promise.all([guest.next(), host.next()]);
+    const senderSocket = await serverSocket(created.code, created.playerId);
+    const senderSend = vi.spyOn(senderSocket, "send");
+    senderSend.mockImplementationOnce(() => {
+      throw new Error("simulated command_result send failure");
+    });
 
-    const p2Update = await queue2.nextMessage();
-    expect(p2Update.type).toBe("projection");
+    host.send({ type: "lock_room", locked: true }, 3);
 
-    ws1.close();
-    ws2.close();
+    await expect(guest.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: { revision: 4, locked: true },
+    });
+    await expect(roomStub(created.code).getSnapshot()).resolves.toMatchObject({
+      revision: 4,
+      locked: true,
+    });
+    expect(senderSend).toHaveBeenCalledWith(
+      expect.stringContaining('"type":"command_result"'),
+    );
+    host.close();
+    guest.close();
+  });
+
+  it("broadcasts a persisted join but not public-revision-neutral ticket changes", async () => {
+    const created = await createRoom();
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const accepted = await serverSocket(created.code, created.playerId);
+    const send = vi.spyOn(accepted, "send");
+
+    await issueHttpTicket(created);
+    expect(send).not.toHaveBeenCalled();
+
+    const joined = await joinRoom(created.code, "Late Guest");
+    const frame = await host.next();
+    expect(frame).toMatchObject({
+      type: "projection",
+      projection: { revision: 2 },
+    });
+    if (frame.type !== "projection") {
+      throw new Error("expected projection");
+    }
+    expect(frame.projection.seats).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          playerId: joined.playerId,
+          displayName: "Late Guest",
+          connected: false,
+        }),
+      ]),
+    );
+    await expect(roomStub(created.code).getSnapshot()).resolves.toMatchObject({
+      revision: 2,
+      seats: expect.arrayContaining([
+        expect.objectContaining({ playerId: joined.playerId }),
+      ]),
+    });
+    host.close();
+  });
+});
+
+describe("WebSocket reconnect, close, and hibernation", () => {
+  it("reconnects the same player to a complete gameplay snapshot and converges presence revisions", async () => {
+    const code = "REC0N1";
+    const { seatTokens, hostToken } = await configuredRoom(code);
+    const clue = await connect(
+      code,
+      await issueRpcTicket(code, seatTokens.host, hostToken),
+    );
+    await clue.next();
+    const operative = await connect(
+      code,
+      await issueRpcTicket(code, seatTokens.redOperative),
+    );
+    await Promise.all([operative.next(), clue.next()]);
+    operative.close();
+    await expect(clue.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: {
+        revision: 5,
+        seats: expect.arrayContaining([
+          expect.objectContaining({
+            playerId: "red-operative",
+            connected: false,
+          }),
+        ]),
+      },
+    });
+
+    const reconnected = await connect(
+      code,
+      await issueRpcTicket(code, seatTokens.redOperative),
+    );
+    const [operativeProjection, clueProjection] = await Promise.all([
+      reconnected.next(),
+      clue.next(),
+    ]);
+    expect(operativeProjection).toMatchObject({
+      type: "projection",
+      projection: {
+        revision: 6,
+        viewer: { playerId: "red-operative" },
+        board: { phase: "clue", activeTeam: "red" },
+      },
+    });
+    expect(clueProjection).toMatchObject({
+      type: "projection",
+      projection: {
+        revision: 6,
+        seats: expect.arrayContaining([
+          expect.objectContaining({
+            playerId: "red-operative",
+            connected: true,
+          }),
+        ]),
+      },
+    });
+    clue.close();
+    reconnected.close();
+  });
+
+  it("keeps the newest overlapping connection online when the older socket closes", async () => {
+    const created = await createRoom();
+    const first = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await first.next();
+    const second = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await Promise.all([second.next(), first.next()]);
+    await expect(roomStub(created.code).getSnapshot()).resolves.toMatchObject({
+      revision: 2,
+      seats: [{ playerId: created.playerId, connected: true }],
+    });
+
+    first.close();
+    await vi.waitFor(async () => {
+      expect(await roomStub(created.code).getSnapshot()).toMatchObject({
+        revision: 2,
+        seats: [{ connected: true }],
+      });
+    });
+    const lastActivity = (await roomStub(created.code).getSnapshot())!
+      .lastActivity;
+    second.close();
+    await vi.waitFor(async () => {
+      expect(await roomStub(created.code).getSnapshot()).toMatchObject({
+        revision: 3,
+        lastActivity,
+        seats: [{ connected: false }],
+      });
+    });
+  });
+
+  it("preserves identity and state across hibernation and resumes from the attachment", async () => {
+    const created = await createRoom();
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+
+    await evictDurableObject(roomStub(created.code));
+    const commandId = host.send({ type: "lock_room", locked: true }, 1);
+
+    await expect(host.next()).resolves.toEqual({
+      type: "command_result",
+      commandId,
+      result: { ok: true, revision: 2 },
+    });
+    await expect(host.next()).resolves.toMatchObject({
+      type: "projection",
+      projection: {
+        revision: 2,
+        locked: true,
+        viewer: { playerId: created.playerId, isHost: true },
+      },
+    });
+    host.close();
+  });
+
+  it("does not extend activity on close and treats expiry-triggered closes as no-ops", async () => {
+    vi.useFakeTimers();
+    const connectedAt = INITIAL_TIME;
+    vi.setSystemTime(connectedAt);
+    const created = await createRoom();
+    const host = await connect(
+      created.code,
+      (await issueHttpTicket(created)).ticket,
+    );
+    await host.next();
+    const activity = (await roomStub(created.code).getSnapshot())!.lastActivity;
+
+    host.close();
+    await vi.waitFor(async () => {
+      expect(await roomStub(created.code).getSnapshot()).toMatchObject({
+        revision: 2,
+        lastActivity: activity,
+        seats: [{ connected: false }],
+      });
+    });
+
+    vi.setSystemTime(Date.parse(activity) + ROOM_IDLE_TTL_MS);
+    await expect(runDurableObjectAlarm(roomStub(created.code))).resolves.toBe(
+      true,
+    );
+    await expect(roomStub(created.code).getSnapshot()).resolves.toBeUndefined();
+    await runInDurableObject(roomStub(created.code), async (instance) => {
+      const pair = new WebSocketPair();
+      pair[1].serializeAttachment({
+        connectionId: crypto.randomUUID(),
+        playerId: created.playerId,
+        hostAuthority: true,
+      });
+      await instance.webSocketClose(pair[1]);
+    });
+    await expect(roomStub(created.code).getSnapshot()).resolves.toBeUndefined();
   });
 });

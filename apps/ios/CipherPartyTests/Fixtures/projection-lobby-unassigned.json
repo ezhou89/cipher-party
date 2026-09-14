@@ -1,5 +1,5 @@
 {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "revision": 2,
   "code": "ABC234",
   "inviteUrl": "https://oddlyuseful.studio/room/ABC234",
@@ -34,5 +34,7 @@
     }
   ],
   "publicHistory": [],
-  "board": null
+  "board": null,
+  "teamCount": 2,
+  "configuredTeams": ["red", "blue"]
 }

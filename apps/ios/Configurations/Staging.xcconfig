@@ -1,4 +1,5 @@
-API_BASE_URL = https:/$()/oddlyuseful.studio
+API_BASE_URL = https:/$()/staging.oddlyuseful.studio
+UNIVERSAL_LINK_HOST = staging.oddlyuseful.studio
 APP_ENVIRONMENT = staging
 APP_URL_SCHEME = cipherparty-staging
 KEYCHAIN_SERVICE_NAME = studio.oddlyuseful.cipherparty.staging.credentials

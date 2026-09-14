@@ -1,6 +1,9 @@
-import { RouterProvider } from "react-router-dom";
-import { router } from "./router";
+import { RouterProvider, type DataRouter } from "react-router-dom";
 
-export function App() {
+interface AppProps {
+  router: DataRouter;
+}
+
+export function App({ router }: AppProps) {
   return <RouterProvider router={router} />;
 }

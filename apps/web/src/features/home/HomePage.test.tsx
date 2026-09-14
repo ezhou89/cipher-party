@@ -1,201 +1,275 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { createSeatStore } from "../../lib/seat-store";
-import { HomePage } from "./HomePage";
+import { createMemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { App } from "../../app/App";
+import { createAppRoutes } from "../../app/router";
+import type { SeatCredentials, SeatStore } from "../../lib/seat-store";
+
+const HOST_RESPONSE = {
+  code: "ABC123",
+  inviteUrl: "https://play.example/room/ABC123",
+  playerId: "host-player",
+  seatToken: "host-seat-token".padEnd(43, "x"),
+  hostToken: "host-authority-token".padEnd(43, "x"),
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return Response.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function seatStore(
+  put: (credentials: SeatCredentials) => Promise<void> = async () => {},
+): SeatStore {
+  return {
+    get: async () => undefined,
+    put,
+    delete: async () => {},
+  };
+}
+
+function renderApp(store: SeatStore = seatStore()) {
+  const router = createMemoryRouter(createAppRoutes({ seatStore: store }), {
+    initialEntries: ["/"],
+  });
+  render(<App router={router} />);
+  return router;
+}
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("HomePage", () => {
-  const seatStore = createSeatStore();
+  it("offers distinct create and join forms without future-mode controls", () => {
+    renderApp();
 
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    indexedDB = new IDBFactory(); // Reset fake IndexedDB between tests
+    expect(screen.getByRole("form", { name: "Create Room" })).toBeVisible();
+    expect(screen.getByRole("form", { name: "Join Room" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Create Room" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Join Room" })).toBeEnabled();
+    expect(
+      screen.queryByRole("button", {
+        name: /pack|image|ai|blitz|campaign|matchmaking/iu,
+      }),
+    ).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(
+      /pack builder|image upload|AI assist|Blitz|campaign|public matchmaking/iu,
+    );
   });
 
-  function renderHomePage() {
-    const router = createMemoryRouter(
-      [
-        { path: "/", element: <HomePage seatStore={seatStore} /> },
+  it("posts the trimmed host name, persists both tokens, then navigates", async () => {
+    const write = deferred<void>();
+    const persisted: SeatCredentials[] = [];
+    const store = seatStore(async (credentials) => {
+      persisted.push(credentials);
+      await write.promise;
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(HOST_RESPONSE, 201),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const router = renderApp(store);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Your display name"), "  Mina  ");
+    await user.click(screen.getByRole("button", { name: "Create Room" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooms", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Mina" }),
+    });
+    expect(persisted).toEqual([
+      {
+        code: "ABC123",
+        playerId: "host-player",
+        seatToken: "host-seat-token".padEnd(43, "x"),
+        hostToken: "host-authority-token".padEnd(43, "x"),
+      },
+    ]);
+    expect(router.state.location.pathname).toBe("/");
+    expect(
+      screen.getByRole("button", { name: "Creating room…" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Join Room" })).toBeDisabled();
+
+    write.resolve();
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/room/ABC123"),
+    );
+  });
+
+  it("normalizes lowercase Crockford aliases, stores the seat, and uses the server code", async () => {
+    const persisted: SeatCredentials[] = [];
+    const store = seatStore(async (credentials) => {
+      persisted.push(credentials);
+    });
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({
+        code: "01ABCD",
+        playerId: "guest-player",
+        seatToken: "guest-seat-token".padEnd(43, "x"),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const router = renderApp(store);
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Room code"), "  olabcd  ");
+    await user.type(screen.getByLabelText("Join display name"), "  Kenji  ");
+    await user.click(screen.getByRole("button", { name: "Join Room" }));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/room/01ABCD"),
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/rooms/01ABCD/join", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Kenji", asSpectator: false }),
+    });
+    expect(persisted).toEqual([
+      {
+        code: "01ABCD",
+        playerId: "guest-player",
+        seatToken: "guest-seat-token".padEnd(43, "x"),
+      },
+    ]);
+  });
+
+  it("submits the create form from the keyboard", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(HOST_RESPONSE, 201),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Your display name"), "Mina{Enter}");
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+  });
+
+  it("rejects Unicode room-code expansion before making a request", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Room code"), "ßabcde");
+    await user.type(screen.getByLabelText("Join display name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Join Room" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/six ASCII letters or numbers/iu);
+    expect(alert).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refocuses the public summary after the same client validation error repeats", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    const user = userEvent.setup();
+    const code = screen.getByLabelText("Room code");
+    const submit = screen.getByRole("button", { name: "Join Room" });
+
+    await user.type(code, "ßabcde");
+    await user.type(screen.getByLabelText("Join display name"), "Guest");
+    await user.click(submit);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/six ASCII letters or numbers/iu);
+    expect(alert).toHaveFocus();
+
+    await user.click(code);
+    expect(code).toHaveFocus();
+    await user.click(submit);
+
+    expect(alert).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an API error visible and focuses the public summary", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(
         {
-          path: "/room/:code",
-          element: <div data-testid="room-page">Room View</div>
-        }
-      ],
-      { initialEntries: ["/"] }
+          error: { code: "room_locked", message: "Room is locked" },
+        },
+        409,
+      ),
     );
-    return { ...render(<RouterProvider router={router} />), router };
-  }
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    const user = userEvent.setup();
 
-  it("renders Create Room and Join Room forms with accessible names", () => {
-    renderHomePage();
+    await user.type(screen.getByLabelText("Room code"), "ABC123");
+    await user.type(screen.getByLabelText("Join display name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Join Room" }));
 
-    expect(
-      screen.getByRole("heading", { name: /create room/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /^create room$/i })
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getByRole("heading", { name: /join room/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /^join room$/i })
-    ).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Room is locked");
+    expect(alert).toHaveFocus();
+    expect(alert.textContent).not.toContain("token");
   });
 
-  it("submitting a trimmed display name calls POST /api/rooms", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: "K7M2X9",
-        inviteUrl: "http://127.0.0.1:5173/room/K7M2X9",
-        playerId: "p-host",
-        seatToken: "seat-token-123",
-        hostToken: "host-token-456"
-      })
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderHomePage();
-
-    const nameInput = screen.getByLabelText(/your name/i, {
-      selector: "#create-name"
-    });
-    await user.type(nameInput, "  Agent Alice  ");
-
-    const createButton = screen.getByRole("button", { name: /^create room$/i });
-    await user.click(createButton);
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/rooms",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ displayName: "Agent Alice" })
-      })
+  it("treats malformed token-bearing success data as a public API failure", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ ...HOST_RESPONSE, privateKey: "must-not-render" }, 201),
     );
+    vi.stubGlobal("fetch", fetchMock);
+    const router = renderApp();
+    const user = userEvent.setup();
+
+    await user.type(screen.getByLabelText("Your display name"), "Mina");
+    await user.click(screen.getByRole("button", { name: "Create Room" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/unexpected response/iu);
+    expect(alert).toHaveFocus();
+    expect(document.body.textContent).not.toContain("must-not-render");
+    expect(router.state.location.pathname).toBe("/");
   });
 
-  it("successful creation stores both tokens and navigates to /room/CODE", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: "K7M2X9",
-        inviteUrl: "http://127.0.0.1:5173/room/K7M2X9",
-        playerId: "p-host",
-        seatToken: "seat-token-123",
-        hostToken: "host-token-456"
-      })
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderHomePage();
-
-    const nameInput = screen.getByLabelText(/your name/i, {
-      selector: "#create-name"
-    });
-    await user.type(nameInput, "Host Player");
-
-    await user.click(screen.getByRole("button", { name: /^create room$/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("room-page")).toBeInTheDocument();
-    });
-
-    const stored = await seatStore.get("K7M2X9");
-    expect(stored).toEqual({
-      code: "K7M2X9",
-      playerId: "p-host",
-      seatToken: "seat-token-123",
-      hostToken: "host-token-456"
-    });
-  });
-
-  it("joining by code normalizes lowercase and whitespace and navigates", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        code: "K7M2X9",
-        playerId: "p-guest",
-        seatToken: "seat-token-guest"
-      })
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderHomePage();
-
-    const codeInput = screen.getByLabelText(/room code/i);
-    const nameInput = screen.getByLabelText(/your name/i, {
-      selector: "#join-name"
-    });
-
-    await user.type(codeInput, "  k7m-2x9  ");
-    await user.type(nameInput, "  Guest Bob  ");
-
-    await user.click(screen.getByRole("button", { name: /^join room$/i }));
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/rooms/K7M2X9/join",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ displayName: "Guest Bob", asSpectator: false })
-      })
+  it("does not treat inherited object names as trusted public error codes", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: "toString",
+            message: "durable-seat-token-must-not-be-reflected",
+          },
+        },
+        400,
+      ),
     );
-
-    await waitFor(() => {
-      expect(screen.getByTestId("room-page")).toBeInTheDocument();
-    });
-
-    const stored = await seatStore.get("K7M2X9");
-    expect(stored).toEqual({
-      code: "K7M2X9",
-      playerId: "p-guest",
-      seatToken: "seat-token-guest"
-    });
-  });
-
-  it("API errors remain visible and focus the error summary", async () => {
-    const user = userEvent.setup();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 400,
-      json: async () => ({
-        error: {
-          code: "invalid_name",
-          message: "Display name has control characters"
-        }
-      })
-    });
     vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    const user = userEvent.setup();
 
-    renderHomePage();
+    await user.type(screen.getByLabelText("Room code"), "ABC123");
+    await user.type(screen.getByLabelText("Join display name"), "Guest");
+    await user.click(screen.getByRole("button", { name: "Join Room" }));
 
-    const nameInput = screen.getByLabelText(/your name/i, {
-      selector: "#create-name"
-    });
-    await user.type(nameInput, "Bad Name");
-
-    await user.click(screen.getByRole("button", { name: /^create room$/i }));
-
-    const errorAlert = await screen.findByRole("alert");
-    expect(errorAlert).toHaveTextContent("Display name has control characters");
-    expect(document.activeElement).toBe(errorAlert);
-  });
-
-  it("contains no pack builder, image, AI, Blitz, campaign, or public matchmaking controls", () => {
-    renderHomePage();
-
-    const text = document.body.textContent?.toLowerCase() ?? "";
-    expect(text).not.toContain("pack builder");
-    expect(text).not.toContain("upload image");
-    expect(text).not.toContain("ai clue");
-    expect(text).not.toContain("blitz");
-    expect(text).not.toContain("campaign");
-    expect(text).not.toContain("matchmaking");
-    expect(text).not.toContain("find match");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/unexpected response/iu);
+    expect(alert.textContent).not.toContain("durable-seat-token");
   });
 });

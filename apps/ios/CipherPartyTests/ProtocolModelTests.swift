@@ -36,9 +36,9 @@ final class ProtocolModelTests: XCTestCase {
             from: fixtureData(named: "command-envelopes")
         )
 
-        XCTAssertEqual(envelopes.count, 14)
+        XCTAssertEqual(envelopes.count, 15)
         XCTAssertEqual(Set(envelopes.map(\.command.type)), Set(ClassicCommand.CommandType.allCases))
-        XCTAssertTrue(envelopes.allSatisfy { $0.protocolVersion == 1 })
+        XCTAssertTrue(envelopes.allSatisfy { $0.protocolVersion == 2 })
 
         let encoded = try JSONEncoder().encode(envelopes)
         XCTAssertEqual(try decoder.decode([CommandEnvelope].self, from: encoded), envelopes)
@@ -238,12 +238,12 @@ final class ProtocolModelTests: XCTestCase {
     func testRejectsUnsupportedProtocolVersion() throws {
         let data = try replacing(
             key: "protocolVersion",
-            with: 2,
+            with: 1,
             in: fixtureData(named: "projection-operative")
         )
 
         XCTAssertThrowsError(try JSONDecoder().decode(ClientProjection.self, from: data)) { error in
-            XCTAssertEqual(error as? ProtocolDecodingError, .unsupportedProtocolVersion(2))
+            XCTAssertEqual(error as? ProtocolDecodingError, .unsupportedProtocolVersion(1))
         }
     }
 
@@ -543,7 +543,7 @@ final class ProtocolModelTests: XCTestCase {
         command: [String: Any]
     ) -> [String: Any] {
         [
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "commandId": "10000000-0000-4000-8000-000000000001",
             "expectedRevision": expectedRevision,
             "command": command

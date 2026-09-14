@@ -1,12 +1,25 @@
-import { useMemo, useState } from "react";
 import type {
-  CardId,
   ClientCommand,
   ClientProjection,
-  PublicCard
+  PublicHistoryEntry,
 } from "@cipher-party/protocol";
-import type { RoomConnectionState } from "../../lib/room-socket";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { ConnectionBadge } from "../../components/ConnectionBadge";
+import type { RoomConnectionState } from "../../lib/room-socket";
+import {
+  OWNER_PRESENTATION,
+  TEAM_PRESENTATION,
+  type TeamId,
+} from "../../lib/team-presentation";
 import { BoardGrid } from "./BoardGrid";
 import { BoardResult } from "./BoardResult";
 import { CluePanel } from "./CluePanel";
@@ -14,262 +27,589 @@ import { GameHistory } from "./GameHistory";
 import { GuessPanel } from "./GuessPanel";
 import { PrivacyVeil } from "./PrivacyVeil";
 import { TeamScore } from "./TeamScore";
+import { deriveGameAvailability, type GameBoard } from "./game-availability";
+import { useGameConfirmation } from "./useGameConfirmation";
+
+type PublicOwner = Extract<
+  GameBoard["cards"][number],
+  { revealed: true }
+>["owner"];
+type PublicProjection = Exclude<ClientProjection, { viewRole: "clue-giver" }>;
+type ClueGiverProjection = Extract<
+  ClientProjection,
+  { viewRole: "clue-giver" }
+>;
 
 export interface GameViewProps {
   projection: ClientProjection;
-  connectionState: RoomConnectionState;
-  onSendCommand: (command: ClientCommand) => void;
-  isCommandPending?: boolean;
+  connection: RoomConnectionState;
+  pending: boolean;
+  send(command: ClientCommand): void;
+}
+
+function roleLabel(role: ClientProjection["viewRole"]): string {
+  switch (role) {
+    case "clue-giver":
+      return "Clue-giver";
+    case "operative":
+      return "Operative";
+    case "spectator":
+      return "Spectator";
+    case "unassigned":
+      return "Unassigned";
+  }
+}
+
+function phaseLabel(phase: GameBoard["phase"]): string {
+  switch (phase) {
+    case "clue":
+      return "Clue phase";
+    case "guess":
+      return "Guessing phase";
+    case "challenged":
+      return "Clue challenged";
+    case "paused":
+      return "Paused";
+    case "board_complete":
+      return "Board complete";
+  }
+}
+
+function boardIdentity(board: GameBoard): string {
+  const labels = new Map(board.cards.map((card) => [card.id, card.label]));
+  return JSON.stringify(
+    board.order.map((cardId) => [cardId, labels.get(cardId) ?? ""]),
+  );
+}
+
+function workspaceIdentity(
+  projection: ClientProjection,
+  board: GameBoard,
+): string {
+  return `${projection.code}\u0000${projection.viewer.playerId}\u0000${projection.viewer.teamId ?? ""}\u0000${projection.viewRole}\u0000${boardIdentity(board)}`;
+}
+
+function announcementIdentity(
+  projection: ClientProjection,
+  board: GameBoard,
+): string {
+  return `${projection.code}\u0000${projection.viewer.playerId}\u0000${boardIdentity(board)}`;
+}
+
+function eventAnnouncement(
+  entry: PublicHistoryEntry,
+  cardLabels: ReadonlyMap<string, string>,
+): string {
+  switch (entry.type) {
+    case "card_revealed": {
+      const owner = OWNER_PRESENTATION[entry.owner];
+      const elimination =
+        entry.eliminatedTeam === undefined
+          ? ""
+          : ` ${TEAM_PRESENTATION[entry.eliminatedTeam].label} was eliminated.`;
+      return `${cardLabels.get(entry.cardId) ?? "A board card"} was revealed as ${owner.symbol} ${owner.label}.${elimination}`;
+    }
+    case "turn_ended":
+      return `${TEAM_PRESENTATION[entry.teamId].label} ended its turn.`;
+    case "room_paused":
+      return "The room was paused.";
+    case "room_resumed":
+      return "The room resumed.";
+    case "clue_submitted":
+      return `${TEAM_PRESENTATION[entry.teamId].label} submitted a clue.`;
+    case "clue_challenged":
+      return `${TEAM_PRESENTATION[entry.teamId].label} challenged the clue.`;
+    case "challenge_resolved":
+      return `The clue challenge was ${entry.decision === "accept" ? "accepted" : "rejected"}.`;
+  }
+}
+
+interface GameEventAnnouncerProps {
+  projection: ClientProjection;
+  board: GameBoard;
+}
+
+interface AnnouncementSnapshot {
+  identity: string;
+  latestEvent: string;
+  phase: GameBoard["phase"];
+  activeTeam: GameBoard["activeTeam"];
+  winner: GameBoard["winner"];
+  completionReason: GameBoard["completionReason"];
+}
+
+function GameEventAnnouncer({ projection, board }: GameEventAnnouncerProps) {
+  const previousRef = useRef<AnnouncementSnapshot | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+
+  useEffect(() => {
+    const latest = projection.publicHistory.at(-1);
+    const current: AnnouncementSnapshot = {
+      identity: announcementIdentity(projection, board),
+      latestEvent:
+        latest === undefined ? "" : `${latest.revision}\u0000${latest.type}`,
+      phase: board.phase,
+      activeTeam: board.activeTeam,
+      winner: board.winner,
+      completionReason: board.completionReason,
+    };
+    const previous = previousRef.current;
+    previousRef.current = current;
+    if (previous === null || previous.identity !== current.identity) {
+      setAnnouncement("");
+      return;
+    }
+
+    const messages: string[] = [];
+    if (latest !== undefined && previous.latestEvent !== current.latestEvent) {
+      const labels = new Map(board.cards.map((card) => [card.id, card.label]));
+      messages.push(eventAnnouncement(latest, labels));
+    }
+    const resultChanged =
+      board.phase === "board_complete" &&
+      (previous.phase !== current.phase ||
+        previous.winner !== current.winner ||
+        previous.completionReason !== current.completionReason);
+    if (
+      resultChanged &&
+      board.winner !== null &&
+      board.completionReason !== null
+    ) {
+      const reason =
+        board.completionReason === "targets"
+          ? `All ${TEAM_PRESENTATION[board.winner].label} targets were revealed.`
+          : "The hazard ended the board.";
+      messages.push(`${TEAM_PRESENTATION[board.winner].label} wins. ${reason}`);
+    } else if (
+      previous.phase !== current.phase ||
+      previous.activeTeam !== current.activeTeam
+    ) {
+      messages.push(
+        `${TEAM_PRESENTATION[board.activeTeam].label} team. ${phaseLabel(board.phase)}.`,
+      );
+    }
+    setAnnouncement(messages.join(" "));
+  }, [
+    board,
+    projection.code,
+    projection.publicHistory,
+    projection.viewer.playerId,
+  ]);
+
+  return (
+    <span
+      className="visually-hidden"
+      role="status"
+      aria-label="Game updates"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {announcement}
+    </span>
+  );
+}
+
+interface GameStatusProps {
+  board: GameBoard;
+  focusFallbackRef: RefObject<HTMLElement | null>;
+}
+
+function GameStatus({ board, focusFallbackRef }: GameStatusProps) {
+  const team = TEAM_PRESENTATION[board.activeTeam];
+  return (
+    <section
+      className="game-status-strip"
+      ref={focusFallbackRef}
+      tabIndex={-1}
+      aria-label="Turn status"
+    >
+      <TeamScore board={board} />
+      <div className={`turn-status turn-status-${board.activeTeam}`}>
+        <strong>
+          <span aria-hidden="true">{team.symbol}</span> {team.label} team’s turn
+        </strong>
+        <span>{phaseLabel(board.phase)}</span>
+        <span className="turn-clue">
+          {board.clue === null
+            ? "No clue submitted"
+            : `${board.clue.word} · ${board.clue.count}`}
+        </span>
+        <span>
+          {board.guessesRemaining}{" "}
+          {board.guessesRemaining === 1 ? "guess" : "guesses"} remaining
+        </span>
+      </div>
+    </section>
+  );
+}
+
+interface ModerationPanelProps {
+  projection: ClientProjection;
+  board: GameBoard;
+  transportDisabled: boolean;
+  send(command: ClientCommand): void;
+}
+
+function ModerationPanel({
+  projection,
+  board,
+  transportDisabled,
+  send,
+}: ModerationPanelProps) {
+  const complete =
+    projection.roomPhase === "complete" || board.phase === "board_complete";
+  const resolveAllowed =
+    !complete &&
+    board.phase === "challenged" &&
+    projection.permissions.resolveChallenge;
+  const pauseAllowed =
+    !complete &&
+    (board.phase === "clue" ||
+      board.phase === "guess" ||
+      board.phase === "challenged") &&
+    projection.permissions.pause;
+  const resumeAllowed =
+    !complete && board.phase === "paused" && projection.permissions.resume;
+  const showPanel =
+    board.phase === "challenged" ||
+    board.phase === "paused" ||
+    resolveAllowed ||
+    pauseAllowed ||
+    resumeAllowed;
+  if (!showPanel) {
+    return null;
+  }
+
+  return (
+    <section
+      className="game-control-panel moderation-panel"
+      aria-label="Room controls"
+    >
+      <p className="card-index">Table control</p>
+      {board.phase === "challenged" && board.clue !== null ? (
+        <p className="disputed-clue">
+          Disputed clue: {board.clue.word} · {board.clue.count}
+        </p>
+      ) : null}
+      {board.phase === "paused" ? <p>Game actions are paused.</p> : null}
+      {resolveAllowed ? (
+        <div className="control-row">
+          <button
+            type="button"
+            disabled={transportDisabled}
+            onClick={() =>
+              send({ type: "resolve_challenge", decision: "accept" })
+            }
+          >
+            Accept clue
+          </button>
+          <button
+            className="button-secondary"
+            type="button"
+            disabled={transportDisabled}
+            onClick={() =>
+              send({ type: "resolve_challenge", decision: "reject" })
+            }
+          >
+            Reject clue
+          </button>
+        </div>
+      ) : null}
+      {pauseAllowed ? (
+        <button
+          className="button-secondary"
+          type="button"
+          disabled={transportDisabled}
+          onClick={() => send({ type: "pause_room" })}
+        >
+          Pause room
+        </button>
+      ) : null}
+      {resumeAllowed ? (
+        <button
+          type="button"
+          disabled={transportDisabled}
+          onClick={() => send({ type: "resume_room" })}
+        >
+          Resume room
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+interface GameWorkspaceProps {
+  projection: ClientProjection;
+  board: GameBoard;
+  connection: RoomConnectionState;
+  pending: boolean;
+  focusFallbackRef: RefObject<HTMLElement | null>;
+  privacyControl?: ReactNode;
+  keyOwnerForCard?: (cardId: string) => PublicOwner | undefined;
+  maxClueCount?: number;
+  ownTeam?: TeamId;
+  send(command: ClientCommand): void;
+}
+
+function GameWorkspace({
+  projection,
+  board,
+  connection,
+  pending,
+  focusFallbackRef,
+  privacyControl,
+  keyOwnerForCard,
+  maxClueCount,
+  ownTeam,
+  send,
+}: GameWorkspaceProps) {
+  const projectedAvailability = deriveGameAvailability({
+    roomPhase: projection.roomPhase,
+    board,
+    permissions: projection.permissions,
+    connection,
+    pending,
+  });
+  const viewerTeam = projection.viewer.teamId;
+  const viewerEliminated =
+    viewerTeam !== null && board.eliminatedTeams.includes(viewerTeam);
+  const availability = viewerEliminated
+    ? {
+        ...projectedAvailability,
+        gameActionsDisabled: true,
+        nominationEnabled: false,
+        revealRequestEnabled: false,
+        endTurnRequestEnabled: false,
+      }
+    : projectedAvailability;
+  const { transportDisabled, gameActionsDisabled, cardActionsAvailable } =
+    availability;
+  const { dialog, handleCardAction, requestEndTurn } = useGameConfirmation({
+    identity: workspaceIdentity(projection, board),
+    roomPhase: projection.roomPhase,
+    board,
+    permissions: projection.permissions,
+    availability,
+    send,
+  });
+
+  return (
+    <>
+      <GameStatus board={board} focusFallbackRef={focusFallbackRef} />
+      {board.phase === "board_complete" ||
+      projection.roomPhase === "complete" ? (
+        <BoardResult board={board} />
+      ) : null}
+      <div className="game-layout">
+        <div className="board-column">
+          {privacyControl}
+          <BoardGrid
+            cards={board.cards}
+            order={board.order}
+            rows={board.rows}
+            columns={board.columns}
+            nominatedCardId={board.nomination?.cardId ?? null}
+            disabled={gameActionsDisabled}
+            {...(cardActionsAvailable ? { onNominate: handleCardAction } : {})}
+            {...(keyOwnerForCard === undefined ? {} : { keyOwnerForCard })}
+          />
+        </div>
+        <aside
+          className="game-side-panel"
+          aria-label="Game context and actions"
+        >
+          <CluePanel
+            board={board}
+            submitAllowed={projection.permissions.submitClue}
+            challengeAllowed={projection.permissions.challengeClue}
+            disabled={gameActionsDisabled}
+            send={send}
+            {...(maxClueCount === undefined ? {} : { maxCount: maxClueCount })}
+            {...(ownTeam === undefined ? {} : { ownTeam })}
+          />
+          <GuessPanel
+            board={board}
+            nominateAllowed={projection.permissions.nominate}
+            endTurnAllowed={projection.permissions.endTurn}
+            disabled={gameActionsDisabled}
+            send={send}
+            onRequestEndTurn={requestEndTurn}
+          />
+          <ModerationPanel
+            projection={projection}
+            board={board}
+            transportDisabled={transportDisabled}
+            send={send}
+          />
+          <GameHistory entries={projection.publicHistory} cards={board.cards} />
+        </aside>
+      </div>
+      {dialog !== null ? (
+        <ConfirmDialog {...dialog} fallbackFocus={focusFallbackRef.current} />
+      ) : null}
+    </>
+  );
+}
+
+interface PublicWorkspaceProps {
+  projection: PublicProjection;
+  board: GameBoard;
+  connection: RoomConnectionState;
+  pending: boolean;
+  focusFallbackRef: RefObject<HTMLElement | null>;
+  send(command: ClientCommand): void;
+}
+
+function PublicWorkspace(props: PublicWorkspaceProps) {
+  return <GameWorkspace {...props} />;
+}
+
+interface ClueGiverWorkspaceProps {
+  projection: ClueGiverProjection;
+  board: GameBoard;
+  connection: RoomConnectionState;
+  pending: boolean;
+  focusFallbackRef: RefObject<HTMLElement | null>;
+  send(command: ClientCommand): void;
+}
+
+function ClueGiverWorkspace({
+  projection,
+  board,
+  connection,
+  pending,
+  focusFallbackRef,
+  send,
+}: ClueGiverWorkspaceProps) {
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const ownTeam = projection.viewer.teamId;
+  let maxClueCount: number | undefined;
+  if (ownTeam !== null) {
+    const revealedById = new Map(
+      board.cards.map((card) => [card.id, card.revealed]),
+    );
+    maxClueCount = 0;
+    for (const cardId of board.order) {
+      if (
+        projection.key[cardId] === ownTeam &&
+        revealedById.get(cardId) === false
+      ) {
+        maxClueCount += 1;
+      }
+    }
+  }
+  const { gameActionsDisabled } = deriveGameAvailability({
+    roomPhase: projection.roomPhase,
+    board,
+    permissions: projection.permissions,
+    connection,
+    pending,
+  });
+
+  return (
+    <GameWorkspace
+      projection={projection}
+      board={board}
+      connection={connection}
+      pending={pending}
+      focusFallbackRef={focusFallbackRef}
+      send={send}
+      privacyControl={
+        <PrivacyVeil
+          open={privacyOpen}
+          disabled={!privacyOpen && gameActionsDisabled}
+          onToggle={() => setPrivacyOpen((open) => !open)}
+        />
+      }
+      {...(privacyOpen
+        ? {
+            keyOwnerForCard: (cardId: string) => projection.key[cardId],
+          }
+        : {})}
+      {...(maxClueCount === undefined ? {} : { maxClueCount })}
+      {...(ownTeam === null ? {} : { ownTeam })}
+    />
+  );
 }
 
 export function GameView({
   projection,
-  connectionState,
-  onSendCommand,
-  isCommandPending = false
+  connection,
+  pending,
+  send,
 }: GameViewProps) {
-  const [privacyVeilOpen, setPrivacyVeilOpen] = useState(false);
-
   const board = projection.board;
-  const isClueGiver = projection.viewRole === "clue-giver";
-  const permissions = projection.permissions;
-
-  const cardsById = useMemo(() => {
-    const map = new Map<CardId, PublicCard>();
-    if (board?.cards) {
-      for (const card of board.cards) {
-        map.set(card.id, card);
-      }
+  const viewerTeam = projection.viewer.teamId;
+  const focusFallbackRef = useRef<HTMLElement>(null);
+  const previousViewerTeamRef = useRef<TeamId | null>(viewerTeam);
+  useLayoutEffect(() => {
+    const previousViewerTeam = previousViewerTeamRef.current;
+    previousViewerTeamRef.current = viewerTeam;
+    if (
+      board !== null &&
+      previousViewerTeam !== null &&
+      viewerTeam === null &&
+      board.eliminatedTeams.includes(previousViewerTeam)
+    ) {
+      focusFallbackRef.current?.focus();
     }
-    return map;
-  }, [board?.cards]);
-
-  if (!board) {
-    return (
-      <div className="game-container" role="status">
-        <p>Loading game board...</p>
-      </div>
-    );
-  }
-
-  const nominatedCard = board.nomination
-    ? cardsById.get(board.nomination.cardId)
-    : undefined;
-
-  // STRICT PRIVACY INVARIANT: key data is only read and passed when viewer is clue-giver AND privacy veil is open.
-  const keyRecord = isClueGiver && privacyVeilOpen ? projection.key : undefined;
-
-  function handleNominateCard(cardId: string) {
-    if (permissions.nominate) {
-      onSendCommand({
-        type: "nominate_card",
-        cardId
-      });
-    }
-  }
-
-  function handleSubmitClue(word: string, count: number) {
-    onSendCommand({
-      type: "submit_clue",
-      word,
-      count
-    });
-  }
-
-  function handleChallengeClue() {
-    onSendCommand({
-      type: "challenge_clue"
-    });
-  }
-
-  function handleResolveChallenge(decision: "accept" | "reject") {
-    onSendCommand({
-      type: "resolve_challenge",
-      decision
-    });
-  }
-
-  function handleConfirmReveal(cardId: string) {
-    onSendCommand({
-      type: "confirm_reveal",
-      cardId
-    });
-  }
-
-  function handleEndTurn() {
-    onSendCommand({
-      type: "end_turn"
-    });
-  }
-
-  function handlePauseRoom() {
-    onSendCommand({
-      type: "pause_room"
-    });
-  }
-
-  function handleResumeRoom() {
-    onSendCommand({
-      type: "resume_room"
-    });
-  }
-
-  const isChallenged = board.phase === "challenged";
-  const isPaused = board.phase === "paused";
-  const isBoardComplete =
-    projection.roomPhase === "complete" || board.phase === "board_complete";
-
-  const liveAnnouncement = isBoardComplete
-    ? `Game complete. ${board.winner === "red" ? "Ruby" : "Cobalt"} wins!`
-    : isPaused
-      ? "Game is paused."
-      : isChallenged
-        ? "Clue has been challenged."
-        : `${board.activeTeam === "red" ? "Ruby" : "Cobalt"} team's turn, ${board.phase} phase.`;
+  }, [board, viewerTeam]);
+  const viewerEliminated =
+    board !== null &&
+    viewerTeam !== null &&
+    board.eliminatedTeams.includes(viewerTeam);
+  const assignment = viewerEliminated
+    ? `${TEAM_PRESENTATION[viewerTeam].label} · Eliminated spectator`
+    : viewerTeam === null
+      ? roleLabel(projection.viewRole)
+      : `${TEAM_PRESENTATION[viewerTeam].label} · ${roleLabel(projection.viewRole)}`;
 
   return (
-    <div className="game-container">
-      <header className="game-header">
-        <div className="game-header-bar">
-          <div className="game-header-info">
-            <span className="eyebrow">Room Code</span>
-            <h1 className="room-code">{projection.code}</h1>
-          </div>
-          <div className="game-header-actions">
-            <ConnectionBadge state={connectionState} />
-            {permissions.pause && !isPaused && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={handlePauseRoom}
-                disabled={isCommandPending}
-              >
-                Pause
-              </button>
-            )}
-          </div>
+    <main className="app-shell room-shell game-shell">
+      <header className="room-identity-strip game-header">
+        <div>
+          <p className="eyebrow">Private arcade · In play</p>
+          <h1>Room {projection.code} · Classic</h1>
+        </div>
+        <div className="identity-status">
+          <strong>You are {assignment}</strong>
+          <ConnectionBadge connection={connection} />
         </div>
       </header>
-
-      <main className="game-main">
-        {/* Accessible live announcements */}
-        <div role="status" aria-live="polite" className="sr-only">
-          {liveAnnouncement}
-        </div>
-
-        {/* Board Result Banner */}
-        {isBoardComplete && (
-          <BoardResult
-            winner={board.winner}
-            completionReason={board.completionReason}
+      {board === null ? (
+        <section className="game-empty" aria-label="Game table status">
+          Waiting for the authoritative board…
+        </section>
+      ) : (
+        <>
+          <GameEventAnnouncer
+            key={announcementIdentity(projection, board)}
+            projection={projection}
+            board={board}
           />
-        )}
-
-        {/* Challenged Phase Banner */}
-        {isChallenged && (
-          <div
-            className="challenged-banner"
-            role="alert"
-            aria-label="Clue challenged"
-          >
-            <h3>
-              Clue Challenged: "{board.clue?.word}" ({board.clue?.count})
-            </h3>
-            {permissions.resolveChallenge && (
-              <div className="challenged-actions">
-                <button
-                  type="button"
-                  className="btn btn-success"
-                  onClick={() => handleResolveChallenge("accept")}
-                  disabled={isCommandPending}
-                >
-                  Accept Challenge
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={() => handleResolveChallenge("reject")}
-                  disabled={isCommandPending}
-                >
-                  Reject Challenge
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Paused Phase Overlay */}
-        {isPaused && (
-          <div className="paused-banner" role="alert">
-            <h2>Game Paused</h2>
-            <p>The match has been paused by the host.</p>
-            {permissions.resume && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleResumeRoom}
-                disabled={isCommandPending}
-              >
-                Resume Game
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Clue-Giver Privacy Veil Control */}
-        {isClueGiver && (
-          <PrivacyVeil
-            isOpen={privacyVeilOpen}
-            onToggle={() => setPrivacyVeilOpen((open) => !open)}
-          />
-        )}
-
-        {/* Team Scores */}
-        <TeamScore cards={board.cards} activeTeam={board.activeTeam} />
-
-        {/* Guess and Turn Panel */}
-        <GuessPanel
-          activeTeam={board.activeTeam}
-          phase={board.phase}
-          clue={board.clue}
-          guessesRemaining={board.guessesRemaining}
-          nomination={board.nomination}
-          {...(nominatedCard
-            ? { nominatedCardLabel: nominatedCard.label }
-            : {})}
-          canNominate={permissions.nominate}
-          canConfirmReveal={permissions.confirmReveal}
-          canEndTurn={permissions.endTurn}
-          onConfirmReveal={handleConfirmReveal}
-          onEndTurn={handleEndTurn}
-          isCommandPending={isCommandPending}
-        />
-
-        {/* Clue Submission / Challenge Panel */}
-        <CluePanel
-          activeTeam={board.activeTeam}
-          phase={board.phase}
-          canSubmitClue={permissions.submitClue}
-          canChallengeClue={permissions.challengeClue}
-          currentClue={board.clue}
-          onSubmitClue={handleSubmitClue}
-          onChallengeClue={handleChallengeClue}
-          isCommandPending={isCommandPending}
-        />
-
-        {/* 5x5 Board Grid */}
-        <BoardGrid
-          cards={board.cards}
-          order={board.order}
-          {...(keyRecord !== undefined ? { keyRecord } : {})}
-          nomination={board.nomination}
-          canNominate={permissions.nominate}
-          onNominate={handleNominateCard}
-        />
-
-        {/* Mission / Action History */}
-        <GameHistory history={projection.publicHistory} cardsById={cardsById} />
-      </main>
-    </div>
+          {projection.viewRole === "clue-giver" ? (
+            <ClueGiverWorkspace
+              key={workspaceIdentity(projection, board)}
+              projection={projection}
+              board={board}
+              connection={connection}
+              pending={pending}
+              focusFallbackRef={focusFallbackRef}
+              send={send}
+            />
+          ) : (
+            <PublicWorkspace
+              key={workspaceIdentity(projection, board)}
+              projection={projection}
+              board={board}
+              connection={connection}
+              pending={pending}
+              focusFallbackRef={focusFallbackRef}
+              send={send}
+            />
+          )}
+        </>
+      )}
+    </main>
   );
 }

@@ -1,13 +1,17 @@
-import type { ClassicBoard } from "./board";
-import type { CardId, PlayerId, PlayPhase, TeamId } from "./domain";
+import type { BoardCard, ClassicBoard } from "./board";
+import type { CardId, Ownership, PlayerId, TeamId } from "./domain";
 
-export type { PlayPhase };
+export type PlayPhase =
+  "clue" | "guess" | "challenged" | "paused" | "board_complete";
+
+type ResumablePlayPhase = Exclude<PlayPhase, "paused" | "board_complete">;
 
 export interface ClassicGameState {
   board: ClassicBoard;
   phase: PlayPhase;
-  resumePhase: Exclude<PlayPhase, "paused" | "board_complete"> | null;
+  resumePhase: ResumablePlayPhase | null;
   activeTeam: TeamId;
+  eliminatedTeams: TeamId[];
   clue: { word: string; count: number } | null;
   guessesRemaining: number;
   nomination: { playerId: PlayerId; cardId: CardId } | null;
@@ -16,7 +20,12 @@ export interface ClassicGameState {
 }
 
 export type GameAction =
-  | { type: "submit_clue"; teamId: TeamId; word: string; count: number }
+  | {
+      type: "submit_clue";
+      teamId: TeamId;
+      word: string;
+      count: number;
+    }
   | { type: "challenge_clue"; teamId: TeamId }
   | { type: "resolve_challenge"; decision: "accept" | "reject" }
   | {
@@ -25,7 +34,11 @@ export type GameAction =
       playerId: PlayerId;
       cardId: CardId;
     }
-  | { type: "clear_nomination"; teamId: TeamId; playerId: PlayerId }
+  | {
+      type: "clear_nomination";
+      teamId: TeamId;
+      playerId: PlayerId;
+    }
   | {
       type: "confirm_reveal";
       teamId: TeamId;
@@ -36,7 +49,19 @@ export type GameAction =
   | { type: "pause" }
   | { type: "resume" };
 
-export type GameTransitionReason =
+export interface GameTransitionEvent {
+  type: "card_revealed";
+  cardId: CardId;
+  owner: Ownership;
+  eliminatedTeam?: TeamId;
+}
+
+export interface GameTransition {
+  state: ClassicGameState;
+  event: GameTransitionEvent | null;
+}
+
+export type GameTransitionErrorReason =
   | "wrong_phase"
   | "wrong_team"
   | "invalid_count"
@@ -47,38 +72,13 @@ export type GameTransitionReason =
   | "board_complete";
 
 export class GameTransitionError extends Error {
-  readonly reason: GameTransitionReason;
+  readonly reason: GameTransitionErrorReason;
 
-  constructor(reason: GameTransitionReason, message?: string) {
-    super(message ?? `Invalid game action: ${reason}`);
+  constructor(reason: GameTransitionErrorReason) {
+    super(reason);
     this.name = "GameTransitionError";
     this.reason = reason;
   }
-}
-
-export function otherTeam(teamId: TeamId): TeamId {
-  return teamId === "red" ? "blue" : "red";
-}
-
-export function advanceTurn(state: ClassicGameState): ClassicGameState {
-  return {
-    ...state,
-    phase: "clue",
-    resumePhase: null,
-    activeTeam: otherTeam(state.activeTeam),
-    clue: null,
-    guessesRemaining: 0,
-    nomination: null
-  };
-}
-
-export function hasRevealedAllTargets(
-  state: ClassicGameState,
-  teamId: TeamId
-): boolean {
-  return Object.values(state.board.cards)
-    .filter((card) => card.owner === teamId)
-    .every((card) => card.revealed);
 }
 
 export function createClassicGame(board: ClassicBoard): ClassicGameState {
@@ -87,291 +87,326 @@ export function createClassicGame(board: ClassicBoard): ClassicGameState {
     phase: "clue",
     resumePhase: null,
     activeTeam: board.startingTeam,
+    eliminatedTeams: [],
     clue: null,
     guessesRemaining: 0,
     nomination: null,
     winner: null,
-    completionReason: null
+    completionReason: null,
   };
+}
+
+function activeTeams(state: ClassicGameState): TeamId[] {
+  return state.board.configuredTeams.filter(
+    (teamId) => !state.eliminatedTeams.includes(teamId),
+  );
+}
+
+function nextActiveTeam(state: ClassicGameState): TeamId {
+  const currentIndex = state.board.configuredTeams.indexOf(state.activeTeam);
+  for (
+    let offset = 1;
+    offset <= state.board.configuredTeams.length;
+    offset += 1
+  ) {
+    const teamId =
+      state.board.configuredTeams[
+        (currentIndex + offset) % state.board.configuredTeams.length
+      ]!;
+    if (!state.eliminatedTeams.includes(teamId)) {
+      return teamId;
+    }
+  }
+  return state.activeTeam;
+}
+
+function advanceTurn(state: ClassicGameState): ClassicGameState {
+  return {
+    ...state,
+    phase: "clue",
+    resumePhase: null,
+    activeTeam: nextActiveTeam(state),
+    clue: null,
+    guessesRemaining: 0,
+    nomination: null,
+  };
+}
+
+function hasRevealedAllTargets(
+  state: ClassicGameState,
+  teamId: TeamId,
+): boolean {
+  return Object.values(state.board.cards)
+    .filter((card) => card.owner === teamId)
+    .every((card) => card.revealed);
+}
+
+function unrevealedTargetCount(
+  state: ClassicGameState,
+  teamId: TeamId,
+): number {
+  return Object.values(state.board.cards).filter(
+    (card) => card.owner === teamId && !card.revealed,
+  ).length;
+}
+
+function requirePhase(state: ClassicGameState, phase: PlayPhase): void {
+  if (state.phase !== phase) {
+    throw new GameTransitionError("wrong_phase");
+  }
+}
+
+function requireActiveTeam(state: ClassicGameState, teamId: TeamId): void {
+  if (teamId !== state.activeTeam) {
+    throw new GameTransitionError("wrong_team");
+  }
+}
+
+function requireOpposingTeam(state: ClassicGameState, teamId: TeamId): void {
+  if (
+    teamId === state.activeTeam ||
+    !state.board.configuredTeams.includes(teamId) ||
+    state.eliminatedTeams.includes(teamId)
+  ) {
+    throw new GameTransitionError("wrong_team");
+  }
+}
+
+function requireCard(state: ClassicGameState, cardId: CardId): BoardCard {
+  if (!Object.hasOwn(state.board.cards, cardId)) {
+    throw new GameTransitionError("unknown_card");
+  }
+  return state.board.cards[cardId]!;
+}
+
+function revealCard(
+  state: ClassicGameState,
+  cardId: CardId,
+  card: BoardCard,
+): ClassicGameState {
+  const cards: Record<CardId, BoardCard> = Object.assign(
+    Object.create(null),
+    state.board.cards,
+  );
+  cards[cardId] = { ...card, revealed: true };
+
+  return {
+    ...state,
+    board: { ...state.board, cards },
+    guessesRemaining: state.guessesRemaining - 1,
+    nomination: null,
+  };
+}
+
+function completeBoard(
+  state: ClassicGameState,
+  winner: TeamId,
+  completionReason: "targets" | "hazard",
+): ClassicGameState {
+  return {
+    ...state,
+    phase: "board_complete",
+    resumePhase: null,
+    nomination: null,
+    winner,
+    completionReason,
+  };
+}
+
+function eliminateActiveTeam(state: ClassicGameState): ClassicGameState {
+  const eliminatedTeam = state.activeTeam;
+  const cards: Record<CardId, BoardCard> = Object.assign(
+    Object.create(null),
+    state.board.cards,
+  );
+  for (const [cardId, card] of Object.entries(cards)) {
+    if (card.owner === eliminatedTeam && !card.revealed) {
+      cards[cardId] = { ...card, owner: "neutral" };
+    }
+  }
+
+  return {
+    ...state,
+    board: { ...state.board, cards },
+    eliminatedTeams: state.eliminatedTeams.includes(eliminatedTeam)
+      ? state.eliminatedTeams
+      : [...state.eliminatedTeams, eliminatedTeam],
+  };
+}
+
+function isConfiguredTeam(
+  state: ClassicGameState,
+  owner: Ownership,
+): owner is TeamId {
+  return (
+    owner !== "neutral" &&
+    owner !== "hazard" &&
+    state.board.configuredTeams.includes(owner)
+  );
+}
+
+function applySubmitClue(
+  state: ClassicGameState,
+  action: Extract<GameAction, { type: "submit_clue" }>,
+): ClassicGameState {
+  requirePhase(state, "clue");
+  requireActiveTeam(state, action.teamId);
+  const remainingTargets = unrevealedTargetCount(state, state.activeTeam);
+  if (
+    !Number.isInteger(action.count) ||
+    action.count <= 0 ||
+    action.count > remainingTargets
+  ) {
+    throw new GameTransitionError("invalid_count");
+  }
+  return {
+    ...state,
+    phase: "guess",
+    clue: { word: action.word, count: action.count },
+    guessesRemaining: action.count + 1,
+    nomination: null,
+  };
+}
+
+function applyConfirmReveal(
+  state: ClassicGameState,
+  action: Extract<GameAction, { type: "confirm_reveal" }>,
+): GameTransition {
+  requirePhase(state, "guess");
+  requireActiveTeam(state, action.teamId);
+  const card = requireCard(state, action.cardId);
+  if (card.revealed) {
+    throw new GameTransitionError("already_revealed");
+  }
+  if (state.nomination === null) {
+    throw new GameTransitionError("missing_nomination");
+  }
+  if (state.nomination.cardId !== action.cardId) {
+    throw new GameTransitionError("nomination_mismatch");
+  }
+
+  const revealedState = revealCard(state, action.cardId, card);
+  const event: GameTransitionEvent = {
+    type: "card_revealed",
+    cardId: action.cardId,
+    owner: card.owner,
+  };
+  if (card.owner === "hazard") {
+    if (state.board.teamCount === 2) {
+      return {
+        state: completeBoard(revealedState, nextActiveTeam(state), "hazard"),
+        event,
+      };
+    }
+
+    const eliminatedState = eliminateActiveTeam(revealedState);
+    const remainingTeams = activeTeams(eliminatedState);
+    return {
+      state:
+        remainingTeams.length === 1
+          ? completeBoard(eliminatedState, remainingTeams[0]!, "hazard")
+          : advanceTurn(eliminatedState),
+      event: { ...event, eliminatedTeam: state.activeTeam },
+    };
+  }
+  if (
+    isConfiguredTeam(revealedState, card.owner) &&
+    hasRevealedAllTargets(revealedState, card.owner)
+  ) {
+    return {
+      state: completeBoard(revealedState, card.owner, "targets"),
+      event,
+    };
+  }
+  if (card.owner !== state.activeTeam || revealedState.guessesRemaining === 0) {
+    return { state: advanceTurn(revealedState), event };
+  }
+  return { state: revealedState, event };
+}
+
+export function applyGameActionWithEvent(
+  state: ClassicGameState,
+  action: GameAction,
+): GameTransition {
+  if (state.phase === "board_complete") {
+    throw new GameTransitionError("board_complete");
+  }
+
+  switch (action.type) {
+    case "submit_clue":
+      return { state: applySubmitClue(state, action), event: null };
+    case "challenge_clue":
+      requirePhase(state, "guess");
+      requireOpposingTeam(state, action.teamId);
+      return { state: { ...state, phase: "challenged" }, event: null };
+    case "resolve_challenge":
+      requirePhase(state, "challenged");
+      return {
+        state:
+          action.decision === "accept"
+            ? { ...state, phase: "guess" }
+            : advanceTurn(state),
+        event: null,
+      };
+    case "nominate_card": {
+      requirePhase(state, "guess");
+      requireActiveTeam(state, action.teamId);
+      const card = requireCard(state, action.cardId);
+      if (card.revealed) {
+        throw new GameTransitionError("already_revealed");
+      }
+      return {
+        state: {
+          ...state,
+          nomination: { playerId: action.playerId, cardId: action.cardId },
+        },
+        event: null,
+      };
+    }
+    case "clear_nomination":
+      requirePhase(state, "guess");
+      requireActiveTeam(state, action.teamId);
+      if (state.nomination === null) {
+        throw new GameTransitionError("missing_nomination");
+      }
+      return { state: { ...state, nomination: null }, event: null };
+    case "confirm_reveal":
+      return applyConfirmReveal(state, action);
+    case "end_turn":
+      requirePhase(state, "guess");
+      requireActiveTeam(state, action.teamId);
+      return { state: advanceTurn(state), event: null };
+    case "pause":
+      if (
+        state.phase !== "clue" &&
+        state.phase !== "guess" &&
+        state.phase !== "challenged"
+      ) {
+        throw new GameTransitionError("wrong_phase");
+      }
+      return {
+        state: { ...state, phase: "paused", resumePhase: state.phase },
+        event: null,
+      };
+    case "resume":
+      requirePhase(state, "paused");
+      if (state.resumePhase === null) {
+        throw new GameTransitionError("wrong_phase");
+      }
+      return {
+        state: { ...state, phase: state.resumePhase, resumePhase: null },
+        event: null,
+      };
+    default: {
+      const exhaustive: never = action;
+      return exhaustive;
+    }
+  }
 }
 
 export function applyGameAction(
   state: ClassicGameState,
-  action: GameAction
+  action: GameAction,
 ): ClassicGameState {
-  if (state.phase === "board_complete") {
-    throw new GameTransitionError(
-      "board_complete",
-      "Cannot apply actions to a completed game board"
-    );
-  }
-
-  switch (action.type) {
-    case "submit_clue": {
-      if (state.phase !== "clue") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Clues can only be submitted during clue phase"
-        );
-      }
-      if (action.teamId !== state.activeTeam) {
-        throw new GameTransitionError(
-          "wrong_team",
-          "Only the active team clue-giver can submit a clue"
-        );
-      }
-      const remainingTargets = Object.values(state.board.cards).filter(
-        (card) => card.owner === state.activeTeam && !card.revealed
-      ).length;
-      if (action.count < 1 || action.count > remainingTargets) {
-        throw new GameTransitionError(
-          "invalid_count",
-          `Clue count must be between 1 and ${remainingTargets}`
-        );
-      }
-      return {
-        ...state,
-        phase: "guess",
-        clue: { word: action.word, count: action.count },
-        guessesRemaining: action.count + 1,
-        nomination: null
-      };
-    }
-
-    case "challenge_clue": {
-      if (state.phase !== "guess") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Clues can only be challenged during guess phase"
-        );
-      }
-      if (action.teamId !== otherTeam(state.activeTeam)) {
-        throw new GameTransitionError(
-          "wrong_team",
-          "Only opposing team can challenge a clue"
-        );
-      }
-      return {
-        ...state,
-        phase: "challenged"
-      };
-    }
-
-    case "resolve_challenge": {
-      if (state.phase !== "challenged") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Can only resolve challenge during challenged phase"
-        );
-      }
-      if (action.decision === "accept") {
-        return {
-          ...state,
-          phase: "guess"
-        };
-      }
-      return advanceTurn(state);
-    }
-
-    case "nominate_card": {
-      if (state.phase !== "guess") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Can only nominate cards during guess phase"
-        );
-      }
-      if (action.teamId !== state.activeTeam) {
-        throw new GameTransitionError(
-          "wrong_team",
-          "Only active team operatives can nominate cards"
-        );
-      }
-      const card = state.board.cards[action.cardId];
-      if (!card) {
-        throw new GameTransitionError("unknown_card", "Card does not exist");
-      }
-      if (card.revealed) {
-        throw new GameTransitionError(
-          "already_revealed",
-          "Card has already been revealed"
-        );
-      }
-      return {
-        ...state,
-        nomination: {
-          playerId: action.playerId,
-          cardId: action.cardId
-        }
-      };
-    }
-
-    case "clear_nomination": {
-      if (state.phase !== "guess") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Can only clear nomination during guess phase"
-        );
-      }
-      if (action.teamId !== state.activeTeam) {
-        throw new GameTransitionError(
-          "wrong_team",
-          "Only active team can clear nomination"
-        );
-      }
-      if (!state.nomination) {
-        throw new GameTransitionError(
-          "missing_nomination",
-          "No active nomination to clear"
-        );
-      }
-      return {
-        ...state,
-        nomination: null
-      };
-    }
-
-    case "confirm_reveal": {
-      if (state.phase !== "guess") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Can only confirm reveal during guess phase"
-        );
-      }
-      if (action.teamId !== state.activeTeam) {
-        throw new GameTransitionError(
-          "wrong_team",
-          "Only active team can confirm reveal"
-        );
-      }
-      const card = state.board.cards[action.cardId];
-      if (!card) {
-        throw new GameTransitionError("unknown_card", "Card does not exist");
-      }
-      if (card.revealed) {
-        throw new GameTransitionError(
-          "already_revealed",
-          "Card has already been revealed"
-        );
-      }
-      if (!state.nomination) {
-        throw new GameTransitionError(
-          "missing_nomination",
-          "No nomination exists to confirm"
-        );
-      }
-      if (state.nomination.cardId !== action.cardId) {
-        throw new GameTransitionError(
-          "nomination_mismatch",
-          "Confirmed card does not match nomination"
-        );
-      }
-
-      const updatedCard = { ...card, revealed: true };
-      const nextBoard: ClassicBoard = {
-        ...state.board,
-        cards: {
-          ...state.board.cards,
-          [action.cardId]: updatedCard
-        }
-      };
-
-      const nextState: ClassicGameState = {
-        ...state,
-        board: nextBoard,
-        nomination: null,
-        guessesRemaining: state.guessesRemaining - 1
-      };
-
-      // 1. Hazard reveal
-      if (card.owner === "hazard") {
-        return {
-          ...nextState,
-          phase: "board_complete",
-          winner: otherTeam(state.activeTeam),
-          completionReason: "hazard"
-        };
-      }
-
-      // 2. Active team target reveal
-      if (card.owner === state.activeTeam) {
-        if (hasRevealedAllTargets(nextState, state.activeTeam)) {
-          return {
-            ...nextState,
-            phase: "board_complete",
-            winner: state.activeTeam,
-            completionReason: "targets"
-          };
-        }
-        if (nextState.guessesRemaining <= 0) {
-          return advanceTurn(nextState);
-        }
-        return nextState;
-      }
-
-      // 3. Opponent target reveal
-      if (card.owner === otherTeam(state.activeTeam)) {
-        if (hasRevealedAllTargets(nextState, otherTeam(state.activeTeam))) {
-          return {
-            ...nextState,
-            phase: "board_complete",
-            winner: otherTeam(state.activeTeam),
-            completionReason: "targets"
-          };
-        }
-        return advanceTurn(nextState);
-      }
-
-      // 4. Neutral reveal
-      return advanceTurn(nextState);
-    }
-
-    case "end_turn": {
-      if (state.phase !== "guess") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Can only end turn during guess phase"
-        );
-      }
-      if (action.teamId !== state.activeTeam) {
-        throw new GameTransitionError(
-          "wrong_team",
-          "Only active team can end turn"
-        );
-      }
-      return advanceTurn(state);
-    }
-
-    case "pause": {
-      if (state.phase === "paused") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Cannot pause when already paused"
-        );
-      }
-      return {
-        ...state,
-        phase: "paused",
-        resumePhase: state.phase
-      };
-    }
-
-    case "resume": {
-      if (state.phase !== "paused") {
-        throw new GameTransitionError(
-          "wrong_phase",
-          "Can only resume when paused"
-        );
-      }
-      return {
-        ...state,
-        phase: state.resumePhase ?? "clue",
-        resumePhase: null
-      };
-    }
-
-    default: {
-      const _exhaustiveCheck: never = action;
-      throw new Error(`Unhandled action: ${JSON.stringify(_exhaustiveCheck)}`);
-    }
-  }
+  return applyGameActionWithEvent(state, action).state;
 }

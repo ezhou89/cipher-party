@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ClientProjectionSchema,
   CommandEnvelopeSchema,
-  ServerMessageSchema
+  ServerMessageSchema,
 } from "./index";
 
 const projectionFixtureNames = [
@@ -13,19 +13,19 @@ const projectionFixtureNames = [
   "projection-spectator.json",
   "projection-challenged.json",
   "projection-paused.json",
-  "projection-complete.json"
+  "projection-complete.json",
 ] as const;
 
 const fixtureNames = [
   ...projectionFixtureNames,
   "command-envelopes.json",
-  "server-messages.json"
+  "server-messages.json",
 ] as const;
 
 const protocolFixturesURL = new URL("../fixtures/ios/", import.meta.url);
 const swiftFixturesURL = new URL(
   "../../../apps/ios/CipherPartyTests/Fixtures/",
-  import.meta.url
+  import.meta.url,
 );
 
 function loadJSON(name: (typeof fixtureNames)[number]): unknown {
@@ -37,12 +37,12 @@ function loadJSON(name: (typeof fixtureNames)[number]): unknown {
 
 describe("iOS protocol fixtures", () => {
   it.each(projectionFixtureNames)(
-    "validates %s with the protocol v1 projection schema",
+    "validates %s with the protocol v2 projection schema",
     (name) => {
       expect(ClientProjectionSchema.safeParse(loadJSON(name)).success).toBe(
-        true
+        true,
       );
-    }
+    },
   );
 
   it("validates every Classic command envelope", () => {
@@ -50,7 +50,7 @@ describe("iOS protocol fixtures", () => {
     expect(Array.isArray(fixtures)).toBe(true);
     if (!Array.isArray(fixtures)) return;
 
-    expect(fixtures).toHaveLength(14);
+    expect(fixtures).toHaveLength(15);
     for (const fixture of fixtures) {
       expect(CommandEnvelopeSchema.safeParse(fixture).success).toBe(true);
     }
@@ -66,9 +66,9 @@ describe("iOS protocol fixtures", () => {
         command: {
           type: "assign_seat",
           playerId: expect.any(String),
-          teamId: null
-        }
-      })
+          teamId: null,
+        },
+      }),
     );
   });
 
@@ -85,7 +85,7 @@ describe("iOS protocol fixtures", () => {
       expect.arrayContaining([
         expect.objectContaining({
           type: "command_result",
-          result: expect.objectContaining({ ok: true })
+          result: expect.objectContaining({ ok: true }),
         }),
         ...[
           "invalid_command",
@@ -94,25 +94,25 @@ describe("iOS protocol fixtures", () => {
           "stale_revision",
           "storage_failed",
           "room_locked",
-          "room_full"
+          "room_full",
         ].map((code) =>
           expect.objectContaining({
             type: "command_result",
-            result: expect.objectContaining({ ok: false, code })
-          })
+            result: expect.objectContaining({ ok: false, code }),
+          }),
         ),
         expect.objectContaining({
           type: "error",
-          code: "ticket_expired"
-        })
-      ])
+          code: "ticket_expired",
+        }),
+      ]),
     );
   });
 
   it.each([
     "projection-lobby-unassigned.json",
     "projection-operative.json",
-    "projection-spectator.json"
+    "projection-spectator.json",
   ] as const)("keeps hidden key data out of %s", (name) => {
     const fixture = loadJSON(name);
     expect(fixture).not.toBeNull();
@@ -141,9 +141,9 @@ describe("iOS protocol fixtures", () => {
       if (!existsSync(protocolURL) || !existsSync(swiftURL)) return;
 
       expect(readFileSync(swiftURL).equals(readFileSync(protocolURL))).toBe(
-        true
+        true,
       );
-    }
+    },
   );
 
   it("accepts exactly 100 public history entries and rejects 101", () => {
@@ -154,15 +154,15 @@ describe("iOS protocol fixtures", () => {
     const historyEntry = {
       revision: 1,
       at: "2026-09-13T12:00:00Z",
-      type: "room_resumed"
+      type: "room_resumed",
     };
     const with100 = {
       ...fixture,
-      publicHistory: Array.from({ length: 100 }, () => historyEntry)
+      publicHistory: Array.from({ length: 100 }, () => historyEntry),
     };
     const with101 = {
       ...fixture,
-      publicHistory: Array.from({ length: 101 }, () => historyEntry)
+      publicHistory: Array.from({ length: 101 }, () => historyEntry),
     };
 
     expect(ClientProjectionSchema.safeParse(with100).success).toBe(true);

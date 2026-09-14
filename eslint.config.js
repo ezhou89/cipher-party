@@ -2,34 +2,25 @@ import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  js.configs.recommended,
-  ...tseslint.configs.recommended,
   {
     ignores: [
       "**/dist/**",
-      "**/node_modules/**",
+      "**/coverage/**",
       "**/.wrangler/**",
-      ".worktrees/**",
-      "**/.worktrees/**",
       ".superpowers/**",
-      "**/.superpowers/**",
-      "test-results/**",
-      "playwright-report/**",
-      "**/worker-configuration.d.ts"
-    ]
+      "creative/source/**",
+      "node_modules/**",
+    ],
   },
   {
-    files: [
-      "scripts/**/*.mjs",
-      "scripts/**/*.js",
-      "*.config.js",
-      "*.config.ts"
-    ],
+    files: ["scripts/**/*.mjs"],
     languageOptions: {
       globals: {
+        console: "readonly",
         process: "readonly",
-        console: "readonly"
-      }
-    }
-  }
+      },
+    },
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
 );

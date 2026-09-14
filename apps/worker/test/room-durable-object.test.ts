@@ -1,192 +1,1200 @@
-import type { ClientCommand, CommandEnvelope } from "@cipher-party/protocol";
-import { env, runInDurableObject } from "cloudflare:test";
-import { parse as parseJsonc } from "jsonc-parser";
-import { describe, expect, it } from "vitest";
-import devConfigText from "../wrangler.dev.jsonc?raw";
-import prodConfigText from "../wrangler.jsonc?raw";
-import testConfigText from "../wrangler.test.jsonc?raw";
 import type {
-  RoomDurableObject,
-  RoomInitializationInput
-} from "../src/room/room-durable-object";
-import type { RoomActor } from "../src/room/room-state";
-import { ROOM_IDLE_TTL_MS, type IRoomStorage } from "../src/room/room-storage";
+  ClientCommand,
+  CommandEnvelope,
+  ViewerContext,
+} from "@cipher-party/protocol";
+import {
+  evictDurableObject,
+  env,
+  runDurableObjectAlarm,
+  runInDurableObject,
+} from "cloudflare:test";
+import { parse } from "jsonc-parser";
+import { hashToken } from "../src/auth/token";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-function testUuid(index: number): string {
-  return `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
+import developmentConfigSource from "../wrangler.dev.jsonc?raw";
+import productionConfigSource from "../wrangler.jsonc?raw";
+import testConfigSource from "../wrangler.test.jsonc?raw";
+import {
+  PersistentRoomController,
+  type RoomSnapshotStore,
+} from "../src/room/room-durable-object";
+import { ROOM_IDLE_TTL_MS } from "../src/room/room-storage";
+import {
+  InvalidRoomSnapshotError,
+  parseRoomSnapshot,
+} from "../src/room/room-snapshot";
+import {
+  createLobbyState,
+  type RoomActor,
+  type RoomSeat,
+  type RoomState,
+} from "../src/room/room-state";
+import type { RoomDurableObject } from "../src/room/room-durable-object";
+
+const REAL_PROCESS_TIME_MS = Date.now();
+const INTEGRATION_ANCHOR_BUFFER_MS = 604_800_000;
+const INITIALIZED_AT = new Date(
+  REAL_PROCESS_TIME_MS + INTEGRATION_ANCHOR_BUFFER_MS,
+);
+let commandSequence = 0;
+
+type RoomsEnv = { ROOMS: DurableObjectNamespace<RoomDurableObject> };
+
+function rooms(): DurableObjectNamespace<RoomDurableObject> {
+  return (env as RoomsEnv).ROOMS;
+}
+
+function commandId(): string {
+  commandSequence += 1;
+  return `00000000-0000-4000-8000-${String(commandSequence).padStart(12, "0")}`;
 }
 
 function envelope(
   expectedRevision: number,
   command: ClientCommand,
-  commandId = testUuid(1)
+  id = commandId(),
 ): CommandEnvelope {
   return {
-    protocolVersion: 1,
-    commandId,
+    protocolVersion: 2,
+    commandId: id,
     expectedRevision,
-    command
+    command,
   };
 }
 
-function hostActor(playerId = "host-1"): RoomActor {
-  return { playerId, hostAuthority: true };
+function hostActor(): RoomActor {
+  return { playerId: "host", hostAuthority: true };
 }
 
-function roomInitialization(code: string): RoomInitializationInput {
-  return {
+function roomInitialization(
+  code: string,
+  overrides: Partial<RoomState> = {},
+): RoomState {
+  const state = createLobbyState({
     code,
-    hostPlayerId: "host-1",
-    hostDisplayName: "Host",
-    inviteUrl: `https://cipher.party/${code}`,
-    seatTokenHash: "seat-hash-1",
-    hostTokenHash: "host-hash-1",
-    boardSeed: "seed-12345"
+    inviteUrl: `https://play.example/room/${code}`,
+    boardSeed: `board-seed-${code}`,
+    hostPlayerId: "host",
+    displayName: "Host",
+    seatTokenHash: "a".repeat(64),
+    hostTokenHash: "b".repeat(64),
+    createdAt: "2020-01-01T00:00:00.000Z",
+  });
+  state.seats[0]!.connected = true;
+  return { ...state, ...structuredClone(overrides) };
+}
+
+function legacySnapshot(state: RoomState): unknown {
+  const legacy = structuredClone(state) as unknown as Record<string, unknown>;
+  legacy.schemaVersion = 1;
+  legacy.protocolVersion = 1;
+  delete legacy.teamCount;
+  delete legacy.configuredTeams;
+  delete legacy.initialOwners;
+  delete legacy.eliminationConversions;
+  const game = legacy.game as {
+    board: Record<string, unknown>;
+    eliminatedTeams?: unknown;
+  } | null;
+  if (game !== null) {
+    delete game.board.teamCount;
+    delete game.board.configuredTeams;
+    delete game.board.rows;
+    delete game.board.columns;
+    delete game.eliminatedTeams;
+  }
+  return legacy;
+}
+
+function configuredRoom(code: string): RoomState {
+  const state = roomInitialization(code, {
+    connectionTickets: [
+      {
+        ticketHash: "c".repeat(64),
+        playerId: "blue-operative",
+        hostAuthority: false,
+        expiresAt: 2_000_000_000_000,
+      },
+    ],
+  });
+  state.seats = [
+    {
+      ...state.seats[0]!,
+      teamId: "red",
+      role: "clue-giver",
+    },
+    {
+      playerId: "red-operative",
+      displayName: "Red Operative",
+      seatClass: "active",
+      teamId: "red",
+      role: "operative",
+      connected: true,
+      seatTokenHash: "1".repeat(64),
+    },
+    {
+      playerId: "blue-clue",
+      displayName: "Blue Clue",
+      seatClass: "active",
+      teamId: "blue",
+      role: "clue-giver",
+      connected: true,
+      seatTokenHash: "2".repeat(64),
+    },
+    {
+      playerId: "blue-operative",
+      displayName: "Blue Operative",
+      seatClass: "active",
+      teamId: "blue",
+      role: "operative",
+      connected: true,
+      seatTokenHash: "3".repeat(64),
+    },
+  ];
+  return state;
+}
+
+function configuredFourTeamRoom(code: string): RoomState {
+  const state = configuredRoom(code);
+  state.teamCount = 4;
+  state.configuredTeams = ["red", "blue", "green", "yellow"];
+  state.startingTeam = "red";
+  state.seats.push(
+    {
+      playerId: "green-clue",
+      displayName: "Green Clue",
+      seatClass: "active",
+      teamId: "green",
+      role: "clue-giver",
+      connected: true,
+      seatTokenHash: "4".repeat(64),
+    },
+    {
+      playerId: "green-operative",
+      displayName: "Green Operative",
+      seatClass: "active",
+      teamId: "green",
+      role: "operative",
+      connected: true,
+      seatTokenHash: "5".repeat(64),
+    },
+    {
+      playerId: "yellow-clue",
+      displayName: "Yellow Clue",
+      seatClass: "active",
+      teamId: "yellow",
+      role: "clue-giver",
+      connected: true,
+      seatTokenHash: "6".repeat(64),
+    },
+    {
+      playerId: "yellow-operative",
+      displayName: "Yellow Operative",
+      seatClass: "active",
+      teamId: "yellow",
+      role: "operative",
+      connected: true,
+      seatTokenHash: "7".repeat(64),
+    },
+  );
+  return state;
+}
+
+function spectatorSeats(count: number, offset = 0): RoomSeat[] {
+  return Array.from({ length: count }, (_, index) => ({
+    playerId: `spectator-${offset + index}`,
+    displayName: `Spectator ${offset + index}`,
+    seatClass: "spectator",
+    teamId: null,
+    role: "spectator",
+    connected: false,
+    seatTokenHash: (offset + index + 16).toString(16).padStart(64, "0"),
+  }));
+}
+
+function spectatorJoin(index: number): {
+  playerId: string;
+  displayName: string;
+  seatTokenHash: string;
+  asSpectator: true;
+} {
+  return {
+    playerId: `late-spectator-${index}`,
+    displayName: `Late Spectator ${index}`,
+    seatTokenHash: (index + 4_096).toString(16).padStart(64, "0"),
+    asSpectator: true,
   };
 }
 
-type RunInDO = <T, R = void>(
-  stub: unknown,
-  callback: (instance: T, state: DurableObjectState) => R | Promise<R>
-) => Promise<R>;
-
-const runInRoomDO = runInDurableObject as unknown as RunInDO;
-
-describe("RoomDurableObject Persistence and Invariants", () => {
-  it("persists an accepted command before a new stub reads state", async () => {
-    const id = env.ROOMS.idFromName("ABC234");
-    const first = env.ROOMS.get(id);
-    const initResult = await first.initialize(roomInitialization("ABC234"));
-    expect(initResult).toEqual({ ok: true });
-
-    const dispatchResult = await first.dispatch(
+async function nominateHazard(
+  controller: PersistentRoomController,
+): Promise<{ hazardCardId: string; operative: RoomActor }> {
+  await expect(
+    controller.dispatch(
       hostActor(),
-      envelope(0, { type: "lock_room", locked: true }, testUuid(1))
-    );
-    expect(dispatchResult).toEqual({ ok: true, revision: 1 });
+      envelope(controller.getSnapshot()!.revision, {
+        type: "submit_clue",
+        word: "Orbit",
+        count: 1,
+      }),
+    ),
+  ).resolves.toMatchObject({ ok: true });
+  const hazardCardId = controller
+    .getSnapshot()!
+    .game!.board.order.find(
+      (cardId) =>
+        controller.getSnapshot()!.game!.board.cards[cardId]!.owner === "hazard",
+    )!;
+  const operative = {
+    playerId: "red-operative",
+    hostAuthority: false,
+  };
+  await expect(
+    controller.dispatch(
+      operative,
+      envelope(controller.getSnapshot()!.revision, {
+        type: "nominate_card",
+        cardId: hazardCardId,
+      }),
+    ),
+  ).resolves.toMatchObject({ ok: true });
+  return { hazardCardId, operative };
+}
 
-    const second = env.ROOMS.get(id);
-    const snapshot = await second.getSnapshot();
-    expect(snapshot.revision).toBe(1);
-    expect(snapshot.locked).toBe(true);
-  });
+async function revealHazard(
+  controller: PersistentRoomController,
+): Promise<string> {
+  const { hazardCardId, operative } = await nominateHazard(controller);
+  await expect(
+    controller.dispatch(
+      operative,
+      envelope(controller.getSnapshot()!.revision, {
+        type: "confirm_reveal",
+        cardId: hazardCardId,
+      }),
+    ),
+  ).resolves.toMatchObject({ ok: true });
+  return hazardCardId;
+}
 
-  it("handles concurrent initialize calls with one winner without replacing state", async () => {
-    const id = env.ROOMS.idFromName("CONCUR1");
-    const stub = env.ROOMS.get(id);
-    const [res1, res2] = await Promise.all([
-      stub.initialize(roomInitialization("CONCUR1")),
-      stub.initialize({
-        ...roomInitialization("CONCUR1"),
-        boardSeed: "malicious-replacement-seed"
-      })
-    ]);
+function stub(name: string): DurableObjectStub<RoomDurableObject> {
+  const id = rooms().idFromName(name);
+  return rooms().get(id);
+}
 
-    const okResults = [res1, res2].filter((r) => r.ok);
-    const errResults = [res1, res2].filter((r) => !r.ok);
-    expect(okResults).toHaveLength(1);
-    expect(errResults).toHaveLength(1);
-    expect(errResults[0]).toEqual({ ok: false, code: "already_initialized" });
+function spectator(): ViewerContext {
+  return {
+    playerId: "outside-viewer",
+    teamId: null,
+    role: "spectator",
+    isHost: false,
+  };
+}
 
-    const snapshot = await stub.getSnapshot();
-    expect(snapshot.boardSeed).toBe("seed-12345");
-  });
+class FakeRoomStorage implements RoomSnapshotStore {
+  snapshot: RoomState | undefined;
+  rejectWrites = false;
+  writes: RoomState[] = [];
 
-  it("reschedules expiry on activity and clears on alarm expiration", async () => {
-    const id = env.ROOMS.idFromName("ALARM1");
-    const stub = env.ROOMS.get(id);
-    await stub.initialize(roomInitialization("ALARM1"));
+  async read(): Promise<RoomState | undefined> {
+    return structuredClone(this.snapshot);
+  }
 
-    await runInRoomDO<RoomDurableObject>(stub, async (instance, state) => {
-      const alarmTime = await state.storage.getAlarm();
-      expect(alarmTime).not.toBeNull();
-      const snapshot = await instance.getSnapshot();
-      const expectedAlarm =
-        Date.parse(snapshot.lastActivity) + ROOM_IDLE_TTL_MS;
-      expect(alarmTime).toBe(expectedAlarm);
-    });
+  async write(state: RoomState): Promise<void> {
+    if (this.rejectWrites) {
+      throw new Error("simulated storage rejection");
+    }
+    this.snapshot = structuredClone(state);
+    this.writes.push(structuredClone(state));
+  }
 
-    // Early alarm trigger: alarm() runs while deadline is in the future
-    await runInRoomDO<RoomDurableObject>(stub, async (instance) => {
-      await instance.alarm();
-      const snapshot = await instance.getSnapshot();
-      expect(snapshot).toBeDefined();
-      expect(snapshot.code).toBe("ALARM1");
-    });
+  async clear(): Promise<void> {
+    this.snapshot = undefined;
+  }
+}
 
-    // Dispatch command: updates lastActivity and reschedules alarm
-    await stub.dispatch(
-      hostActor(),
-      envelope(0, { type: "lock_room", locked: true }, testUuid(2))
-    );
+class RawRoomStorage implements RoomSnapshotStore {
+  raw: unknown;
+  writes: RoomState[] = [];
 
-    await runInRoomDO<RoomDurableObject>(stub, async (instance, state) => {
-      const alarmTime = await state.storage.getAlarm();
-      const snapshot = await instance.getSnapshot();
-      expect(alarmTime).toBe(
-        Date.parse(snapshot.lastActivity) + ROOM_IDLE_TTL_MS
-      );
+  constructor(raw: unknown) {
+    this.raw = structuredClone(raw);
+  }
 
-      // Simulate expiration by setting lastActivity to 25 hours ago
-      snapshot.lastActivity = new Date(
-        Date.now() - (ROOM_IDLE_TTL_MS + 10000)
-      ).toISOString();
-      await state.storage.put("room:snapshot", snapshot);
+  async read(): Promise<RoomState | undefined> {
+    return this.raw === undefined ? undefined : parseRoomSnapshot(this.raw);
+  }
 
-      await instance.alarm();
-      const cleared = await state.storage.get("room:snapshot");
-      expect(cleared).toBeUndefined();
-      await expect(instance.getSnapshot()).rejects.toThrow();
-    });
-  });
+  async write(state: RoomState): Promise<void> {
+    this.raw = structuredClone(state);
+    this.writes.push(structuredClone(state));
+  }
 
-  it("maintains configuration parity across wrangler configs", () => {
-    const prod = parseJsonc(prodConfigText);
-    const dev = parseJsonc(devConfigText);
-    const test = parseJsonc(testConfigText);
+  async clear(): Promise<void> {
+    this.raw = undefined;
+  }
+}
 
-    expect(prod.compatibility_date).toBe(dev.compatibility_date);
-    expect(prod.compatibility_date).toBe(test.compatibility_date);
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-    expect(prod.durable_objects).toEqual(dev.durable_objects);
-    expect(prod.durable_objects).toEqual(test.durable_objects);
+describe("Cloudflare Durable Object configuration", () => {
+  it("keeps production, development, and test bindings and SQLite migration in parity", () => {
+    const configs = [
+      parse(productionConfigSource),
+      parse(developmentConfigSource),
+      parse(testConfigSource),
+    ];
 
-    expect(prod.migrations).toEqual(dev.migrations);
-    expect(prod.migrations).toEqual(test.migrations);
-  });
-
-  it("fails cleanly and preserves in-memory state when storage write fails", async () => {
-    const id = env.ROOMS.idFromName("FAILSTORE1");
-    const stub = env.ROOMS.get(id);
-    await stub.initialize(roomInitialization("FAILSTORE1"));
-
-    await runInRoomDO<RoomDurableObject>(stub, async (instance) => {
-      const failingStorage: IRoomStorage = {
-        read: async () => instance.getSnapshot(),
-        write: async () => {
-          throw new Error("Disk full or network partition");
+    for (const config of configs) {
+      expect(config).toMatchObject({
+        main: "src/index.ts",
+        compatibility_date: "2026-08-30",
+        vars: { CANONICAL_ORIGIN: "http://127.0.0.1:5173" },
+        durable_objects: {
+          bindings: [{ name: "ROOMS", class_name: "RoomDurableObject" }],
         },
-        clear: async () => {}
-      };
+        migrations: [
+          {
+            tag: "v1",
+            new_sqlite_classes: ["RoomDurableObject"],
+          },
+        ],
+      });
+    }
+    expect(configs[0]).toHaveProperty("assets");
+    expect(configs[1]).not.toHaveProperty("assets");
+    expect(configs[2]).not.toHaveProperty("assets");
+  });
+});
 
-      instance.setStorageAdapterForTest(failingStorage);
-
-      const before = await instance.getSnapshot();
-      expect(before.revision).toBe(0);
-
-      const result = await instance.dispatch(
-        hostActor(),
-        envelope(0, { type: "lock_room", locked: true }, testUuid(99))
-      );
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.code).toBe("storage_failed");
-      }
-
-      const after = await instance.getSnapshot();
-      expect(after.revision).toBe(0);
-      expect(after.locked).toBe(false);
+describe("PersistentRoomController failure atomicity", () => {
+  it("cannot initialize over a failed snapshot load or expose a cached projection", async () => {
+    const storage = new FakeRoomStorage();
+    storage.read = async () => {
+      throw new InvalidRoomSnapshotError();
+    };
+    const controller = new PersistentRoomController(storage);
+    await expect(controller.load()).rejects.toThrow(InvalidRoomSnapshotError);
+    expect(await controller.initialize(roomInitialization("ABC123"))).toEqual({
+      ok: false,
+      code: "already_initialized",
     });
+    expect(controller.getSnapshot()).toBeUndefined();
+    expect(controller.getProjection(spectator())).toBeUndefined();
+    expect(storage.writes.length).toBe(0);
+  });
+
+  it("persists presence repair atomically, retries failed writes, and skips matching inventories", async () => {
+    const storage = new FakeRoomStorage();
+    const published: number[] = [];
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+      (state) => {
+        published.push(state.revision);
+      },
+    );
+    await controller.initialize(roomInitialization("ABC123"));
+    const before = controller.getSnapshot()!;
+    storage.rejectWrites = true;
+    await expect(controller.reconcilePresence(() => new Set())).rejects.toThrow(
+      "simulated storage rejection",
+    );
+    expect(controller.getSnapshot()?.seats[0]?.connected).toBe(true);
+    expect(storage.snapshot?.seats[0]?.connected).toBe(true);
+    expect(published).toEqual([]);
+    storage.rejectWrites = false;
+    expect(await controller.reconcilePresence(() => new Set())).toEqual({
+      changed: true,
+    });
+    expect(controller.getSnapshot()?.lastActivity).toBe(before.lastActivity);
+    expect(storage.snapshot?.lastActivity).toBe(before.lastActivity);
+    expect(storage.snapshot?.seats[0]?.connected).toBe(false);
+    expect(published).toEqual([1]);
+    expect(await controller.reconcilePresence(() => new Set())).toEqual({
+      changed: false,
+    });
+    expect(storage.writes.length).toBe(2);
+    expect(await controller.reconcilePresence(() => new Set(["host"]))).toEqual(
+      { changed: true },
+    );
+    expect(controller.getSnapshot()?.lastActivity).toBe(before.lastActivity);
+    expect(storage.snapshot?.seats[0]?.connected).toBe(true);
+    expect(published).toEqual([1, 2]);
+  });
+
+  it("keeps each concurrent dispatch outcome tied to its own committed mutation", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(roomInitialization("BUDG01"));
+    const mutation = envelope(0, { type: "lock_room", locked: true });
+    const [accepted, replay, unauthorized] = await Promise.all([
+      controller.dispatchWithOutcome(hostActor(), mutation),
+      controller.dispatchWithOutcome(hostActor(), mutation),
+      controller.dispatchWithOutcome(
+        { playerId: "host", hostAuthority: false },
+        envelope(1, { type: "lock_room", locked: false }),
+      ),
+    ]);
+    expect(accepted).toEqual({
+      changed: true,
+      result: { ok: true, revision: 1 },
+    });
+    expect(replay).toEqual({ changed: false, result: accepted.result });
+    expect(unauthorized).toMatchObject({
+      changed: false,
+      result: { ok: false, code: "unauthorized" },
+    });
+    storage.rejectWrites = true;
+    expect(
+      await controller.dispatchWithOutcome(
+        hostActor(),
+        envelope(1, { type: "lock_room", locked: false }),
+      ),
+    ).toMatchObject({
+      changed: false,
+      result: { ok: false, code: "storage_failed" },
+    });
+    expect(controller.getSnapshot()?.locked).toBe(true);
+  });
+
+  it("caps room tickets without rejecting older excess snapshots and recovers after expiry", async () => {
+    const storage = new FakeRoomStorage();
+    const now = INITIALIZED_AT.getTime();
+    const state = roomInitialization("BUDG02");
+    state.seats[0]!.seatTokenHash = await hashToken("known-seat");
+    state.connectionTickets = Array.from({ length: 257 }, (_, index) => ({
+      ticketHash: `legacy-hash-${index}`,
+      playerId: "legacy-player",
+      hostAuthority: false,
+      expiresAt: now + 60_000,
+    }));
+    storage.snapshot = state;
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.load();
+    const before = controller.getSnapshot();
+    expect(
+      await controller.issueTicket({
+        seatToken: "known-seat",
+        hostToken: null,
+        now,
+      }),
+    ).toEqual({ ok: false, code: "rate_limited" });
+    expect(controller.getSnapshot()).toEqual(before);
+    expect(storage.writes).toHaveLength(0);
+    expect(
+      await controller.issueTicket({
+        seatToken: "incorrect-seat",
+        hostToken: null,
+        now,
+      }),
+    ).toEqual({ ok: false, code: "unauthorized" });
+    const issued = await controller.issueTicket({
+      seatToken: "known-seat",
+      hostToken: null,
+      now: now + 60_000,
+    });
+    expect(issued.ok).toBe(true);
+    expect(controller.getSnapshot()?.connectionTickets).toHaveLength(1);
+  });
+
+  it("persists initialization before exposing a trusted defensive snapshot", async () => {
+    const storage = new FakeRoomStorage();
+    const initializedAt = new Date(INITIALIZED_AT.getTime() + 60 * 60 * 1000);
+    let finishWrite: (() => void) | undefined;
+    storage.write = async (state) => {
+      await new Promise<void>((resolve) => {
+        finishWrite = resolve;
+      });
+      storage.snapshot = structuredClone(state);
+    };
+    const controller = new PersistentRoomController(
+      storage,
+      () => initializedAt,
+    );
+    const pending = controller.initialize(roomInitialization("INIT01"));
+
+    expect(controller.getSnapshot()).toBeUndefined();
+    await Promise.resolve();
+    expect(finishWrite).toBeTypeOf("function");
+    finishWrite?.();
+    await expect(pending).resolves.toEqual({ ok: true });
+
+    const exposed = controller.getSnapshot()!;
+    expect(exposed.lastActivity).toBe(initializedAt.toISOString());
+    exposed.locked = true;
+    exposed.seats[0]!.seatTokenHash = "mutated";
+    expect(controller.getSnapshot()).toMatchObject({
+      locked: false,
+      seats: [{ seatTokenHash: "a".repeat(64) }],
+    });
+  });
+
+  it("selects one concurrent trusted initialization without replacing its secrets or seed", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    const first = roomInitialization("INIT02", {
+      boardSeed: "selected-seed",
+      hostTokenHash: "selected-host-hash",
+    });
+    const second = roomInitialization("INIT02", {
+      boardSeed: "rejected-seed",
+      hostTokenHash: "rejected-host-hash",
+    });
+
+    await expect(
+      Promise.all([
+        controller.initialize(first),
+        controller.initialize(second),
+      ]),
+    ).resolves.toEqual([
+      { ok: true },
+      { ok: false, code: "already_initialized" },
+    ]);
+    expect(controller.getSnapshot()).toMatchObject({
+      boardSeed: "selected-seed",
+      hostTokenHash: "selected-host-hash",
+    });
+    expect(storage.writes).toHaveLength(1);
+  });
+
+  it("returns storage_failed at the old revision without caching or publishing the accepted command", async () => {
+    const storage = new FakeRoomStorage();
+    const acceptedAt = new Date(INITIALIZED_AT.getTime() + 2 * 60 * 60 * 1000);
+    const postPersist = vi.fn<(persisted: RoomState) => void>();
+    const controller = new PersistentRoomController(
+      storage,
+      () => acceptedAt,
+      postPersist,
+    );
+    postPersist.mockImplementation((persisted) => {
+      expect(controller.getSnapshot()).toEqual(persisted);
+    });
+    await controller.initialize(roomInitialization("FAIL01"));
+    postPersist.mockClear();
+    storage.rejectWrites = true;
+    const command = envelope(0, { type: "lock_room", locked: true });
+
+    await expect(controller.dispatch(hostActor(), command)).resolves.toEqual({
+      ok: false,
+      revision: 0,
+      code: "storage_failed",
+      message: "Room state could not be persisted",
+    });
+    expect(controller.getSnapshot()).toMatchObject({
+      revision: 0,
+      locked: false,
+      processedCommands: [],
+    });
+    expect(postPersist).not.toHaveBeenCalled();
+
+    storage.rejectWrites = false;
+    await expect(controller.dispatch(hostActor(), command)).resolves.toEqual({
+      ok: true,
+      revision: 1,
+    });
+    expect(controller.getSnapshot()).toMatchObject({
+      revision: 1,
+      locked: true,
+    });
+    expect(postPersist).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RoomDurableObject persistence", () => {
+  it("reloads a freshly started board with its private ownership provenance", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(configuredRoom("R3AD01"));
+
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+
+    const persisted = structuredClone(storage.snapshot!);
+    const reloaded = new PersistentRoomController(
+      new RawRoomStorage(persisted),
+      () => INITIALIZED_AT,
+    );
+    await reloaded.load();
+
+    expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
+  it("admits a late spectator at the outstanding-reserve boundary and rejects the next", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    const state = configuredFourTeamRoom("R3SV13");
+    state.seats.push(...spectatorSeats(13));
+    await controller.initialize(state);
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+
+    await expect(controller.join(spectatorJoin(0))).resolves.toEqual({
+      ok: true,
+      revision: 2,
+    });
+    expect(
+      controller
+        .getSnapshot()!
+        .seats.filter((seat) => seat.seatClass === "spectator"),
+    ).toHaveLength(14);
+    const atBoundary = controller.getSnapshot();
+    const writesAtBoundary = storage.writes.length;
+
+    await expect(controller.join(spectatorJoin(1))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+    expect(controller.getSnapshot()).toEqual(atBoundary);
+    expect(storage.writes).toHaveLength(writesAtBoundary);
+  });
+
+  it("persists one complete hazard-elimination revision before publishing it", async () => {
+    const storage = new FakeRoomStorage();
+    const published: RoomState[] = [];
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+      (state) => {
+        expect(storage.snapshot).toEqual(state);
+        published.push(structuredClone(state));
+      },
+    );
+    const state = configuredFourTeamRoom("HAZ4RD");
+    state.seats.push(...spectatorSeats(14));
+    await controller.initialize(state);
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    const beforeLateJoin = controller.getSnapshot();
+    const writesBeforeLateJoin = storage.writes.length;
+    await expect(controller.join(spectatorJoin(20))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+    expect(controller.getSnapshot()).toEqual(beforeLateJoin);
+    expect(storage.writes).toHaveLength(writesBeforeLateJoin);
+    const { hazardCardId, operative } = await nominateHazard(controller);
+    const before = controller.getSnapshot()!;
+    const writesBefore = storage.writes.length;
+    const publishedBefore = published.length;
+
+    await expect(
+      controller.dispatch(
+        operative,
+        envelope(before.revision, {
+          type: "confirm_reveal",
+          cardId: hazardCardId,
+        }),
+      ),
+    ).resolves.toEqual({ ok: true, revision: before.revision + 1 });
+
+    expect(storage.writes).toHaveLength(writesBefore + 1);
+    expect(published).toHaveLength(publishedBefore + 1);
+    const persisted = storage.snapshot!;
+    expect(persisted).toMatchObject({
+      revision: before.revision + 1,
+      phase: "playing",
+      game: {
+        phase: "clue",
+        activeTeam: "blue",
+        eliminatedTeams: ["red"],
+      },
+    });
+    expect(persisted.publicHistory.at(-1)).toEqual({
+      revision: persisted.revision,
+      at: INITIALIZED_AT.toISOString(),
+      type: "card_revealed",
+      teamId: "red",
+      cardId: hazardCardId,
+      owner: "hazard",
+      eliminatedTeam: "red",
+    });
+    expect(
+      persisted.seats.filter((seat) =>
+        ["host", "red-operative"].includes(seat.playerId),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        seatClass: "spectator",
+        teamId: null,
+        role: "spectator",
+      }),
+      expect.objectContaining({
+        seatClass: "spectator",
+        teamId: null,
+        role: "spectator",
+      }),
+    ]);
+    expect(
+      persisted.seats.filter((seat) => seat.seatClass === "spectator"),
+    ).toHaveLength(16);
+    expect(persisted.initialOwners).toEqual(before.initialOwners);
+    expect(persisted.eliminationConversions).toEqual(
+      Object.fromEntries(
+        persisted
+          .game!.board.order.filter(
+            (cardId) =>
+              before.initialOwners![cardId] === "red" &&
+              persisted.game!.board.cards[cardId]!.owner === "neutral",
+          )
+          .map((cardId) => [cardId, "red"]),
+      ),
+    );
+
+    const reloaded = new PersistentRoomController(
+      new RawRoomStorage(persisted),
+      () => INITIALIZED_AT,
+    );
+    await reloaded.load();
+    expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
+  it("reloads a later converted-neutral reveal after history trimming and order permutation", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(configuredFourTeamRoom("C0NV01"));
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    await revealHazard(controller);
+
+    const afterHazard = controller.getSnapshot()!;
+    const eliminatedTeam = afterHazard.game!.eliminatedTeams[0]!;
+    const converted = Object.values(afterHazard.game!.board.cards).find(
+      (card) =>
+        afterHazard.initialOwners![card.id] === eliminatedTeam &&
+        card.owner === "neutral" &&
+        !card.revealed,
+    )!;
+    await expect(
+      controller.dispatch(
+        { playerId: "blue-clue", hostAuthority: false },
+        envelope(afterHazard.revision, {
+          type: "submit_clue",
+          word: "Orbit",
+          count: 1,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      controller.dispatch(
+        { playerId: "blue-operative", hostAuthority: false },
+        envelope(controller.getSnapshot()!.revision, {
+          type: "nominate_card",
+          cardId: converted.id,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    await expect(
+      controller.dispatch(
+        { playerId: "blue-operative", hostAuthority: false },
+        envelope(controller.getSnapshot()!.revision, {
+          type: "confirm_reveal",
+          cardId: converted.id,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: true });
+
+    const persisted = structuredClone(storage.snapshot!);
+    expect(persisted.game!.board.cards[converted.id]).toMatchObject({
+      owner: "neutral",
+      revealed: true,
+    });
+    expect(persisted.eliminationConversions[converted.id]).toBe(eliminatedTeam);
+    persisted.publicHistory = [];
+    const convertedIndex = persisted.game!.board.order.indexOf(converted.id);
+    const swapIndex = convertedIndex === 0 ? 1 : 0;
+    [
+      persisted.game!.board.order[convertedIndex],
+      persisted.game!.board.order[swapIndex],
+    ] = [
+      persisted.game!.board.order[swapIndex]!,
+      persisted.game!.board.order[convertedIndex]!,
+    ];
+    const reloaded = new PersistentRoomController(
+      new RawRoomStorage(persisted),
+      () => INITIALIZED_AT,
+    );
+
+    await reloaded.load();
+
+    expect(reloaded.getSnapshot()).toEqual(persisted);
+  });
+
+  it("releases the outstanding reserve after a hazard elimination", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    await controller.initialize(configuredFourTeamRoom("R3EH4Z"));
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    await revealHazard(controller);
+    expect(controller.getSnapshot()?.game?.eliminatedTeams).toEqual(["red"]);
+
+    for (let index = 0; index < 14; index += 1) {
+      await expect(
+        controller.join(spectatorJoin(100 + index)),
+      ).resolves.toEqual({ ok: true, revision: 5 + index });
+    }
+    expect(
+      controller
+        .getSnapshot()!
+        .seats.filter((seat) => seat.seatClass === "spectator"),
+    ).toHaveLength(16);
+    await expect(controller.join(spectatorJoin(114))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+  });
+
+  it("releases the outstanding reserve when a two-team board completes", async () => {
+    const storage = new FakeRoomStorage();
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+    const state = configuredRoom("C0MP23");
+    state.startingTeam = "red";
+    state.seats.push(...spectatorSeats(14));
+    await controller.initialize(state);
+    await expect(
+      controller.dispatch(hostActor(), envelope(0, { type: "start_board" })),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    await revealHazard(controller);
+    expect(controller.getSnapshot()).toMatchObject({
+      revision: 4,
+      phase: "complete",
+      game: { phase: "board_complete", eliminatedTeams: [] },
+    });
+
+    await expect(controller.join(spectatorJoin(200))).resolves.toEqual({
+      ok: true,
+      revision: 5,
+    });
+    await expect(controller.join(spectatorJoin(201))).resolves.toEqual({
+      ok: true,
+      revision: 6,
+    });
+    await expect(controller.join(spectatorJoin(202))).resolves.toEqual({
+      ok: false,
+      code: "room_full",
+    });
+  });
+
+  it("normalizes v1 storage in memory and writes v2 only after an accepted mutation", async () => {
+    const storage = new RawRoomStorage(
+      legacySnapshot(roomInitialization("M1GR8T")),
+    );
+    const controller = new PersistentRoomController(
+      storage,
+      () => INITIALIZED_AT,
+    );
+
+    await controller.load();
+
+    expect(controller.getSnapshot()).toMatchObject({
+      schemaVersion: 2,
+      protocolVersion: 2,
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+      initialOwners: null,
+      eliminationConversions: {},
+    });
+    expect(storage.raw).toMatchObject({
+      schemaVersion: 1,
+      protocolVersion: 1,
+    });
+    expect(storage.writes).toHaveLength(0);
+
+    await expect(
+      controller.dispatch(
+        hostActor(),
+        envelope(0, { type: "lock_room", locked: true }),
+      ),
+    ).resolves.toEqual({ ok: true, revision: 1 });
+    expect(storage.raw).toMatchObject({
+      schemaVersion: 2,
+      protocolVersion: 2,
+      teamCount: 2,
+      configuredTeams: ["red", "blue"],
+      initialOwners: null,
+      eliminationConversions: {},
+      revision: 1,
+      locked: true,
+    });
+    expect(storage.writes).toHaveLength(1);
+  });
+
+  it("is explicit and non-mutating before initialization", async () => {
+    const room = stub("EMPTY1");
+
+    await expect(room.getSnapshot()).resolves.toBeUndefined();
+    await expect(room.getProjection(spectator())).resolves.toBeUndefined();
+    await expect(
+      room.dispatch(
+        hostActor(),
+        envelope(0, { type: "lock_room", locked: true }),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      revision: 0,
+      code: "invalid_command",
+    });
+    await runInDurableObject(room, async (_instance, state) => {
+      expect(await state.storage.list()).toEqual(new Map());
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it("persists an accepted command before a same-name stub reads state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIALIZED_AT);
+    const first = stub("PERS01");
+    await first.initialize(roomInitialization("PERS01"));
+    await first.dispatch(
+      hostActor(),
+      envelope(0, { type: "lock_room", locked: true }),
+    );
+
+    const second = stub("PERS01");
+    await expect(second.getSnapshot()).resolves.toMatchObject({
+      revision: 1,
+      locked: true,
+    });
+  });
+
+  it("reloads persisted accepted state after a forced runtime eviction", async () => {
+    const first = stub("EV1CT1");
+    await first.initialize(roomInitialization("EV1CT1"));
+    await first.dispatch(
+      hostActor(),
+      envelope(0, { type: "lock_room", locked: true }),
+    );
+    await evictDurableObject(first);
+
+    await expect(stub("EV1CT1").getSnapshot()).resolves.toMatchObject({
+      revision: 2,
+      locked: true,
+    });
+  });
+
+  it("atomically selects one concurrent initialization and stores one snapshot key", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIALIZED_AT);
+    const room = stub("RACE01");
+    const selected = roomInitialization("RACE01", {
+      boardSeed: "selected-seed",
+      hostTokenHash: "selected-host-hash",
+    });
+    const rejected = roomInitialization("RACE01", {
+      boardSeed: "rejected-seed",
+      hostTokenHash: "rejected-host-hash",
+    });
+
+    await expect(
+      Promise.all([room.initialize(selected), room.initialize(rejected)]),
+    ).resolves.toEqual([
+      { ok: true },
+      { ok: false, code: "already_initialized" },
+    ]);
+    await expect(room.getSnapshot()).resolves.toMatchObject({
+      boardSeed: "selected-seed",
+      hostTokenHash: "selected-host-hash",
+      lastActivity: INITIALIZED_AT.toISOString(),
+    });
+    await runInDurableObject(room, async (_instance, state) => {
+      const entries = await state.storage.list();
+      expect([...entries.keys()]).toEqual(["room:snapshot"]);
+      expect(await state.storage.getAlarm()).toBe(
+        INITIALIZED_AT.getTime() + ROOM_IDLE_TTL_MS,
+      );
+    });
+  });
+
+  it("reschedules expiry only after accepted revision-changing activity", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIALIZED_AT);
+    const room = stub("SCHED1");
+    await room.initialize(roomInitialization("SCHED1"));
+    const acceptedAt = new Date(INITIALIZED_AT.getTime() + 2 * 60 * 60 * 1000);
+    vi.setSystemTime(acceptedAt);
+    const command = envelope(0, { type: "lock_room", locked: true });
+    await expect(room.dispatch(hostActor(), command)).resolves.toEqual({
+      ok: true,
+      revision: 1,
+    });
+    const acceptedDeadline = acceptedAt.getTime() + ROOM_IDLE_TTL_MS;
+
+    await runInDurableObject(room, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBe(acceptedDeadline);
+    });
+    vi.setSystemTime(INITIALIZED_AT.getTime() + 3 * 60 * 60 * 1000);
+    await expect(
+      room.dispatch(
+        hostActor(),
+        envelope(0, { type: "lock_room", locked: false }),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "stale_revision",
+      revision: 1,
+    });
+    await expect(room.dispatch(hostActor(), command)).resolves.toEqual({
+      ok: true,
+      revision: 1,
+    });
+    await runInDurableObject(room, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBe(acceptedDeadline);
+    });
+  });
+
+  it("freshly derives defensive role-safe projections without secret or hidden ownership leakage", async () => {
+    const room = stub("SAFE01");
+    await room.initialize(configuredRoom("SAFE01"));
+    await room.dispatch(hostActor(), envelope(0, { type: "start_board" }));
+
+    const firstSnapshot = (await room.getSnapshot())!;
+    firstSnapshot.locked = true;
+    firstSnapshot.seats[0]!.seatTokenHash = "mutated-secret";
+    const secondSnapshot = (await room.getSnapshot())!;
+    expect(secondSnapshot.locked).toBe(false);
+    expect(secondSnapshot.seats[0]!.seatTokenHash === "a".repeat(64)).toBe(
+      true,
+    );
+
+    const firstProjection = (await room.getProjection(spectator()))!;
+    const serialized = JSON.stringify(firstProjection);
+    expect(serialized).not.toContain("secret");
+    for (const hash of [
+      secondSnapshot.hostTokenHash,
+      ...secondSnapshot.seats.map((seat) => seat.seatTokenHash),
+      ...secondSnapshot.connectionTickets.map((ticket) => ticket.ticketHash),
+    ]) {
+      expect(serialized.includes(hash)).toBe(false);
+    }
+    expect(serialized).not.toContain("seatTokenHash");
+    expect(serialized).not.toContain("hostTokenHash");
+    expect(serialized).not.toContain("boardSeed");
+    expect(serialized).not.toContain("processedCommands");
+    expect(serialized).not.toContain("connectionTickets");
+    expect(serialized).not.toContain('"hazard"');
+    expect(serialized).not.toContain("eliminationConversions");
+    expect(
+      firstProjection.board?.cards.every((card) => !("owner" in card)),
+    ).toBe(true);
+    firstProjection.seats[0]!.displayName = "Mutated projection";
+    expect((await room.getProjection(spectator()))!.seats[0]!.displayName).toBe(
+      "Host",
+    );
+  });
+});
+
+describe("RoomDurableObject inactivity alarm", () => {
+  it("keeps the integration anchor safely ahead of real process time", () => {
+    expect(INITIALIZED_AT.getTime() - REAL_PROCESS_TIME_MS).toBe(604_800_000);
+  });
+
+  it("uses the approved 24-hour inactivity duration", () => {
+    expect(ROOM_IDLE_TTL_MS).toBe(86_400_000);
+  });
+
+  it("reschedules the unchanged deadline when an alarm arrives early", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIALIZED_AT);
+    const room = stub("EAR1Y1");
+    await room.initialize(roomInitialization("EAR1Y1"));
+    const deadline = INITIALIZED_AT.getTime() + ROOM_IDLE_TTL_MS;
+    await runInDurableObject(room, async (_instance, state) => {
+      const persisted = await state.storage.get<RoomState>("room:snapshot");
+      await state.storage.put("room:snapshot", { ...persisted!, locked: true });
+    });
+    vi.setSystemTime(INITIALIZED_AT.getTime() + 60 * 60 * 1000);
+
+    await expect(runDurableObjectAlarm(room)).resolves.toBe(true);
+    await expect(room.getSnapshot()).resolves.toMatchObject({
+      lastActivity: INITIALIZED_AT.toISOString(),
+      locked: true,
+    });
+    await runInDurableObject(room, async (_instance, state) => {
+      expect(await state.storage.getAlarm()).toBe(deadline);
+    });
+  });
+
+  it.each([
+    ["at the exact deadline", 0, "EXACT1"],
+    ["after the deadline", 1, "1ATE01"],
+  ])(
+    "expires %s and is empty on an idempotent repeat",
+    async (_label, offset, name) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(INITIALIZED_AT);
+      const room = stub(name);
+      await room.initialize(roomInitialization(name));
+      vi.setSystemTime(INITIALIZED_AT.getTime() + ROOM_IDLE_TTL_MS + offset);
+
+      await expect(runDurableObjectAlarm(room)).resolves.toBe(true);
+      await expect(room.getSnapshot()).resolves.toBeUndefined();
+      await expect(room.getProjection(spectator())).resolves.toBeUndefined();
+      await expect(runDurableObjectAlarm(room)).resolves.toBe(false);
+      await runInDurableObject(room, async (instance, state) => {
+        await instance.alarm();
+        expect(await state.storage.list()).toEqual(new Map());
+        expect(await state.storage.getAlarm()).toBeNull();
+      });
+    },
+  );
+
+  it("closes every accepted socket with the room-expired close frame", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(INITIALIZED_AT);
+    const room = stub("S0CK01");
+    await room.initialize(roomInitialization("S0CK01"));
+    vi.setSystemTime(INITIALIZED_AT.getTime() + ROOM_IDLE_TTL_MS);
+
+    await runInDurableObject(room, async (instance, state) => {
+      const pairs = [new WebSocketPair(), new WebSocketPair()];
+      for (const pair of pairs) {
+        state.acceptWebSocket(pair[1]);
+      }
+      const accepted = state.getWebSockets();
+      expect(accepted).toHaveLength(2);
+      const closeCalls = accepted.map((socket) => vi.spyOn(socket, "close"));
+
+      await instance.alarm();
+
+      for (const [index, close] of closeCalls.entries()) {
+        expect(close).toHaveBeenCalledWith(1001, "Room expired");
+        expect(accepted[index]!.readyState).not.toBe(WebSocket.OPEN);
+      }
+    });
+    await expect(room.getSnapshot()).resolves.toBeUndefined();
   });
 });

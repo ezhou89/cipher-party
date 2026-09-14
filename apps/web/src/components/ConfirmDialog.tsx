@@ -1,89 +1,135 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 
-export interface ConfirmDialogProps {
-  open: boolean;
+interface ConfirmDialogProps {
   title: string;
-  description?: string | ReactNode;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-  isConfirmDestructive?: boolean;
+  description: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  confirmDisabled: boolean;
+  returnFocus: HTMLElement | null;
+  fallbackFocus: HTMLElement | null;
+  children?: ReactNode;
+  onConfirm(): void;
+  onCancel(): void;
 }
 
 export function ConfirmDialog({
-  open,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
+  confirmDisabled,
+  returnFocus,
+  fallbackFocus,
+  children,
   onConfirm,
   onCancel,
-  isConfirmDestructive = false
 }: ConfirmDialogProps) {
+  const titleId = useId();
+  const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const confirmBtnRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const cancelHandlerRef = useRef(onCancel);
+
+  useLayoutEffect(() => {
+    cancelHandlerRef.current = onCancel;
+  }, [onCancel]);
 
   useEffect(() => {
-    if (!open) return;
-
-    // Focus the confirm button when opened
-    confirmBtnRef.current?.focus();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
+    cancelRef.current?.focus();
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      if (!focusIfAvailable(returnFocus)) {
+        focusIfAvailable(fallbackFocus);
+      }
     };
-  }, [open, onCancel]);
+  }, [fallbackFocus, returnFocus]);
 
-  if (!open) return null;
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelHandlerRef.current();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const dialog = dialogRef.current;
+      const focusable = Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (dialog?.contains(document.activeElement) !== true) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onCancel();
-        }
-      }}
-    >
+    <div className="confirm-dialog-backdrop">
       <div
+        className="confirm-dialog"
         ref={dialogRef}
-        className="modal-dialog"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="confirm-dialog-title"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        tabIndex={-1}
       >
-        <h2 id="confirm-dialog-title" className="modal-title">
-          {title}
-        </h2>
-        {description && <div className="modal-body">{description}</div>}
-        <div className="modal-actions">
+        <p className="card-index">Confirm action</p>
+        <h2 id={titleId}>{title}</h2>
+        <p id={descriptionId}>{description}</p>
+        {children}
+        <div className="confirm-dialog-actions">
           <button
+            className="button-secondary"
+            ref={cancelRef}
             type="button"
-            className="btn btn-secondary"
             onClick={onCancel}
           >
             {cancelLabel}
           </button>
-          <button
-            ref={confirmBtnRef}
-            type="button"
-            className={`btn ${isConfirmDestructive ? "btn-danger" : "btn-primary"}`}
-            onClick={onConfirm}
-          >
+          <button type="button" disabled={confirmDisabled} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>
       </div>
     </div>
   );
+}
+
+function focusIfAvailable(target: HTMLElement | null): boolean {
+  if (
+    target === null ||
+    !target.isConnected ||
+    target.matches(":disabled") ||
+    target.getAttribute("aria-disabled") === "true"
+  ) {
+    return false;
+  }
+  target.focus();
+  return document.activeElement === target;
 }

@@ -1,10 +1,14 @@
 import {
-  createSeededRandom,
+  chooseStartingTeam,
+  configuredTeams,
+  type CardId,
   type ClassicGameState,
+  type Ownership,
   type PlayerId,
   type RoomCode,
   type SeatRole,
-  type TeamId
+  type TeamCount,
+  type TeamId,
 } from "@cipher-party/game-core";
 import type { CommandResult, PublicHistoryEntry } from "@cipher-party/protocol";
 
@@ -19,8 +23,12 @@ export interface RoomSeat {
 }
 
 export interface RoomState {
-  schemaVersion: 1;
-  protocolVersion: 1;
+  schemaVersion: 2;
+  protocolVersion: 2;
+  teamCount: TeamCount;
+  configuredTeams: TeamId[];
+  initialOwners: Record<CardId, Ownership> | null;
+  eliminationConversions: Record<CardId, TeamId>;
   code: RoomCode;
   inviteUrl: string;
   revision: number;
@@ -55,48 +63,54 @@ export interface RoomActor {
 
 export interface CreateLobbyStateInput {
   code: RoomCode;
-  hostPlayerId: PlayerId;
-  hostDisplayName: string;
-  hostTokenHash: string;
-  seatTokenHash: string;
-  boardSeed: string;
   inviteUrl: string;
-  now: Date;
+  boardSeed: string;
+  hostPlayerId: PlayerId;
+  displayName: string;
+  seatTokenHash: string;
+  hostTokenHash: string;
+  createdAt: string;
 }
 
 export function createLobbyState(input: CreateLobbyStateInput): RoomState {
-  const random = createSeededRandom(input.boardSeed + "/starting-team");
-  const startingTeam: TeamId = random() < 0.5 ? "red" : "blue";
-  const nowIso = input.now.toISOString();
-
-  const hostSeat: RoomSeat = {
-    playerId: input.hostPlayerId,
-    displayName: input.hostDisplayName,
-    seatClass: "active",
-    teamId: null,
-    role: "unassigned",
-    connected: true,
-    seatTokenHash: input.seatTokenHash
-  };
+  const teamCount: TeamCount = 2;
+  const startingTeam = chooseStartingTeam(
+    teamCount,
+    `${input.boardSeed}/board-0`,
+  );
 
   return {
-    schemaVersion: 1,
-    protocolVersion: 1,
+    schemaVersion: 2,
+    protocolVersion: 2,
+    teamCount,
+    configuredTeams: configuredTeams(teamCount),
+    initialOwners: null,
+    eliminationConversions: {},
     code: input.code,
     inviteUrl: input.inviteUrl,
     revision: 0,
     phase: "lobby",
     locked: false,
-    createdAt: nowIso,
-    lastActivity: nowIso,
+    createdAt: input.createdAt,
+    lastActivity: input.createdAt,
     boardSeed: input.boardSeed,
     startingTeam,
     hostPlayerId: input.hostPlayerId,
     hostTokenHash: input.hostTokenHash,
-    seats: [hostSeat],
+    seats: [
+      {
+        playerId: input.hostPlayerId,
+        displayName: input.displayName,
+        seatClass: "active",
+        teamId: null,
+        role: "unassigned",
+        connected: false,
+        seatTokenHash: input.seatTokenHash,
+      },
+    ],
     game: null,
     publicHistory: [],
     connectionTickets: [],
-    processedCommands: []
+    processedCommands: [],
   };
 }

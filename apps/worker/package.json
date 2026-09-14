@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=../../.wrangler wrangler dev --config wrangler.dev.jsonc",
-    "build": "WRANGLER_SEND_METRICS=false XDG_CONFIG_HOME=../../.wrangler wrangler deploy --dry-run --config wrangler.jsonc",
+    "dev": "wrangler dev --config wrangler.dev.jsonc",
+    "build": "wrangler deploy --dry-run --config wrangler.jsonc",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json"
   },
   "dependencies": {
     "@cipher-party/game-core": "workspace:*",
@@ -15,8 +16,8 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.1.4",
-    "@cloudflare/workers-types": "^5.20260904.1",
-    "wrangler": "^4.129.0"
+    "@cloudflare/vitest-plugin": "^1.1.2",
+    "@cloudflare/workers-types": "^5.20260830.1",
+    "wrangler": "^4.127.1"
   }
 }

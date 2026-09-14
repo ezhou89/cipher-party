@@ -9,11 +9,16 @@
 create or join the existing Cloudflare rooms from separate phones, while
 remaining interoperable with the browser client and safe during network changes.
 
-**Architecture:** The iOS app is a client of the existing protocol v1. SwiftUI
+**Architecture:** The iOS app is a client of the current protocol v2. SwiftUI
 views send intents to a `@Observable` `RoomSession`; an injected `APIClient`
 handles room bootstrap and tickets, and an actor-isolated `RoomSocket` handles
 the ticketed WebSocket. The Cloudflare Worker and one Durable Object per room
 remain authoritative for membership, roles, revisions, timers, and game rules.
+
+**Integration note (2026-09-14):** Current `main` uses protocol v2 with
+host-selected 2-, 3-, or 4-team rooms. The native client and shared fixtures
+must track that contract; protocol-v1 examples in the original task history
+are historical and are not a supported wire format.
 
 **Tech Stack:** Xcode, Swift 5.9+, iOS 17+, SwiftUI Observation, Foundation
 `URLSessionWebSocketTask`, Network framework `NWPathMonitor`, Security Keychain,
@@ -27,7 +32,7 @@ XCUITest. No third-party runtime dependency is required for this slice.
 ## Global constraints
 
 - Do not change the existing Classic rules or replace the Cloudflare authority.
-- iOS and browser clients must consume the same protocol v1 schemas, messages,
+- iOS and browser clients must consume the same protocol v2 schemas, messages,
   revisions, and role-safe projections.
 - Clients send commands only; they never send replacement state or derive a
   winning board locally.
@@ -148,7 +153,7 @@ kept beside the existing web and worker apps; it is not a second repository.
 - Produces an iOS 17+ app target named `CipherParty`, unit/UI test targets, and
   build configurations with an injectable `API_BASE_URL`.
 - Debug may point to a local Worker; Staging points to the configured
-  `https://oddlyuseful.studio` host; Release is a separately signed value.
+  `https://staging.oddlyuseful.studio` host; Release is a separately signed value.
 - The bundle identifier and Apple Team ID are release configuration values
   registered during app setup, not values embedded in the protocol or deep-link
   payload.
@@ -185,7 +190,7 @@ kept beside the existing web and worker apps; it is not a second repository.
 
 **Interfaces:**
 
-- Swift models mirror protocol v1: `CommandEnvelope`, all Classic command
+- Swift models mirror protocol v2: `CommandEnvelope`, all Classic command
   cases, `ServerMessage`, `ClientProjection` variants, `ProjectionPermissions`,
   board/card/history types, and `CommandResult`/error codes.
 - JSON fixtures are the canonical cross-language examples. TypeScript validates
@@ -202,7 +207,7 @@ kept beside the existing web and worker apps; it is not a second repository.
 - [x] **Step 3: Implement strict Swift decoding.** Use explicit discriminator
   enums and `Decodable` implementations. Unknown message/role/phase values must
   throw a recoverable protocol error without logging the raw frame.
-- [x] **Step 4: Add round-trip and boundary tests.** Verify protocol version 1,
+- [x] **Step 4: Add round-trip and boundary tests.** Verify protocol version 2,
   NFC Unicode strings, optional card ownership, maximum public history, and
   absence of hidden key fields in unauthorized models.
 - [x] **Step 5: Run both validators.** Execute the fixture script, the package
@@ -334,7 +339,8 @@ kept beside the existing web and worker apps; it is not a second repository.
 
 **Interfaces:**
 
-- `InviteRouter` accepts `https://oddlyuseful.studio/room/{code}`, the
+- `InviteRouter` accepts the configured host (staging:
+  `https://staging.oddlyuseful.studio/room/{code}`), the
   development `cipherparty://room/{code}` scheme, and manual code input, then
   returns one normalized room-code value or a typed invalid-link error.
 - `QRCodeRenderer` renders only the server-provided invite URL, never a seat or
@@ -442,7 +448,7 @@ kept beside the existing web and worker apps; it is not a second repository.
 
 **Interfaces:**
 
-- Staging validation uses the existing Worker at `oddlyuseful.studio` and a
+- Staging validation uses the existing Worker at `staging.oddlyuseful.studio` and a
   browser client as the interoperability reference.
 - No test fixture, snapshot, or log may contain a durable token or a clue-giver
   key in an unauthorized context.

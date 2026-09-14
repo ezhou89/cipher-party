@@ -27,6 +27,8 @@ extension TeamID {
         switch self {
         case .red: return "Red"
         case .blue: return "Blue"
+        case .green: return "Green"
+        case .yellow: return "Yellow"
         }
     }
 }

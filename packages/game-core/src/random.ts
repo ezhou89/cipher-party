@@ -1,11 +1,8 @@
 /**
- * Deterministic pseudo-random number generator and shuffle utilities.
- *
- * The master game seed is cryptographically generated on the server using
- * Web Crypto (crypto.getRandomValues), while this PRNG exists exclusively
- * for reproducible, deterministic ordering and 3-tier board randomization.
+ * The server must generate campaign seeds cryptographically. This small PRNG
+ * exists only to turn a persisted seed into replayable card and ownership
+ * ordering; it is not a source of security-sensitive randomness.
  */
-
 function seedToUint32(seed: string): number {
   let hash = 1779033703 ^ seed.length;
   for (let index = 0; index < seed.length; index += 1) {
@@ -14,6 +11,8 @@ function seedToUint32(seed: string): number {
   }
   hash = Math.imul(hash ^ (hash >>> 16), 2246822507);
   hash = Math.imul(hash ^ (hash >>> 13), 3266489909);
+  // Preserve the specified xmur3 finalization expression.
+  // eslint-disable-next-line no-useless-assignment
   return (hash ^= hash >>> 16) >>> 0;
 }
 

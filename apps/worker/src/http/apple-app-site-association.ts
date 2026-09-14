@@ -8,7 +8,7 @@ export function handleAppleAppSiteAssociation(env: Env): Response {
   if (!appId || !APPLE_APP_ID_PATTERN.test(appId)) {
     return new Response("Not found", {
       status: 404,
-      headers: { "Cache-Control": "no-store" }
+      headers: { "Cache-Control": "no-store" },
     });
   }
 
@@ -21,18 +21,18 @@ export function handleAppleAppSiteAssociation(env: Env): Response {
             components: [
               {
                 "/": "/room/*",
-                comment: "Matches Cipher Party room invitations."
-              }
-            ]
-          }
-        ]
-      }
+                comment: "Matches Cipher Party room invitations.",
+              },
+            ],
+          },
+        ],
+      },
     }),
     {
       headers: {
         "Cache-Control": "public, max-age=3600",
-        "Content-Type": "application/json"
-      }
-    }
+        "Content-Type": "application/json",
+      },
+    },
   );
 }

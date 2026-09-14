@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cipher Party — Design Token Showcase</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Plus+Jakarta+Sans:wght@700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --color-canvas: #0e0c1a;
+      --color-surface: #181528;
+      --color-surface-high: #231e3b;
+      --color-ruby: #ff2a5f;
+      --color-cobalt: #00f3ff;
+      --color-emerald: #00f5a0;
+      --color-amber: #ffbe0b;
+      --color-neutral: #8b85a3;
+      --color-hazard-bg: #080611;
+      --color-hazard-border: #ff0055;
+      --color-card-face: #fbf6ec;
+      --color-card-ink: #0e0c1a;
+      --shadow-pixel: 4px 4px 0px #000000;
+      --shadow-pixel-sm: 2px 2px 0px #000000;
+      --pixel-corners: polygon(
+        0px 4px, 4px 4px, 4px 0px,
+        calc(100% - 4px) 0px, calc(100% - 4px) 4px, 100% 4px,
+        100% calc(100% - 4px), calc(100% - 4px) calc(100% - 4px), calc(100% - 4px) 100%,
+        4px 100%, 4px calc(100% - 4px), 0px calc(100% - 4px)
+      );
+    }
+    body {
+      background-color: var(--color-canvas);
+      background-image: 
+        linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 20px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-arcade { font-family: 'Press Start 2P', monospace; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .pixel-corners { clip-path: var(--pixel-corners); }
+    .pixel-card {
+      background-color: var(--color-card-face);
+      color: var(--color-card-ink);
+      border: 3px solid #000;
+      box-shadow: 3px 3px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-card:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+    .pixel-btn {
+      border: 3px solid #000;
+      box-shadow: 4px 4px 0px #000;
+      clip-path: var(--pixel-corners);
+      transition: transform 0.08s ease, box-shadow 0.08s ease;
+    }
+    .pixel-btn:active {
+      transform: translate(2px, 2px);
+      box-shadow: 1px 1px 0px #000;
+    }
+  </style>
+</head>
+<body class="text-slate-100 p-6 min-h-screen">
+  <div class="max-w-4xl mx-auto space-y-8">
+    
+    <!-- Header -->
+    <div class="p-4 bg-[#181528] border-4 border-black shadow-[4px_4px_0px_#000] pixel-corners flex flex-col md:flex-row justify-between items-center gap-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-xl text-[#ff2a5f] font-arcade">👾</span>
+          <h1 class="text-sm md:text-base font-arcade text-[#00f3ff] tracking-tight">CIPHER PARTY // TOKENS.CSS</h1>
+        </div>
+        <p class="text-xs text-slate-400 mt-1">Single source of truth for Neo 8-Bit Retro Arcade</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2 py-1 bg-black text-[#ffbe0b] font-arcade text-[10px] border-2 border-[#ffbe0b]">BEST OF 7</span>
+        <span class="px-2 py-1 bg-[#231e3b] text-slate-300 font-mono text-xs border border-purple-900 rounded">v1.0-arcade</span>
+      </div>
+    </div>
+
+    <!-- Section 1: Quad-Indicator Identity Matrix -->
+    <div class="p-5 bg-[#181528] border-4 border-black shadow-[4px_4px_0px_#000] pixel-corners space-y-4">
+      <h2 class="text-xs font-arcade text-white flex items-center gap-2">
+        <span class="text-[#ff2a5f]">◆</span> QUAD-INDICATOR COLORBLIND-IMMUNE SYSTEM
+      </h2>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+        
+        <!-- Ruby (P1) -->
+        <div class="p-3 bg-[#231e3b] border-2 border-black pixel-corners flex flex-col items-center text-center">
+          <span class="text-2xl text-[#ff2a5f]">♥</span>
+          <span class="text-[10px] font-arcade text-[#ff2a5f] mt-1">RUBY P1</span>
+          <span class="text-[9px] font-mono text-slate-400 mt-1">#ff2a5f</span>
+          <span class="text-[8px] bg-[#ff2a5f] text-white px-1 mt-1 font-bold rounded">Heart</span>
+        </div>
+
+        <!-- Cobalt (P2) -->
+        <div class="p-3 bg-[#231e3b] border-2 border-black pixel-corners flex flex-col items-center text-center">
+          <span class="text-2xl text-[#00f3ff]">✦</span>
+          <span class="text-[10px] font-arcade text-[#00f3ff] mt-1">COBALT P2</span>
+          <span class="text-[9px] font-mono text-slate-400 mt-1">#00f3ff</span>
+          <span class="text-[8px] bg-[#00f3ff] text-black px-1 mt-1 font-bold rounded">Star</span>
+        </div>
+
+        <!-- Emerald -->
+        <div class="p-3 bg-[#231e3b] border-2 border-black pixel-corners flex flex-col items-center text-center">
+          <span class="text-2xl text-[#00f5a0]">▲</span>
+          <span class="text-[10px] font-arcade text-[#00f5a0] mt-1">EMERALD</span>
+          <span class="text-[9px] font-mono text-slate-400 mt-1">#00f5a0</span>
+          <span class="text-[8px] bg-[#00f5a0] text-black px-1 mt-1 font-bold rounded">Triangle</span>
+        </div>
+
+        <!-- Amber -->
+        <div class="p-3 bg-[#231e3b] border-2 border-black pixel-corners flex flex-col items-center text-center">
+          <span class="text-2xl text-[#ffbe0b]">⬢</span>
+          <span class="text-[10px] font-arcade text-[#ffbe0b] mt-1">AMBER</span>
+          <span class="text-[9px] font-mono text-slate-400 mt-1">#ffbe0b</span>
+          <span class="text-[8px] bg-[#ffbe0b] text-black px-1 mt-1 font-bold rounded">Hex Coin</span>
+        </div>
+
+        <!-- Neutral -->
+        <div class="p-3 bg-[#231e3b] border-2 border-black pixel-corners flex flex-col items-center text-center">
+          <span class="text-2xl text-[#8b85a3]">—</span>
+          <span class="text-[10px] font-arcade text-[#8b85a3] mt-1">NEUTRAL</span>
+          <span class="text-[9px] font-mono text-slate-400 mt-1">#8b85a3</span>
+          <span class="text-[8px] bg-[#8b85a3] text-black px-1 mt-1 font-bold rounded">Bar/Dot</span>
+        </div>
+
+        <!-- Hazard -->
+        <div class="p-3 bg-[#080611] border-2 border-[#ff0055] pixel-corners flex flex-col items-center text-center">
+          <span class="text-2xl text-[#ff0055]">☠</span>
+          <span class="text-[10px] font-arcade text-[#ff0055] mt-1">HAZARD</span>
+          <span class="text-[9px] font-mono text-slate-400 mt-1">#080611</span>
+          <span class="text-[8px] bg-[#ff0055] text-white px-1 mt-1 font-bold rounded">Skull Boss</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Section 2: Card Anatomy & Physical States -->
+    <div class="p-5 bg-[#181528] border-4 border-black shadow-[4px_4px_0px_#000] pixel-corners space-y-4">
+      <h2 class="text-xs font-arcade text-white flex items-center gap-2">
+        <span class="text-[#00f3ff]">■</span> CARD ANATOMY & INTERACTIVE STATES (TAP CARDS TO TEST PHYSICS)
+      </h2>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        
+        <!-- 1. Unrevealed -->
+        <div class="flex flex-col items-center gap-1.5">
+          <button class="pixel-card w-full p-4 aspect-[4/3] flex flex-col justify-between items-center cursor-pointer">
+            <span class="text-[9px] font-mono text-slate-400 self-start">#01</span>
+            <span class="font-bold text-xs tracking-tight text-black">SUBWAY</span>
+            <span class="text-[8px] text-slate-400">···</span>
+          </button>
+          <span class="text-[9px] font-arcade text-slate-400">UNREVEALED</span>
+        </div>
+
+        <!-- 2. Nominated -->
+        <div class="flex flex-col items-center gap-1.5">
+          <button class="pixel-card w-full p-4 aspect-[4/3] flex flex-col justify-between items-center cursor-pointer !border-[#ffeb3b] shadow-[0_0_12px_rgba(255,235,59,0.8),4px_4px_0px_#000] transform -translate-y-1">
+            <span class="text-[9px] font-mono text-amber-800 self-start font-bold">1UP</span>
+            <span class="font-bold text-xs tracking-tight text-black">TRAIN</span>
+            <span class="text-[8px] text-amber-700 font-bold">P1 PIN</span>
+          </button>
+          <span class="text-[9px] font-arcade text-[#ffeb3b]">NOMINATED</span>
+        </div>
+
+        <!-- 3. Revealed Ruby -->
+        <div class="flex flex-col items-center gap-1.5">
+          <button class="w-full p-4 aspect-[4/3] bg-[#ff2a5f] border-4 border-black shadow-[3px_3px_0px_#000] pixel-corners flex flex-col justify-between items-center">
+            <span class="text-white text-xs self-start">♥</span>
+            <span class="font-bold text-xs tracking-tight text-white line-through opacity-80">CLOCK</span>
+            <span class="text-[8px] text-white font-bold">RUBY DONE</span>
+          </button>
+          <span class="text-[9px] font-arcade text-[#ff2a5f]">REVEALED (RUBY)</span>
+        </div>
+
+        <!-- 4. Revealed Hazard -->
+        <div class="flex flex-col items-center gap-1.5">
+          <button class="w-full p-4 aspect-[4/3] bg-[#080611] border-4 border-[#ff0055] shadow-[0_0_10px_rgba(255,0,85,0.4),3px_3px_0px_#000] pixel-corners flex flex-col justify-between items-center">
+            <span class="text-[#ff0055] text-xs self-start">☠</span>
+            <span class="font-bold text-xs tracking-tight text-[#ff0055] line-through">POISON</span>
+            <span class="text-[8px] text-[#ff0055] font-bold">K.O.</span>
+          </button>
+          <span class="text-[9px] font-arcade text-[#ff0055]">REVEALED (HAZARD)</span>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Section 3: Arcade Button Physics & Tactility -->
+    <div class="p-5 bg-[#181528] border-4 border-black shadow-[4px_4px_0px_#000] pixel-corners space-y-4">
+      <h2 class="text-xs font-arcade text-white flex items-center gap-2">
+        <span class="text-[#ffbe0b]">▲</span> BUTTON PRESS PHYSICS (CLICK & HOLD TO FEEL THE CLICK)
+      </h2>
+      <div class="flex flex-wrap gap-4 items-center">
+        
+        <button class="pixel-btn bg-[#ff2a5f] text-white px-6 py-3 font-arcade text-xs tracking-wider cursor-pointer hover:brightness-110">
+          CONFIRM "TRAIN"
+        </button>
+
+        <button class="pixel-btn bg-[#00f3ff] text-black px-6 py-3 font-arcade text-xs tracking-wider cursor-pointer hover:brightness-110">
+          START MATCH ▶
+        </button>
+
+        <button class="pixel-btn bg-[#231e3b] text-slate-200 px-5 py-3 font-arcade text-xs tracking-wider cursor-pointer hover:bg-[#2e274c]">
+          PASS TURN
+        </button>
+
+        <button class="pixel-btn bg-black text-[#ffbe0b] border-2 border-[#ffbe0b] px-4 py-2 font-arcade text-[10px] tracking-widest cursor-pointer">
+          [ 👁️ VEIL KEY ]
+        </button>
+
+      </div>
+    </div>
+
+    <!-- Section 4: Typography Pairing -->
+    <div class="p-5 bg-[#181528] border-4 border-black shadow-[4px_4px_0px_#000] pixel-corners space-y-3">
+      <h2 class="text-xs font-arcade text-white flex items-center gap-2">
+        <span class="text-[#00f5a0]">▼</span> THE BALATRO TYPOGRAPHY RULE
+      </h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+        <div class="p-4 bg-[#231e3b] border-2 border-black pixel-corners space-y-2">
+          <span class="text-[10px] font-arcade text-[#00f3ff]">ARCADE CHROME: 'PRESS START 2P'</span>
+          <p class="font-arcade text-sm text-[#ffbe0b]">ROUND 04 // BEST OF 7</p>
+          <p class="font-arcade text-xs text-white">RUBY: 3 [♥♥♥○]  COBALT: 2 [✦✦○○]</p>
+          <p class="font-arcade text-xs text-[#ff2a5f]">00:45 TIMER</p>
+        </div>
+        <div class="p-4 bg-[#231e3b] border-2 border-black pixel-corners space-y-2">
+          <span class="text-[10px] font-arcade text-[#ff2a5f]">CARD SCANNING: 'PLUS JAKARTA SANS'</span>
+          <p class="font-bold text-lg text-[#fbf6ec] tracking-wider uppercase">SATELLITE • SUBWAY • PYRAMID</p>
+          <p class="text-xs text-slate-400">Bold 800 weight, uppercase, wide letter-spacing prevents visual fatigue and reading blur across 25 cards.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

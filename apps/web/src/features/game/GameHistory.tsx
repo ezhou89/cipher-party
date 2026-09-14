@@ -1,94 +1,77 @@
 import type {
-  CardId,
-  PublicCard,
-  PublicHistoryEntry
+  ClientProjection,
+  PublicHistoryEntry,
 } from "@cipher-party/protocol";
 
-export interface GameHistoryProps {
-  history: PublicHistoryEntry[];
-  cardsById: Map<CardId, PublicCard>;
+import {
+  OWNER_PRESENTATION,
+  TEAM_PRESENTATION,
+} from "../../lib/team-presentation";
+
+function unreachable(entry: never): never {
+  void entry;
+  throw new Error("Unsupported public history variant");
 }
 
-const OWNER_NAMES: Record<string, string> = {
-  red: "Ruby (Red)",
-  blue: "Cobalt (Blue)",
-  neutral: "Neutral",
-  hazard: "Hazard"
-};
+export function historyEntryText(
+  entry: PublicHistoryEntry,
+  cardLabels: ReadonlyMap<string, string>,
+): string {
+  switch (entry.type) {
+    case "clue_submitted": {
+      const team = TEAM_PRESENTATION[entry.teamId];
+      return `${team.symbol} ${team.label} submitted ${entry.word} for ${entry.count}.`;
+    }
+    case "clue_challenged": {
+      const team = TEAM_PRESENTATION[entry.teamId];
+      return `${team.symbol} ${team.label} challenged the clue.`;
+    }
+    case "challenge_resolved":
+      return `The clue challenge was ${entry.decision === "accept" ? "accepted" : "rejected"}.`;
+    case "card_revealed": {
+      const team = TEAM_PRESENTATION[entry.teamId];
+      const owner = OWNER_PRESENTATION[entry.owner];
+      const label = cardLabels.get(entry.cardId) ?? "A board card";
+      const elimination =
+        entry.eliminatedTeam === undefined
+          ? ""
+          : ` ${TEAM_PRESENTATION[entry.eliminatedTeam].symbol} ${TEAM_PRESENTATION[entry.eliminatedTeam].label} was eliminated.`;
+      return `${label} was revealed as ${owner.symbol} ${owner.label} by ${team.label}.${elimination}`;
+    }
+    case "turn_ended": {
+      const team = TEAM_PRESENTATION[entry.teamId];
+      return `${team.symbol} ${team.label} ended its turn.`;
+    }
+    case "room_paused":
+      return "The room was paused.";
+    case "room_resumed":
+      return "The room resumed.";
+    default:
+      return unreachable(entry);
+  }
+}
 
-export function GameHistory({ history, cardsById }: GameHistoryProps) {
+interface GameHistoryProps {
+  entries: PublicHistoryEntry[];
+  cards: NonNullable<ClientProjection["board"]>["cards"];
+}
+
+export function GameHistory({ entries, cards }: GameHistoryProps) {
+  const cardLabels = new Map(cards.map((card) => [card.id, card.label]));
+
   return (
-    <section
-      className="game-history-panel"
-      role="region"
-      aria-label="Game history"
-    >
-      <h3 className="history-panel-title">Mission Log</h3>
-      {history.length === 0 ? (
-        <p className="history-empty">No actions recorded yet.</p>
+    <section className="game-history" aria-label="Public game history">
+      <p className="card-index">Public record</p>
+      <h2>Game history</h2>
+      {entries.length === 0 ? (
+        <p className="empty-history">No public actions yet.</p>
       ) : (
-        <ol className="history-list">
-          {history.map((entry) => {
-            const key = `${entry.revision}-${entry.type}-${entry.at}`;
-            switch (entry.type) {
-              case "clue_submitted":
-                return (
-                  <li key={key} className="history-item history-item-clue">
-                    <span className="history-action">Clue submitted:</span>{" "}
-                    <strong>{entry.word}</strong> ({entry.count}) by{" "}
-                    {entry.teamId === "red" ? "Ruby" : "Cobalt"}
-                  </li>
-                );
-              case "card_revealed": {
-                const card = cardsById.get(entry.cardId);
-                const label = card ? card.label : entry.cardId;
-                const ownerName = OWNER_NAMES[entry.owner] ?? entry.owner;
-                return (
-                  <li key={key} className="history-item history-item-reveal">
-                    <span className="history-action">Card revealed:</span>{" "}
-                    <strong>{label}</strong> ({ownerName})
-                  </li>
-                );
-              }
-              case "clue_challenged":
-                return (
-                  <li key={key} className="history-item history-item-challenge">
-                    <span className="history-action">Clue challenged</span> by{" "}
-                    {entry.teamId === "red" ? "Ruby" : "Cobalt"}
-                  </li>
-                );
-              case "challenge_resolved":
-                return (
-                  <li key={key} className="history-item history-item-resolved">
-                    <span className="history-action">
-                      Challenge{" "}
-                      {entry.decision === "accept" ? "accepted" : "rejected"}
-                    </span>
-                  </li>
-                );
-              case "turn_ended":
-                return (
-                  <li key={key} className="history-item history-item-turn">
-                    <span className="history-action">Turn ended</span> for{" "}
-                    {entry.teamId === "red" ? "Ruby" : "Cobalt"}
-                  </li>
-                );
-              case "room_paused":
-                return (
-                  <li key={key} className="history-item history-item-pause">
-                    <span className="history-action">Game paused</span>
-                  </li>
-                );
-              case "room_resumed":
-                return (
-                  <li key={key} className="history-item history-item-resume">
-                    <span className="history-action">Game resumed</span>
-                  </li>
-                );
-              default:
-                return null;
-            }
-          })}
+        <ol>
+          {entries.map((entry) => (
+            <li key={`${entry.revision}-${entry.type}`}>
+              {historyEntryText(entry, cardLabels)}
+            </li>
+          ))}
         </ol>
       )}
     </section>

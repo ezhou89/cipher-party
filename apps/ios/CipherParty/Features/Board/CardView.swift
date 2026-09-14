@@ -165,6 +165,8 @@ private extension Ownership {
         switch self {
         case .red: return "♥"
         case .blue: return "✦"
+        case .green: return "◆"
+        case .yellow: return "●"
         case .neutral: return "—"
         case .hazard: return "☠"
         }
@@ -174,6 +176,8 @@ private extension Ownership {
         switch self {
         case .red: return .red
         case .blue: return .blue
+        case .green: return .green
+        case .yellow: return .yellow
         case .neutral: return .gray
         case .hazard: return .purple
         }
@@ -183,6 +187,8 @@ private extension Ownership {
         switch self {
         case .red: return "Ruby"
         case .blue: return "Cobalt"
+        case .green: return "Emerald"
+        case .yellow: return "Gold"
         case .neutral: return "Neutral"
         case .hazard: return "Hazard"
         }

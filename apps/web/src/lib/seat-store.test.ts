@@ -1,90 +1,98 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+
 import {
-  createSeatStore,
-  type SeatCredentials,
-  type SeatStore
+  deleteCredentials,
+  IndexedDbSeatStore,
+  loadCredentials,
+  saveCredentials,
 } from "./seat-store";
 
-describe("SeatStore IndexedDB Persistence", () => {
-  let store: SeatStore;
+const DATABASE_NAME = "cipher-party";
 
-  beforeEach(() => {
-    store = createSeatStore();
+async function deleteDatabase(): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DATABASE_NAME);
+    request.addEventListener("success", () => resolve());
+    request.addEventListener("error", () => reject(request.error));
+    request.addEventListener("blocked", () =>
+      reject(new Error("credential database deletion was blocked")),
+    );
   });
+}
 
-  it("saves credentials and retrieves them across store instances", async () => {
-    const creds: SeatCredentials = {
-      code: "ABC234",
+afterEach(async () => {
+  localStorage.clear();
+  await deleteDatabase();
+});
+
+describe("IndexedDbSeatStore", () => {
+  it("loads credentials, including optional host authority, from a new store instance", async () => {
+    const credentials = {
+      code: "ABC123",
       playerId: "player-1",
-      seatToken: "seat-token-12345678901234567890123456789012",
-      hostToken: "host-token-12345678901234567890123456789012"
+      seatToken: "seat-secret",
+      hostToken: "host-secret",
     };
 
-    await store.put(creds);
+    await new IndexedDbSeatStore().put(credentials);
 
-    const loaded = await store.get("ABC234");
-    expect(loaded).toEqual(creds);
-
-    // Create a new store instance to simulate browser restart/refresh
-    const newStoreInstance = createSeatStore();
-    const reloaded = await newStoreInstance.get("ABC234");
-    expect(reloaded).toEqual(creds);
+    await expect(new IndexedDbSeatStore().get("ABC123")).resolves.toEqual(
+      credentials,
+    );
   });
 
-  it("overwrites old tokens when replacing credentials for the same room code", async () => {
-    const initial: SeatCredentials = {
-      code: "ROOM01",
-      playerId: "player-old",
-      seatToken: "old-token"
-    };
-    await store.put(initial);
+  it("atomically replaces the recovered seat and removes a stale host token", async () => {
+    const store = new IndexedDbSeatStore();
+    await store.put({
+      code: "ABC123",
+      playerId: "old-player",
+      seatToken: "old-seat",
+      hostToken: "old-host",
+    });
 
-    const replacement: SeatCredentials = {
-      code: "ROOM01",
-      playerId: "player-new",
-      seatToken: "new-token",
-      hostToken: "new-host-token"
-    };
-    await store.put(replacement);
+    await store.put({
+      code: "ABC123",
+      playerId: "new-player",
+      seatToken: "new-seat",
+    });
 
-    const current = await store.get("ROOM01");
-    expect(current).toEqual(replacement);
+    await expect(store.get("ABC123")).resolves.toEqual({
+      code: "ABC123",
+      playerId: "new-player",
+      seatToken: "new-seat",
+    });
   });
 
-  it("deleting one room does not delete another room", async () => {
-    const room1: SeatCredentials = {
-      code: "ROOM01",
-      playerId: "p1",
-      seatToken: "t1"
-    };
-    const room2: SeatCredentials = {
-      code: "ROOM02",
-      playerId: "p2",
-      seatToken: "t2"
-    };
+  it("deletes one room without affecting another", async () => {
+    const store = new IndexedDbSeatStore();
+    await store.put({ code: "ABC123", playerId: "one", seatToken: "first" });
+    await store.put({ code: "DEF456", playerId: "two", seatToken: "second" });
 
-    await store.put(room1);
-    await store.put(room2);
+    await store.delete("ABC123");
 
-    await store.delete("ROOM01");
-
-    expect(await store.get("ROOM01")).toBeUndefined();
-    expect(await store.get("ROOM02")).toEqual(room2);
+    await expect(store.get("ABC123")).resolves.toBeUndefined();
+    await expect(store.get("DEF456")).resolves.toEqual({
+      code: "DEF456",
+      playerId: "two",
+      seatToken: "second",
+    });
   });
 
-  it("never writes credentials to localStorage or exposes them in storage", async () => {
-    const creds: SeatCredentials = {
-      code: "SECRET",
-      playerId: "p-secret",
-      seatToken: "super-secret-token",
-      hostToken: "super-secret-host"
+  it("exposes helpers over the same IndexedDB store without URL or localStorage leakage", async () => {
+    const credentials = {
+      code: "ABC123",
+      playerId: "player-1",
+      seatToken: "durable-seat-token",
+      hostToken: "durable-host-token",
     };
 
-    await store.put(creds);
+    await saveCredentials(credentials);
 
-    // Assert nothing was touched in localStorage
-    expect(localStorage.getItem("SECRET")).toBeNull();
-    expect(localStorage.getItem("seatToken")).toBeNull();
-    expect(localStorage.getItem("super-secret-token")).toBeNull();
+    await expect(loadCredentials("ABC123")).resolves.toEqual(credentials);
+    expect(localStorage.length).toBe(0);
+    expect(window.location.href).not.toContain(credentials.seatToken);
+    expect(window.location.href).not.toContain(credentials.hostToken);
+    await deleteCredentials("ABC123");
+    await expect(loadCredentials("ABC123")).resolves.toBeUndefined();
   });
 });

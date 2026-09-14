@@ -1,36 +1,49 @@
-import { DurableObject } from "cloudflare:workers";
-import {
-  CommandEnvelopeSchema,
-  projectRoomForSeat,
-  type ClientProjection,
-  type CommandEnvelope,
-  type CommandResult,
-  type RoomProjectionSource,
-  type SeatSummary,
-  type ServerMessage,
-  type ViewerContext
+import type {
+  ClientProjection,
+  CommandEnvelope,
+  CommandResult,
+  ServerMessage,
+  ViewerContext,
 } from "@cipher-party/protocol";
-import { hashTicket, randomTicket, TICKET_TTL_MS } from "../auth/ticket";
-import { hashToken, timingSafeEqualString } from "../auth/token";
+import { ClientMessageSchema } from "@cipher-party/protocol";
+import { DurableObject } from "cloudflare:workers";
+
+import { createConnectionTicket } from "../auth/ticket";
+import { verifyToken } from "../auth/token";
 import type { Env } from "../env";
 import {
-  createLobbyState,
-  type RoomActor,
-  type RoomSeat,
-  type RoomState
-} from "./room-state";
-import { RoomSession } from "./room-session";
+  respectsSpectatorCapacityReservation,
+  RoomSession,
+} from "./room-session";
 import {
+  ROOM_IDLE_TTL_MS,
   RoomStorage,
-  type IRoomStorage,
-  ROOM_IDLE_TTL_MS
+  type RoomSnapshotStore,
 } from "./room-storage";
+import { createLobbyState, type RoomActor, type RoomState } from "./room-state";
 import {
-  getSocketAttachment,
-  serializeSocketAttachment
+  MAX_CLIENT_MESSAGE_BYTES,
+  OVERLOAD_CLOSE_CODE,
+  OVERLOAD_CLOSE_REASON,
+  opaqueAdmissionFailure,
+  parseRoomSocketAttachment,
+  readUpgradeTicket,
+  type RoomSocketAttachment,
 } from "./room-websocket";
+import { rateLimitedResponse } from "../http/admission-limits";
+import {
+  checkMessageBudget,
+  hasSocketCapacity,
+  MAX_TICKETS_PER_ROOM,
+  MAX_TICKETS_PER_SEAT,
+} from "./connection-budget";
 
-export interface RoomInitializationInput {
+export type { RoomSnapshotStore } from "./room-storage";
+
+type InitializeResult =
+  { ok: true } | { ok: false; code: "already_initialized" };
+
+export interface InitializeRoomInput {
   code: string;
   hostPlayerId: string;
   hostDisplayName: string;
@@ -40,9 +53,6 @@ export interface RoomInitializationInput {
   boardSeed: string;
 }
 
-export type InitializeResult =
-  { ok: true } | { ok: false; code: "already_initialized" };
-
 export interface JoinRoomInput {
   playerId: string;
   displayName: string;
@@ -50,7 +60,7 @@ export interface JoinRoomInput {
   asSpectator: boolean;
 }
 
-export type JoinRoomResult =
+type JoinResult =
   | { ok: true; revision: number }
   | {
       ok: false;
@@ -64,502 +74,767 @@ export interface IssueTicketInput {
   now: number;
 }
 
-export type IssueTicketResult =
+type IssueTicketResult =
   | { ok: true; ticket: string; expiresAt: number }
-  | { ok: false; code: "room_unavailable" | "unauthorized" };
+  | { ok: false; code: "room_unavailable" | "unauthorized" | "rate_limited" };
 
-export type ConsumeTicketResult =
+export interface ConsumeTicketInput {
+  ticket: string;
+  now: number;
+}
+
+type ConsumeTicketResult =
   | { ok: true; playerId: string; hostAuthority: boolean }
-  | { ok: false; code: "room_unavailable" | "invalid_ticket" };
+  | { ok: false; code: "unauthorized" };
 
-export type DispatchResult = CommandResult;
+type MarkConnectedResult = { ok: true } | { ok: false };
+
+interface DispatchOutcome {
+  result: CommandResult;
+  changed: boolean;
+}
+
+type PostPersistHook = (state: RoomState) => void | Promise<void>;
+
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
+
+export class PersistentRoomController {
+  readonly #storage: RoomSnapshotStore;
+  readonly #now: () => Date;
+  readonly #postPersist: PostPersistHook | undefined;
+  #state: RoomState | undefined;
+  #loadFailed = false;
+  #operationTail: Promise<void> = Promise.resolve();
+
+  constructor(
+    storage: RoomSnapshotStore,
+    now: () => Date = () => new Date(),
+    postPersist?: PostPersistHook,
+  ) {
+    this.#storage = storage;
+    this.#now = now;
+    this.#postPersist = postPersist;
+  }
+
+  async load(): Promise<void> {
+    await this.#serialize(async () => {
+      try {
+        const persisted = await this.#storage.read();
+        this.#state = persisted === undefined ? undefined : clone(persisted);
+        this.#loadFailed = false;
+      } catch (error) {
+        this.#state = undefined;
+        this.#loadFailed = true;
+        throw error;
+      }
+    });
+  }
+
+  initialize(
+    input: RoomState | InitializeRoomInput,
+  ): Promise<InitializeResult> {
+    return this.#serialize(async () => {
+      if (this.#loadFailed || this.#state !== undefined) {
+        return { ok: false, code: "already_initialized" };
+      }
+
+      const now = this.#now().toISOString();
+      const next =
+        "schemaVersion" in input
+          ? clone(input)
+          : createLobbyState({
+              code: input.code,
+              inviteUrl: input.inviteUrl,
+              boardSeed: input.boardSeed,
+              hostPlayerId: input.hostPlayerId,
+              displayName: input.hostDisplayName,
+              seatTokenHash: input.seatTokenHash,
+              hostTokenHash: input.hostTokenHash,
+              createdAt: now,
+            });
+      next.lastActivity = now;
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      return { ok: true };
+    });
+  }
+
+  join(input: JoinRoomInput): Promise<JoinResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false, code: "room_unavailable" };
+      }
+      if (current.locked) {
+        return { ok: false, code: "room_locked" };
+      }
+      if (!input.asSpectator && current.phase !== "lobby") {
+        return { ok: false, code: "room_in_progress" };
+      }
+      const seatClass = input.asSpectator ? "spectator" : "active";
+      const seatsInClass = current.seats.filter(
+        (seat) => seat.seatClass === seatClass,
+      ).length;
+      if (!input.asSpectator && seatsInClass >= 16) {
+        return { ok: false, code: "room_full" };
+      }
+
+      const next = clone(current);
+      next.seats.push({
+        playerId: input.playerId,
+        displayName: input.displayName,
+        seatClass,
+        teamId: null,
+        role: input.asSpectator ? "spectator" : "unassigned",
+        connected: false,
+        seatTokenHash: input.seatTokenHash,
+      });
+      if (input.asSpectator && !respectsSpectatorCapacityReservation(next)) {
+        return { ok: false, code: "room_full" };
+      }
+      next.revision = current.revision + 1;
+      next.lastActivity = this.#now().toISOString();
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      await this.#postPersist?.(clone(next));
+      return { ok: true, revision: next.revision };
+    });
+  }
+
+  issueTicket(input: IssueTicketInput): Promise<IssueTicketResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false, code: "room_unavailable" };
+      }
+      const next = clone(current);
+      next.connectionTickets = next.connectionTickets.filter(
+        (ticket) => ticket.expiresAt > input.now,
+      );
+      const verification = await Promise.all(
+        next.seats.map(async (seat) => ({
+          seat,
+          valid: await verifyToken(input.seatToken, seat.seatTokenHash),
+        })),
+      );
+      const seat = verification.find(({ valid }) => valid)?.seat;
+      const atCapacity =
+        next.connectionTickets.length >= MAX_TICKETS_PER_ROOM ||
+        next.connectionTickets.filter(
+          (ticket) => ticket.playerId === seat?.playerId,
+        ).length >= MAX_TICKETS_PER_SEAT;
+      if (seat === undefined || atCapacity) {
+        if (
+          next.connectionTickets.length !== current.connectionTickets.length
+        ) {
+          await this.#storage.write(next);
+          this.#state = clone(next);
+        }
+        return {
+          ok: false,
+          code: seat === undefined ? "unauthorized" : "rate_limited",
+        };
+      }
+
+      const hostAuthority =
+        seat.playerId === current.hostPlayerId &&
+        input.hostToken !== null &&
+        (await verifyToken(input.hostToken, current.hostTokenHash));
+      const issued = await createConnectionTicket(input.now);
+      next.connectionTickets.push({
+        ticketHash: issued.ticketHash,
+        playerId: seat.playerId,
+        hostAuthority,
+        expiresAt: issued.expiresAt,
+      });
+      next.lastActivity = new Date(input.now).toISOString();
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      return {
+        ok: true,
+        ticket: issued.ticket,
+        expiresAt: issued.expiresAt,
+      };
+    });
+  }
+
+  consumeTicket(input: ConsumeTicketInput): Promise<ConsumeTicketResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false, code: "unauthorized" };
+      }
+      const unexpired = current.connectionTickets.filter(
+        (ticket) => ticket.expiresAt > input.now,
+      );
+      const verification = await Promise.all(
+        unexpired.map(async (ticket) => ({
+          ticket,
+          valid: await verifyToken(input.ticket, ticket.ticketHash),
+        })),
+      );
+      const accepted = verification.find(({ valid }) => valid)?.ticket;
+      const next = clone(current);
+      next.connectionTickets =
+        accepted === undefined
+          ? clone(unexpired)
+          : unexpired.filter((ticket) => ticket !== accepted);
+      const changed =
+        next.connectionTickets.length !== current.connectionTickets.length;
+      if (changed) {
+        await this.#storage.write(next);
+        this.#state = clone(next);
+      }
+      if (accepted === undefined) {
+        return { ok: false, code: "unauthorized" };
+      }
+      return {
+        ok: true,
+        playerId: accepted.playerId,
+        hostAuthority:
+          accepted.hostAuthority && accepted.playerId === current.hostPlayerId,
+      };
+    });
+  }
+
+  markConnected(playerId: string, now: number): Promise<MarkConnectedResult> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return { ok: false };
+      }
+      const next = clone(current);
+      const seat = next.seats.find(
+        (candidate) => candidate.playerId === playerId,
+      );
+      if (seat === undefined) {
+        return { ok: false };
+      }
+
+      seat.connected = true;
+      next.revision = current.revision + 1;
+      next.lastActivity = new Date(now).toISOString();
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      return { ok: true };
+    });
+  }
+
+  disconnect(
+    playerId: string,
+    hasOtherOpenConnection: () => boolean,
+  ): Promise<{ changed: boolean }> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined || hasOtherOpenConnection()) {
+        return { changed: false };
+      }
+      const seat = current.seats.find(
+        (candidate) => candidate.playerId === playerId,
+      );
+      if (seat === undefined || !seat.connected) {
+        return { changed: false };
+      }
+      const next = clone(current);
+      const nextSeat = next.seats.find(
+        (candidate) => candidate.playerId === playerId,
+      )!;
+      nextSeat.connected = false;
+      next.revision = current.revision + 1;
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      return { changed: true };
+    });
+  }
+
+  reconcilePresence(
+    openPlayerIds: () => ReadonlySet<string>,
+  ): Promise<{ changed: boolean }> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) return { changed: false };
+      // Sample inside serialization: an earlier queued upgrade may have attached
+      // or closed a socket while this operation waited to acquire its turn.
+      const connected = openPlayerIds();
+      if (
+        current.seats.every(
+          (seat) => seat.connected === connected.has(seat.playerId),
+        )
+      )
+        return { changed: false };
+      const next = clone(current);
+      next.seats = next.seats.map((seat) => ({
+        ...seat,
+        connected: connected.has(seat.playerId),
+      }));
+      next.revision = current.revision + 1;
+      // Presence repair is not user activity and must not postpone expiry.
+      await this.#storage.write(next);
+      this.#state = clone(next);
+      await this.#postPersist?.(clone(next));
+      return { changed: true };
+    });
+  }
+
+  dispatch(
+    actor: RoomActor,
+    envelope: CommandEnvelope,
+  ): Promise<CommandResult> {
+    return this.dispatchWithOutcome(actor, envelope).then(
+      ({ result }) => result,
+    );
+  }
+
+  dispatchWithOutcome(
+    actor: RoomActor,
+    envelope: CommandEnvelope,
+  ): Promise<DispatchOutcome> {
+    return this.#serialize(async () => {
+      const current = this.#state;
+      if (current === undefined) {
+        return {
+          changed: false,
+          result: {
+            ok: false,
+            revision: 0,
+            code: "invalid_command",
+            message: "Room is not initialized",
+          },
+        };
+      }
+
+      const session = RoomSession.from(current);
+      const result = await session.dispatch(actor, envelope, this.#now());
+      const next = session.snapshot();
+      if (next.revision === current.revision) {
+        return { result, changed: false };
+      }
+
+      try {
+        await this.#storage.write(next);
+      } catch {
+        return {
+          changed: false,
+          result: {
+            ok: false,
+            revision: current.revision,
+            code: "storage_failed",
+            message: "Room state could not be persisted",
+          },
+        };
+      }
+
+      this.#state = clone(next);
+      await this.#postPersist?.(clone(next));
+      return { result, changed: true };
+    });
+  }
+
+  getCode(): string | undefined {
+    return this.#state?.code;
+  }
+
+  getSnapshot(): RoomState | undefined {
+    return this.#state === undefined ? undefined : clone(this.#state);
+  }
+
+  getProjection(viewer: ViewerContext): ClientProjection | undefined {
+    return this.#state === undefined
+      ? undefined
+      : RoomSession.from(this.#state).project(viewer);
+  }
+
+  getConnectionProjection(
+    playerId: string,
+    hostAuthority: boolean,
+  ): ClientProjection | undefined {
+    const state = this.#state;
+    const seat = state?.seats.find(
+      (candidate) => candidate.playerId === playerId,
+    );
+    if (state === undefined || seat === undefined) {
+      return undefined;
+    }
+    return RoomSession.from(state).project({
+      playerId: seat.playerId,
+      teamId: seat.teamId,
+      role: seat.role,
+      isHost: hostAuthority && seat.playerId === state.hostPlayerId,
+    });
+  }
+
+  getConnectionActor(
+    playerId: string,
+    hostAuthority: boolean,
+  ): RoomActor | undefined {
+    const state = this.#state;
+    if (
+      state === undefined ||
+      !state.seats.some((seat) => seat.playerId === playerId)
+    ) {
+      return undefined;
+    }
+    return {
+      playerId,
+      hostAuthority: hostAuthority && playerId === state.hostPlayerId,
+    };
+  }
+
+  handleAlarm(closeSockets: () => void | Promise<void>): Promise<void> {
+    return this.#serialize(async () => {
+      if (this.#loadFailed) return;
+      const persisted = await this.#storage.read();
+      if (persisted === undefined) {
+        this.#state = undefined;
+        return;
+      }
+
+      const deadline = Date.parse(persisted.lastActivity) + ROOM_IDLE_TTL_MS;
+      if (this.#now().getTime() < deadline) {
+        await this.#storage.write(persisted);
+        this.#state = clone(persisted);
+        return;
+      }
+
+      await closeSockets();
+      await this.#storage.clear();
+      this.#state = undefined;
+    });
+  }
+
+  #serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#operationTail.then(operation, operation);
+    this.#operationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+}
 
 export class RoomDurableObject extends DurableObject<Env> {
-  private storage: IRoomStorage;
-  private sessionState: RoomState | undefined;
-  private initializing = false;
+  readonly #controller: PersistentRoomController;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.storage = new RoomStorage(ctx.storage);
+    this.#controller = new PersistentRoomController(
+      new RoomStorage(ctx.storage),
+    );
     ctx.blockConcurrencyWhile(async () => {
-      this.sessionState = await this.storage.read();
+      try {
+        await this.#controller.load();
+      } catch {
+        // Invalid/unsupported storage stays intact. Public entry points use
+        // their existing opaque unavailable responses, never validation data.
+        return;
+      }
+      await this.#reconcilePresence();
     });
   }
 
-  setStorageAdapterForTest(adapter: IRoomStorage): void {
-    this.storage = adapter;
+  initialize(
+    input: RoomState | InitializeRoomInput,
+  ): Promise<InitializeResult> {
+    return this.#controller.initialize(input);
   }
 
-  setSessionStateForTest(state: RoomState): void {
-    this.sessionState = state;
-  }
-
-  async isInitialized(): Promise<boolean> {
-    return this.sessionState !== undefined;
-  }
-
-  async initialize(input: RoomInitializationInput): Promise<InitializeResult> {
-    if (this.sessionState !== undefined || this.initializing) {
-      return { ok: false, code: "already_initialized" };
+  async join(input: JoinRoomInput): Promise<JoinResult> {
+    await this.#reconcilePresence();
+    const result = await this.#controller.join(input);
+    if (result.ok) {
+      await this.#broadcastProjections();
     }
-    this.initializing = true;
+    return result;
+  }
+
+  issueTicket(input: IssueTicketInput): Promise<IssueTicketResult> {
+    return this.#controller.issueTicket(input);
+  }
+
+  consumeTicket(input: ConsumeTicketInput): Promise<ConsumeTicketResult> {
+    return this.#controller.consumeTicket(input);
+  }
+
+  getSnapshot(): RoomState | undefined {
+    return this.#controller.getSnapshot();
+  }
+
+  dispatch(
+    actor: RoomActor,
+    envelope: CommandEnvelope,
+  ): Promise<CommandResult> {
+    return this.#controller.dispatch(actor, envelope);
+  }
+
+  getProjection(viewer: ViewerContext): ClientProjection | undefined {
+    return this.#controller.getProjection(viewer);
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    await this.#reconcilePresence();
+    const snapshot = this.#controller.getSnapshot();
+    if (snapshot === undefined) {
+      return opaqueAdmissionFailure();
+    }
+    const ticket = readUpgradeTicket(request, snapshot.code);
+    if (ticket === null) {
+      return opaqueAdmissionFailure();
+    }
+
+    const connectedAt = Date.now();
+    let admission: ConsumeTicketResult;
     try {
-      const now = new Date();
-      const state = createLobbyState({
-        code: input.code,
-        hostPlayerId: input.hostPlayerId,
-        hostDisplayName: input.hostDisplayName,
-        hostTokenHash: input.hostTokenHash,
-        seatTokenHash: input.seatTokenHash,
-        boardSeed: input.boardSeed,
-        inviteUrl: input.inviteUrl,
-        now
+      admission = await this.#controller.consumeTicket({
+        ticket,
+        now: connectedAt,
       });
-      await this.storage.write(state);
-      this.sessionState = state;
-      return { ok: true };
-    } finally {
-      this.initializing = false;
+    } catch {
+      return opaqueAdmissionFailure();
     }
-  }
-
-  async join(input: JoinRoomInput): Promise<JoinRoomResult> {
-    if (!this.sessionState) {
-      return { ok: false, code: "room_unavailable" };
-    }
-    if (this.sessionState.locked) {
-      return { ok: false, code: "room_locked" };
-    }
-    if (this.sessionState.phase !== "lobby" && !input.asSpectator) {
-      return { ok: false, code: "room_in_progress" };
-    }
-    const activeCount = this.sessionState.seats.filter(
-      (s) => s.seatClass === "active"
-    ).length;
-    const spectatorCount = this.sessionState.seats.filter(
-      (s) => s.seatClass === "spectator"
-    ).length;
-
-    if (!input.asSpectator && activeCount >= 16) {
-      return { ok: false, code: "room_full" };
-    }
-    if (input.asSpectator && spectatorCount >= 16) {
-      return { ok: false, code: "room_full" };
+    if (!admission.ok) {
+      return opaqueAdmissionFailure();
     }
 
-    const newSeat: RoomSeat = {
-      playerId: input.playerId,
-      displayName: input.displayName,
-      seatClass: input.asSpectator ? "spectator" : "active",
-      teamId: null,
-      role: input.asSpectator ? "spectator" : "unassigned",
-      connected: false,
-      seatTokenHash: input.seatTokenHash
-    };
-
-    const nextState = structuredClone(this.sessionState);
-    nextState.seats.push(newSeat);
-    nextState.revision += 1;
-    nextState.lastActivity = new Date().toISOString();
-
-    await this.storage.write(nextState);
-    this.sessionState = nextState;
-
-    await this.broadcastProjections();
-
-    return { ok: true, revision: nextState.revision };
-  }
-
-  async issueTicket(input: IssueTicketInput): Promise<IssueTicketResult> {
-    if (!this.sessionState) {
-      return { ok: false, code: "room_unavailable" };
-    }
-
-    const seatTokenHash = await hashToken(input.seatToken);
-    const seat = this.sessionState.seats.find((s) =>
-      timingSafeEqualString(s.seatTokenHash, seatTokenHash)
-    );
-    if (!seat) {
-      return { ok: false, code: "unauthorized" };
-    }
-
-    const isHostPlayer = seat.playerId === this.sessionState.hostPlayerId;
-    let hostAuthority = false;
-    if (input.hostToken !== null) {
-      if (!isHostPlayer) {
-        return { ok: false, code: "unauthorized" };
+    let serverSocket: WebSocket | undefined;
+    try {
+      // No await may separate capacity accounting from accept/attach. The
+      // accepted socket reserves its slot before markConnected yields.
+      if (!hasSocketCapacity(this.ctx, admission.playerId))
+        return rateLimitedResponse();
+      const pair = new WebSocketPair();
+      const clientSocket = pair[0];
+      serverSocket = pair[1];
+      this.ctx.acceptWebSocket(serverSocket, [admission.playerId]);
+      const attachment: RoomSocketAttachment = {
+        connectionId: crypto.randomUUID(),
+        playerId: admission.playerId,
+        hostAuthority: admission.hostAuthority,
+      };
+      serverSocket.serializeAttachment(attachment);
+      const connected = await this.#controller.markConnected(
+        admission.playerId,
+        connectedAt,
+      );
+      if (!connected.ok) {
+        throw new Error("room connection is unavailable");
       }
-      const hostTokenHash = await hashToken(input.hostToken);
-      if (
-        !timingSafeEqualString(this.sessionState.hostTokenHash, hostTokenHash)
-      ) {
-        return { ok: false, code: "unauthorized" };
+      if (!this.#sendProjection(serverSocket, attachment)) {
+        throw new Error("initial projection send failed");
       }
-      hostAuthority = true;
-    }
-
-    const nextState = structuredClone(this.sessionState);
-    nextState.connectionTickets = nextState.connectionTickets.filter(
-      (t) => t.expiresAt > input.now
-    );
-
-    const ticket = randomTicket();
-    const ticketHash = await hashTicket(ticket);
-    const expiresAt = input.now + TICKET_TTL_MS;
-
-    nextState.connectionTickets.push({
-      ticketHash,
-      playerId: seat.playerId,
-      hostAuthority,
-      expiresAt
-    });
-    nextState.lastActivity = new Date(input.now).toISOString();
-
-    await this.storage.write(nextState);
-    this.sessionState = nextState;
-
-    return { ok: true, ticket, expiresAt };
-  }
-
-  async consumeTicket(
-    ticket: string,
-    now: number
-  ): Promise<ConsumeTicketResult> {
-    if (!this.sessionState) {
-      return { ok: false, code: "room_unavailable" };
-    }
-
-    const ticketHash = await hashTicket(ticket);
-    const nextState = structuredClone(this.sessionState);
-
-    const ticketRecord = nextState.connectionTickets.find((t) =>
-      timingSafeEqualString(t.ticketHash, ticketHash)
-    );
-
-    nextState.connectionTickets = nextState.connectionTickets.filter(
-      (t) => t.expiresAt > now
-    );
-
-    if (!ticketRecord || ticketRecord.expiresAt <= now) {
-      if (
-        nextState.connectionTickets.length !==
-        this.sessionState.connectionTickets.length
-      ) {
-        await this.storage.write(nextState);
-        this.sessionState = nextState;
-      }
-      return { ok: false, code: "invalid_ticket" };
-    }
-
-    nextState.connectionTickets = nextState.connectionTickets.filter(
-      (t) => !timingSafeEqualString(t.ticketHash, ticketHash)
-    );
-
-    const seat = nextState.seats.find(
-      (s) => s.playerId === ticketRecord.playerId
-    );
-    if (seat) {
-      if (!seat.connected) {
-        seat.connected = true;
-        nextState.revision += 1;
-      }
-    }
-
-    nextState.lastActivity = new Date(now).toISOString();
-
-    await this.storage.write(nextState);
-    this.sessionState = nextState;
-
-    return {
-      ok: true,
-      playerId: ticketRecord.playerId,
-      hostAuthority: ticketRecord.hostAuthority
-    };
-  }
-
-  override async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    if (!url.pathname.endsWith("/connect")) {
-      return new Response("Not found", { status: 404 });
-    }
-    const upgradeHeader = request.headers.get("Upgrade");
-    if (!upgradeHeader || upgradeHeader.toLowerCase() !== "websocket") {
-      return new Response("Expected Upgrade: websocket", { status: 426 });
-    }
-    const ticket = url.searchParams.get("ticket");
-    if (!ticket) {
-      return new Response("Missing ticket", { status: 401 });
-    }
-
-    const now = Date.now();
-    const consumeResult = await this.consumeTicket(ticket, now);
-    if (!consumeResult.ok) {
-      return new Response("Unauthorized or ticket expired", { status: 401 });
-    }
-
-    const { playerId, hostAuthority } = consumeResult;
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-
-    this.ctx.acceptWebSocket(server, [playerId]);
-    const connectionId = crypto.randomUUID();
-    serializeSocketAttachment(server, {
-      connectionId,
-      playerId,
-      hostAuthority
-    });
-
-    await this.broadcastProjections();
-
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  async broadcastProjections(): Promise<void> {
-    if (!this.sessionState) {
-      return;
-    }
-    const sockets = this.ctx.getWebSockets();
-    for (const ws of sockets) {
-      const attachment = getSocketAttachment(ws);
-      if (!attachment) {
-        continue;
+      await this.#broadcastProjections(attachment.connectionId);
+      return new Response(null, { status: 101, webSocket: clientSocket });
+    } catch {
+      try {
+        serverSocket?.close(1011, "Connection failed");
+      } catch {
+        // Admission still fails opaquely when the server socket cannot close.
       }
       try {
-        const projection = await this.getProjection({
-          playerId: attachment.playerId,
-          hostAuthority: attachment.hostAuthority
-        });
-        const message: ServerMessage = {
-          type: "projection",
-          projection
-        };
-        ws.send(JSON.stringify(message));
+        await this.#disconnectIfLast(admission.playerId, undefined);
       } catch {
-        // Failed send to one socket does not disrupt healthy sockets
+        // The connection is already closed and admission remains opaque.
       }
+      try {
+        await this.#broadcastProjections();
+      } catch {
+        // Admission failures remain opaque even if a defensive resync fails.
+      }
+      return opaqueAdmissionFailure();
     }
   }
 
   async webSocketMessage(
-    ws: WebSocket,
-    message: string | ArrayBuffer
+    socket: WebSocket,
+    message: string | ArrayBuffer,
   ): Promise<void> {
-    if (typeof message !== "string") {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          code: "invalid_message",
-          message: "Only text frames are supported"
-        } satisfies ServerMessage)
-      );
-      return;
-    }
-
-    if (new TextEncoder().encode(message).byteLength > 16 * 1024) {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          code: "invalid_message",
-          message: "Message frame exceeds 16 KiB"
-        } satisfies ServerMessage)
-      );
-      return;
-    }
-
-    let rawJson: unknown;
-    try {
-      rawJson = JSON.parse(message);
-    } catch {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          code: "invalid_message",
-          message: "Malformed JSON"
-        } satisfies ServerMessage)
-      );
-      return;
-    }
-
-    const parsed = CommandEnvelopeSchema.safeParse(rawJson);
-    if (!parsed.success) {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          code: "invalid_message",
-          message: parsed.error.issues[0]?.message ?? "Invalid command envelope"
-        } satisfies ServerMessage)
-      );
-      return;
-    }
-
-    const attachment = getSocketAttachment(ws);
-    if (!attachment) {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          code: "internal_error",
-          message: "Missing socket attachment"
-        } satisfies ServerMessage)
-      );
-      return;
-    }
-
-    const actor: RoomActor = {
-      playerId: attachment.playerId,
-      hostAuthority: attachment.hostAuthority
-    };
-
-    const result = await this.dispatch(actor, parsed.data);
-    const resultMsg: ServerMessage = {
-      type: "command_result",
-      commandId: parsed.data.commandId,
-      result
-    };
-    ws.send(JSON.stringify(resultMsg));
-
-    await this.broadcastProjections();
-  }
-
-  async webSocketClose(ws: WebSocket): Promise<void> {
-    if (!this.sessionState) {
-      return;
-    }
-
-    const attachment = getSocketAttachment(ws);
-    if (!attachment) {
-      return;
-    }
-
-    const remainingSockets = this.ctx.getWebSockets().filter((s) => s !== ws);
-    const hasOtherSocketForPlayer = remainingSockets.some(
-      (s) => getSocketAttachment(s)?.playerId === attachment.playerId
-    );
-
-    if (hasOtherSocketForPlayer) {
-      return;
-    }
-
-    const nextState = structuredClone(this.sessionState);
-    const seat = nextState.seats.find(
-      (s) => s.playerId === attachment.playerId
-    );
-    if (seat && seat.connected) {
-      seat.connected = false;
-      nextState.revision += 1;
-      // Presence change persists before broadcasting, does not extend lastActivity
-      await this.storage.write(nextState);
-      this.sessionState = nextState;
-      await this.broadcastProjections();
-    }
-  }
-
-  async webSocketError(ws: WebSocket): Promise<void> {
-    await this.webSocketClose(ws);
-  }
-
-  async getSnapshot(): Promise<RoomState> {
-    if (!this.sessionState) {
-      throw new Error("Room not initialized");
-    }
-    return structuredClone(this.sessionState);
-  }
-
-  async dispatch(
-    actor: RoomActor,
-    envelope: CommandEnvelope
-  ): Promise<DispatchResult> {
-    if (!this.sessionState) {
-      throw new Error("Room not initialized");
-    }
-
-    const session = RoomSession.from(this.sessionState);
-    const now = new Date();
-    const result = await session.dispatch(actor, envelope, now);
-
-    if (result.ok && result.revision > this.sessionState.revision) {
-      const nextState = session.snapshot();
-      try {
-        await this.storage.write(nextState);
-        this.sessionState = nextState;
-      } catch (error) {
-        return {
-          ok: false,
-          revision: this.sessionState.revision,
-          code: "storage_failed",
-          message:
-            error instanceof Error ? error.message : "Storage write failed"
-        };
+    if (socket.readyState !== WebSocket.OPEN) return;
+    const attachment = parseRoomSocketAttachment(socket);
+    if (attachment !== null) {
+      const roomCode = this.#controller.getCode();
+      if (
+        roomCode === undefined ||
+        !(await checkMessageBudget(this.env, roomCode, attachment.playerId))
+      ) {
+        socket.close(OVERLOAD_CLOSE_CODE, OVERLOAD_CLOSE_REASON);
+        return;
       }
+      // A budget await can overlap a close or terminal room event.
+      if (socket.readyState !== WebSocket.OPEN) return;
+    }
+    if (
+      attachment === null ||
+      typeof message !== "string" ||
+      new TextEncoder().encode(message).byteLength > MAX_CLIENT_MESSAGE_BYTES
+    ) {
+      this.#send(socket, {
+        type: "error",
+        code: "invalid_message",
+        message: "Message did not match protocol",
+      });
+      return;
     }
 
-    return result;
+    let value: unknown;
+    try {
+      value = JSON.parse(message);
+    } catch {
+      this.#send(socket, {
+        type: "error",
+        code: "invalid_message",
+        message: "Message did not match protocol",
+      });
+      return;
+    }
+    const parsed = ClientMessageSchema.safeParse(value);
+    if (!parsed.success) {
+      this.#send(socket, {
+        type: "error",
+        code: "invalid_message",
+        message: "Message did not match protocol",
+      });
+      return;
+    }
+
+    const actor = this.#controller.getConnectionActor(
+      attachment.playerId,
+      attachment.hostAuthority,
+    );
+    if (actor === undefined) {
+      this.#send(socket, {
+        type: "error",
+        code: "internal_error",
+        message: "Room connection is unavailable",
+      });
+      return;
+    }
+    // Only an admitted, protocol-valid frame from an attached room actor may
+    // trigger presence repair. Malformed and over-budget traffic never writes.
+    await this.#reconcilePresence();
+    try {
+      const { result, changed } = await this.#controller.dispatchWithOutcome(
+        actor,
+        parsed.data,
+      );
+      this.#send(socket, {
+        type: "command_result",
+        commandId: parsed.data.commandId,
+        result,
+      });
+      if (changed) await this.#broadcastProjections();
+      else this.#sendProjection(socket, attachment);
+    } catch {
+      this.#send(socket, {
+        type: "error",
+        code: "internal_error",
+        message: "Room command could not be processed",
+      });
+    }
   }
 
-  async getProjection(viewer: RoomActor): Promise<ClientProjection> {
-    if (!this.sessionState) {
-      throw new Error("Room not initialized");
+  async webSocketClose(socket: WebSocket): Promise<void> {
+    const attachment = parseRoomSocketAttachment(socket);
+    if (attachment === null) {
+      return;
     }
+    await this.#reconcilePresence(attachment.connectionId);
+  }
 
-    const state = this.sessionState;
-    const seat = state.seats.find((s) => s.playerId === viewer.playerId);
-    const isHost =
-      viewer.hostAuthority || viewer.playerId === state.hostPlayerId;
-
-    const viewerContext: ViewerContext = {
-      playerId: viewer.playerId,
-      teamId: seat?.teamId ?? null,
-      role: seat?.role ?? "spectator",
-      isHost
-    };
-
-    const seats: SeatSummary[] = state.seats.map((s) => ({
-      playerId: s.playerId,
-      displayName: s.displayName,
-      teamId: s.teamId,
-      role: s.role,
-      connected: s.connected
-    }));
-
-    const source: RoomProjectionSource = {
-      protocolVersion: state.protocolVersion,
-      code: state.code,
-      inviteUrl: state.inviteUrl,
-      revision: state.revision,
-      roomPhase: state.phase,
-      locked: state.locked,
-      seats,
-      publicHistory: state.publicHistory,
-      game: state.game
-    };
-
-    return projectRoomForSeat(source, viewerContext);
+  async webSocketError(socket: WebSocket): Promise<void> {
+    await this.webSocketClose(socket);
   }
 
   async alarm(): Promise<void> {
-    const snapshot = await this.storage.read();
-    if (!snapshot) {
-      this.sessionState = undefined;
-      return;
-    }
-
-    const expiresAt = Date.parse(snapshot.lastActivity) + ROOM_IDLE_TTL_MS;
-    const now = Date.now();
-    if (now < expiresAt) {
-      await this.ctx.storage.setAlarm(expiresAt);
-      return;
-    }
-
-    for (const ws of this.ctx.getWebSockets()) {
-      try {
-        ws.close(1001, "Room expired");
-      } catch {
-        // ignore WebSocket close errors
+    await this.#controller.handleAlarm(() => {
+      for (const socket of this.ctx.getWebSockets()) {
+        try {
+          socket.close(1001, "Room expired");
+        } catch {
+          // A concurrently closed socket cannot prevent expiry cleanup.
+        }
       }
-    }
+    });
+  }
 
-    await this.storage.clear();
-    this.sessionState = undefined;
+  async #disconnectIfLast(
+    playerId: string,
+    closingConnectionId: string | undefined,
+  ): Promise<void> {
+    const hasOtherOpenConnection = () =>
+      this.ctx.getWebSockets(playerId).some((candidate) => {
+        const attachment = parseRoomSocketAttachment(candidate);
+        return (
+          attachment !== null &&
+          attachment.connectionId !== closingConnectionId &&
+          candidate.readyState === WebSocket.OPEN
+        );
+      });
+    const { changed } = await this.#controller.disconnect(
+      playerId,
+      hasOtherOpenConnection,
+    );
+    if (changed && !hasOtherOpenConnection()) {
+      await this.#broadcastProjections();
+    }
+  }
+
+  async #reconcilePresence(excludedConnectionId?: string): Promise<void> {
+    try {
+      const { changed } = await this.#controller.reconcilePresence(() => {
+        const players = new Set<string>();
+        for (const socket of this.ctx.getWebSockets()) {
+          if (socket.readyState !== WebSocket.OPEN) continue;
+          const attachment = parseRoomSocketAttachment(socket);
+          if (
+            attachment !== null &&
+            attachment.connectionId !== excludedConnectionId
+          )
+            players.add(attachment.playerId);
+        }
+        return players;
+      });
+      if (changed) await this.#broadcastProjections();
+    } catch {
+      // A failed repair leaves the committed flags untouched. The next room
+      // event retries from current runtime inventory, without a timer or log.
+    }
+  }
+
+  #send(socket: WebSocket, message: ServerMessage): boolean {
+    if (socket.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #sendProjection(
+    socket: WebSocket,
+    attachment: RoomSocketAttachment,
+  ): boolean {
+    const projection = this.#controller.getConnectionProjection(
+      attachment.playerId,
+      attachment.hostAuthority,
+    );
+    return (
+      projection !== undefined &&
+      this.#send(socket, { type: "projection", projection })
+    );
+  }
+
+  async #broadcastProjections(excludedConnectionId?: string): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = parseRoomSocketAttachment(socket);
+      if (
+        attachment === null ||
+        attachment.connectionId === excludedConnectionId
+      ) {
+        continue;
+      }
+      this.#sendProjection(socket, attachment);
+    }
   }
 }

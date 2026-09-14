@@ -1,40 +1,38 @@
 # Cipher Party Project Snapshot
 
-**Snapshot revision:** 18
+**Snapshot revision:** 44
 
 **Last updated:** 2026-09-14
 
-**Project state:** Browser Task 11 remains complete. The native iOS online
-client implementation and final code-review gate are complete through the
-latest reviewed HEAD. Task 9's actual mixed-room and device/network
-interruption checks remain open; component tests are not substitutes for those
-acceptance checks. The iOS plan is not complete.
+**Project state:** Creative integration and audit hardening are complete and independently reviewed. Multi-team Classic Tasks 1–7 (canonical teams/board geometry, reducer transitions, protocol v2 projections, v1-to-v2 persisted snapshots, dynamic Worker lobby/authorization/persistence, projection-driven React UI, and browser/privacy/runbook coverage) are implemented and review-clean, with final whole-branch fixes through `4e138b6`. The complete release gate and guarded staging dry-run passed for exact clean runtime source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the public repository handoff merged as PR #1 into the reviewed `main` baseline, and the multi-team source was subsequently deployed and attested at staging. The native iOS companion is now aligned with protocol v2 and the current 2–4-team room contract in PR #3; its physical-device, Universal Link, and mixed-device acceptance gates remain pending. The four-human and eight-human playtests remain NOT YET RUN; Milestone 1 is still open.
 
-**Active milestone:** Milestone 1 — Connected Classic, with the approved native
-iOS online companion extension
+**Active milestone:** Milestone 1 — Connected Classic (multi-team expansion in progress)
 
-**Active plan:** docs/superpowers/plans/2026-09-13-ios-online-client.md
+**Active plan:** docs/superpowers/plans/2026-09-12-multi-team-classic.md
 
-**Browser plan:** docs/superpowers/plans/2026-08-30-connected-classic.md
+**Next execution:** Merge the reviewed iOS client integration, configure the staging Apple App ID/AASA secret, and run the iOS physical-device plus mixed browser/iPhone checks. Then run the distributed four-human two-team regression and eight-player four-team staging gate from the separate runbooks, record measured device/session evidence, and address any critical findings before closing Milestone 1. The prior two-team deployment remains a regression reference; the current multi-team deployment is now attested.
+
+**Completed integration plan:** docs/superpowers/plans/2026-09-07-creative-integration.md — complete; do not restart Tasks 1–4.
+
+**Original milestone plan:** docs/superpowers/plans/2026-08-30-connected-classic.md (historical implementation/review evidence).
+
+**Current worktree:** `/Users/eugenezhou/Code/cipher-party/.worktrees/ios-online-client`
+
+**Creative source:** `legacy/gemini-main@128c0f7` plus identified Antigravity prototype/content directories. Preserve the original checkout and its untracked E2E drafts.
 
 **Roadmap:** docs/superpowers/plans/2026-08-30-cipher-party-roadmap.md
 
-**Approved specs:**
+**Approved spec:** docs/superpowers/specs/2026-08-30-cipher-party-design.md
 
-- docs/superpowers/specs/2026-08-30-cipher-party-design.md
-- docs/superpowers/specs/2026-09-13-ios-online-client-design.md
+**Approved multi-team spec:** docs/superpowers/specs/2026-09-12-multi-team-design.md
 
 ## What we are building
 
 A private, account-free multiplayer association game for 4–16 active players on phones and laptops. The MVP uses a server-authoritative Cloudflare room, role-safe views, text/picture/mixed theme packs, Classic and Blitz rules, two to four teams, and best-of-3/5/7 campaigns.
 
-The current iOS extension is a native SwiftUI 17+ online client for the same
-rooms. It is intended for groups standing together while each person uses a
-phone, and it must interoperate with the browser client through protocol v1.
-
 ## Current delivery boundary
 
-Milestone 1 delivers a deployable two-team Classic game with:
+The prior deployed staging build, which remains the current external runtime reference until a multi-team deployment is explicitly authorized, is a two-team Classic game with:
 
 - Account-free room creation and invite-code joining.
 - Host, clue-giver, operative, and spectator roles.
@@ -46,13 +44,7 @@ Milestone 1 delivers a deployable two-team Classic game with:
 - A 24-hour inactivity alarm that closes sockets and clears room storage.
 - A responsive phone/laptop lobby and game board.
 
-Milestone 1 does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs.
-
-The native iOS extension now delivers the first online implementation slice:
-account-free create/join, QR/Universal Link/manual-code entry, device-only
-Keychain credentials, role-safe lobby and Classic board views, and bounded
-online reconnect/read-only cache UX. It reuses protocol v1 and the browser's
-Cloudflare room authority; no nearby/offline match is included.
+That prior deployed two-team staging build does not deliver the pack builder, image uploads, AI suggestions, Blitz, multi-team variants, campaigns, TV mode, accounts, or public packs. The reviewed branch/source now implements Tasks 1–8 of the approved single-board Classic expansion for host-selected 2-, 3-, or 4-team rooms and is deployed at the current multi-team staging source recorded below. The native iOS companion now consumes the same protocol v2 projections and commands, supports account-free invite/code entry, durable seat credentials, role-safe views, and host team-count selection. Actual Apple App ID configuration, signed Universal Links, physical iPhone reconnect behavior, and mixed browser/iPhone acceptance remain unverified. Pack Studio, image uploads, AI suggestions, Blitz, campaigns, TV mode, accounts, public packs, picture/mixed cards, and licensed content remain out of scope for the reviewed source.
 
 ## Architecture snapshot
 
@@ -61,10 +53,9 @@ Cloudflare room authority; no nearby/offline match is included.
 - One SQLite-backed Durable Object per room.
 - Pure deterministic rules in packages/game-core.
 - Validated commands and role projections in packages/protocol.
+- Native iOS SwiftUI client and strict v2 models in apps/ios; it is a client of the Worker and does not own game state.
 - Pack schemas will be isolated in packages/pack-format when Milestone 2 introduces that package.
 - R2 and Workers AI are introduced in Milestone 2, not Milestone 1.
-- Native iOS lives in apps/ios and consumes the existing HTTP/WebSocket protocol;
-  it does not carry a second game engine or authoritative state.
 
 ## Non-negotiable safety boundaries
 
@@ -74,94 +65,143 @@ Cloudflare room authority; no nearby/offline match is included.
 - Room codes locate rooms but do not authorize privileged actions.
 - Seat and host tokens stay out of URLs and logs.
 - The shipped app contains no unlicensed franchise art.
-- iOS durable seat/host credentials stay in device-only Keychain storage; the
-  short-lived WebSocket ticket is never logged.
-- Network loss is read-only cached presentation plus reconnect, never an offline
-  local match.
 
 ## Work ledger
 
-- **Last accepted implementation task:** Task 10 — native iOS release-readiness
-  implementation and final code-review gate. Task 9's component/security
-  checks have evidence; mixed-room and interruption smoke acceptance remains
-  pending.
-- **Native iOS spec commit:** `9c1d68a` — native iOS online-client design.
-- **Current task:** Native iOS handoff with the implementation and final review
-  complete; preserve the open staging/device acceptance blockers.
-- **Next task:** Route the Cipher Party Worker at `oddlyuseful.studio`, then run
-  the pending mixed-room/interruption and signed-device checks before deciding
-  whether to open a PR from `feature/ios-online-client`.
-- **Deployment follow-ups:** `https://oddlyuseful.studio` currently serves the
-  unrelated studio site (`/api/health` returned 404), so no staging create/join
-  or signed Universal Link smoke is claimed. A registered Apple App ID/team,
-  Worker routing at the canonical host, and a signed-device pass remain.
+- **Last accepted task:** Task 8 — full verification and source-bound release handoff for exact source `4e138b64a191d6236445b1763d1128004b0fc5ac`; native iOS v2 alignment is reviewed in PR #3, with no Xcode runtime evidence available in this environment.
+- **Current task:** Merge PR #3 after repository checks, then configure the staging Apple App ID/AASA and run physical iOS/mixed-client acceptance.
+- **Next task:** Conduct the four-human two-team and eight-player four-team sessions from the separate runbooks and record their measured evidence.
+- **Current blockers:** Hosted CI has no configured repository/provider; this environment has CommandLineTools but no full Xcode/simulator; the Apple App ID/AASA value and physical-device reconnect/mixed-client checks are pending; the real four-human two-team and eight-player four-team staging sessions have not been run. Milestone exit requires the human gates and resolution of any critical findings. **Human playtests: NOT YET RUN.**
+- **Audit baseline:** 518 tracked runtime functions; classic mean 3.36, maximum 34, and exactly the approved baseline exceptions above 20 after the final whole-branch fixes. The >20-function gate is green and inline waivers cannot suppress inventory. This current measurement comes from the final Task 8 release rerun; earlier task measurements below remain historical.
 
-## Verified baseline
+## Current hardening evidence
 
-- Design commit: ba2c612.
-- Scaffold commit: 1fa7df2.
-- Canonical agent instructions, snapshot, roadmap, active plan, and approved spec all exist and cross-link.
-- The Connected Classic plan contains 13 ordered tasks and 112 TDD checklist steps (Tasks 1–11 complete: 93/93 steps verified).
-- Native iOS Tasks 1–8 have focused Swift, Worker, browser, and fixture evidence.
-  Task 9 has component/privacy evidence but no completed physical mixed-client
-  or network-interruption smoke. Those acceptance checkboxes are open.
-- Passing iOS commands: Debug and Staging `xcodebuild ... build`, Debug and
-  Staging `xcodebuild ... test` on the iPhone SE (3rd generation) iOS 18.2
-  simulator, and Debug/Staging `build-for-testing` with signing disabled.
-- Latest integration-fix verification: Debug and Staging each passed 125 native
-  tests (121 unit and 4 UI) with zero failures or skips, including saved-seat
-  restoration, root lifecycle/cleanup, pending-action recovery, and unsafe-
-  update handling.
-- Passing repository commands: `pnpm run check` (24 fixture tests, 22
-  game-core tests, 46 protocol tests, 53 web tests, 41 Worker tests, root test,
-  formatting, lint, and typecheck), `node scripts/check-project-docs.mjs`, and
-  `git diff --check`.
-- Final verification resolved the earlier Vite/Playwright readiness mismatch by
-  explicitly binding Vite to `127.0.0.1`. `pnpm run test:e2e` then exited 1:
-  **No tests found**. The `e2e/` suite belongs to pending browser Task 12 and is
-  absent from this branch. No browser E2E or mixed native/browser pass is claimed.
+- Task 1 restored the Git/ESLint scratch boundary and validates the snapshot's actual active-plan target. `pnpm run check` passed **542 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 94). The coordinator separately reran the 46 focused docs/hygiene/preflight tests successfully.
+- Tracked `smoke:staging:public` discovers four public route/browser cases and stays outside local e2e discovery. It blocks socket creation and unsafe methods/origins/queries; a shared zero-redirect transport helper prevents redirects from contacting forbidden destinations. Eight local Chromium/WebKit policy regressions passed after meaningful RED; lint, types and diff checks passed. The tracked live smoke itself has not been run.
+- Multi-team staging deployment, source attestation, and artifact-free public smoke have passed. The user authorized the public repository push and PR; hosted CI still awaits provider configuration, and both human acceptance gates remain pending.
+- Task 2 preserves durable credentials and exact in-flight command envelopes across transient reconnect; permanent 401/404/1008/expiry failures clear projections and expose local recovery copy. 429 Retry-After and 1013 overload cooldown are bounded and tested; explicit forget/rejoin is still the only credential deletion path.
+- Task 3 bounds valid upgrades before Durable Object lookup, caps live socket inventory at four per seat/64 per room, caps outstanding unexpired tickets at eight per seat/256 per room, and applies stable purpose-scoped native command budgets (30/10s per seat, 120/10s per room) before frame parsing. Failed/replayed commands resync only their sender; accepted revision changes broadcast. Focused Worker tests passed 129/129; staging fixtures 47/47; `pnpm run check` passed 588 tests; local e2e 48/48; build, preflight 8/8, and diff checks passed. Counters are location-local/eventually consistent, and capacity denial may consume a one-use ticket; no deployment/live smoke occurred.
+- Task 4 validates complete v1 room snapshots before controller use, rejects unsupported/corrupt storage without writing, clearing, migrating, exposing details, or allowing initialization over it, and restores null-prototype card maps. Presence is reconciled from OPEN serialized attachments on load and later room events; repairs preserve `lastActivity`, retry after failed writes, and never run for over-budget or protocol-invalid frames. Focused resilience tests passed 133/133; `pnpm run check` passed 643 tests; local e2e 48/48; diff checks passed. Lost successful join responses still allocate a second seat on retry; retry-safe identity and replacement remain deferred. No deployment/live smoke occurred.
+- Task 5 adds tracked-runtime classic complexity measurement with stable file/function identities, exactly six explicit exceptions, and a >20 new-function gate; inline complexity waivers cannot suppress inventory. All five Vitest scopes use separate Istanbul reports and measured whole-number S/B/F/L floors: game-core 97/96/100/97, protocol 96/94/100/96, web 91/87/91/91, Worker 93/91/98/93, root 80/77/92/80. Source-bound `pnpm run deploy:staging` now requires clean exact SHA → full `check:release` → same clean SHA → low-level `expectedCommit`; direct low-level live CLI refuses and dry-run remains non-uploading. The optional clean gate clones without hardlinks, frozen-installs, runs only the inner release gate, and removes its task-owned checkout. Focused tooling/staging tests passed 76/76; full release gate passed 672 tests, builds/preflight, and local E2E 48/48; the separate real clean-checkout gate passed. No deployment/live smoke, hosted CI, or human playtest occurred.
+- Task 6 extracted typed private reducer clue/reveal handlers, pure game availability derivation, and a single identity/projection-scoped confirmation hook. Transport gating remains separate from intent validity so reconnect keeps Cancel/focus recovery while disabling destructive sends; clue-giver keys remain outside the hook. Focused reducer/UI tests passed 57/57 and 71/71; full release gate passed 681 tests, unchanged coverage floors, builds/preflight, and local E2E 48/48. Classic GameWorkspace fell 36→10 and applyGameAction 30→18, removing both exceptions. No deployment/live smoke or human playtest occurred.
+- Task 7 completed the coordinator whole-branch review from `7142f5481e72c7e49d127e4877b4e7ee5502df1b` through `db5b18e71418a948149e15e0af872282730c2e0d`; accepted task reviews remain clean and no material finding is open. Fresh elevated `pnpm run check:release` passed 681 tests, complexity (445 functions, mean 3.38, maximum 34, four explicit exceptions), all five coverage floors, builds/local Worker dry run, preflight, and 48/48 local E2E. The unprivileged sandbox attempt failed only at the Worker listener/log boundary; the approved elevated rerun passed. After explicit user authorization, guarded deployment of source `290e8d05d847f2ba80e2625a13222134fe4927ba` completed; read-only staging attestation passed at 100% version `27df01fb-da1f-4e20-8944-a667dba560a4`, and artifact-free public smoke passed 4/4 across desktop Chromium and 320px mobile WebKit. `git diff --check` and `git status --short` were clean before deployment. Deferred boundaries remain lost-join retry identity/seat and host replacement, hosted CI provider selection, browser/screen-reader/real-device and operational drills, and the still-pending four-human multiplayer session.
+
+## Current multi-team implementation evidence
+
+- Task 1 (`8a90cc0`, with implementation `cb5b173`) centralizes the four canonical team slots, exact 2/3/4-team Classic board specifications, deterministic `/cards`/`/grid-order`/`/ownership`/`/starting-team` streams, dynamic 25/30/36-card generation, copied board metadata, and starter validation. Focused game-core tests passed **95/95** with package typecheck; protocol tests/typecheck passed **95/95** as a compatibility check. Task review found and accepted the starter validation fix; no finding remains open.
+- Task 2 (`aded8f9`) adds immutable multi-team reducer transitions, configured-team turn rotation that skips eliminations, generalized challenges/target completion, atomic hazard elimination/target-to-neutral conversion, and `GameTransitionEvent` metadata while preserving the state-only `applyGameAction` API and two-team hazard loss. Game-core coverage passed **108/108** with package typecheck; task review found no findings.
+- Task 3 (`a4b8e0c`, implementation `84e2374`) upgrades command/projection schemas to v2, adds strict 2/3/4-team/grid/elimination metadata, revealed-only team summaries, complete clue-giver keys, and hazard-only `eliminatedTeam` history while preserving structural public-role privacy. Protocol coverage passed **119/119** with typecheck; task review found and accepted the missing board-level `teamCount` fix.
+- Task 4 (`28a5eefd`, implementation `633da50`) adds strict v2 room state, side-effect-free v1 normalization, exact geometry/distribution and post-hazard invariants, spectator-only eliminated seats, immutable server-only `initialOwners` provenance, and the minimal board-start writer seam. Focused snapshot coverage passed **66/66**; applicable Durable Object coverage passed **20/20**; game-core/protocol suites and typechecks passed. Task 5 resolved the four downstream room-session adoption errors; no Task 4-owned errors remain.
+- Task 5 (`078293c`, implementation `1523afa`) completes Worker v2 room-session adoption with host-selected 2/3/4-team lobby configuration, dynamic authorization and projections, atomic hazard elimination/history, spectator conversion, and the 16-spectator elimination-capacity reservation (including late join/role-transition enforcement). It preserves server-only `initialOwners` provenance and removes stale complexity exemptions while keeping the >20-function gate green. The prescribed Worker suite passed **295/295** (300 tests including direct focus), Worker typecheck passed, and the complexity gate passed (495 functions; mean 3.37; approved baseline exceptions only). Task review and the reservation fix re-review are clean; staging remains unchanged.
+- Task 6 (`3205d9b`, implementation `af6f37a`) renders the React lobby and game surface from v2 projections for 2/3/4 configured teams, including dynamic 5×5/5×6/6×6 geometry, eliminated-team/seat status, public-safe announcements, nomination/reveal confirmation, Escape/focus behavior, native-scroll fallback, and responsive/forced-colors styling. The authorized room-socket seam updates only stale v2 fixtures and post-schema exact-optional typing. Web coverage passed **168/168** with 91.25% statements / 87.95% branches; typecheck, build, targeted lint/format, complexity (510 functions; mean 3.36), and diff checks passed. Review found the forced-colors contrast defect; fix `3205d9b` remapped authored colors to system colors and added a light forced-colors Chromium regression, then passed scoped re-review. Staging remains unchanged.
+- Task 7 (`3789aea`, implementation `9abbbfb`) migrates the browser observer to protocol v2 without weakening recursive privacy checks, adds an isolated eight-seat/four-team 6×6 hazard flow with one revision/composite history entry, eliminated-seat spectator conversion, next-team rotation, convergence, and public-role audits, and captures lobby/active/eliminated screenshots at exact 320×780 and 1280×900 sizes. It preserves the two-team flow and adds a separate eight-person staging runbook while leaving both human gates pending. Combined Chromium/WebKit Playwright coverage passed **46/46** after the nested `eliminatedTeam` audit fix; full `pnpm run check` passed **818 tests**, complexity and diff checks passed, and all 12 screenshots were visually inspected. Staging remains unchanged.
+- Task 8 (verification source `4e138b64a191d6236445b1763d1128004b0fc5ac`) ran the frozen install, complete `pnpm run check:release`, clean checkout/source identity checks, and `pnpm run deploy:staging --dry-run`. The final release rerun passed **851 repository tests**, all coverage floors, complexity (518 functions; mean 3.36; maximum 34), builds, 8/8 preflight rows, and 63 Playwright tests with one intentional WebKit skip; the final dry run completed for the exact source and performed no upload. The initial gate recorded a sandbox-only Wrangler log/listener denial; subsequent exact-source reruns used the narrowly approved local permission and passed without another sandbox retry. The handoff preserves the prior two-team staging reference and explicitly awaits deployment authorization and both human gates.
+
+## Historical integration evidence
+
+- Tasks 1–3, whole-branch review, the three-minor final fix wave, and the subsequently discovered live-CSP fix all completed independent review. No findings remain open. Detailed history is retained in the integration plan and Git.
+- `creative/manifest.json` inventories 26 byte-preserved originals; the coordinator independently rechecked every source/archive checksum and byte length on September 11. `docs/CREATIVE_HANDOFF.md` supplies approved-versus-draft status and a reusable Gemini submission template. Content remains 700 draft rows / 682 unique labels; the runtime still uses its 50-word fixture.
+- `pnpm install --frozen-lockfile` passed with reviewed external resolutions unchanged. Root's declared protocol development link and web's direct already-bundled Zod dependency make existing imports explicit under isolated pnpm.
+- Arcade presentation and independent board-selection/order/ownership streams are integrated. Public desktop/320px visual inspection and committed all-25-label geometry/nomination regressions passed; restoring the old cramped styling failed both browser regressions as expected.
+- The coordinator's fresh `pnpm run check:release` on exact source `2c72751` passed: docs, format, lint, all types, **533 repository tests** (core 68 / protocol 95 / web 124 / Worker 161 / root 85), builds/local Worker dry run, **8/8 preflight rows** with seven exact expiry identities, and **40/40 Chromium/WebKit cases** in 57.8 seconds. These include the existing multiplayer/privacy harness and four production-CSP landing/invite cases.
+- Live-CSP regressions observed the old bundle fail before the fix. HTML-only `no-transform`, browser-shaped attestation requests, and early browser Zod `jitless` initialization fixed the actual causes without weakening CSP or parsing. Header, injected-HTML mismatch, no-`Function`, strict parsing, and production-bundle browser regressions passed; independent review found no Critical/Important/Minor issue.
+- `pnpm run deploy:staging` deployed the reviewed source below. Explicit `pnpm run check:staging` passed authenticated source/version/100% traffic, the original room namespace, eight bindings, transport/health/security headers, and all three built HTML/JS/CSS SHA-256 comparisons.
+- Final read-only public smoke passed **2/2** in 8.1 seconds with `pnpm exec playwright test --config .superpowers/sdd/2026-09-07-creative-integration/staging-smoke.config.ts`: desktop Chromium and 320px mobile WebKit checked landing/invite HTML against the local build, UI, focus, viewport, and zero CSP/console/page/request/response errors. No rooms or sockets were created; this is not a live multiplayer or human-session claim.
+- Four final public landing/invite screenshots in `.superpowers/sdd/2026-09-07-creative-integration/staging-screenshots/` were separately captured and visually inspected. Playwright 1.62.1 WebKit screenshot capture itself injects an inline animation-synchronization stylesheet, which the intended CSP blocks. Visual capture is separate from the zero-error smoke; no errors are filtered or assertions weakened.
+- Original Gemini history is preserved remotely as `legacy/gemini-main@128c0f7`; reviewed `feature/connected-classic@fe264e3` is the canonical public `main` baseline, and `feature/creative-integration` is published at the reviewed runtime plus docs-only continuation. PR #1 is merged; no apex, zone/account, paid-plan, R2, or AI change was made.
+- Four-human runbook results remain **PENDING / NOT YET RUN**.
+
+## Current multi-team staging deployment
+
+- URL: `https://staging.oddlyuseful.studio`; Worker: `cipher-party-staging`.
+- Deployed source: `193423c742cc461ff85ac3962ef0dd4a5fd6f83b` (runtime code is unchanged from verified source `4e138b64a191d6236445b1763d1128004b0fc5ac`; the deployed continuation is documentation-only).
+- Active version at 100%: `e7a46628-493d-4c3c-8c90-8ed5d9bde7ec`.
+- Read-only `check:staging` passed with source/version/ROOMS namespace, transport/health/security headers, bindings, and 3 built asset SHA-256 comparisons.
+- Artifact-free public smoke passed **4/4** across desktop Chromium and 320 × 780 mobile WebKit for `/` and `/room/ABC123`; it created no rooms or sockets.
+- The four-human two-team and eight-human four-team staging sessions remain **PENDING / NOT YET RUN**.
+
+## Public repository handoff
+
+- Repository: <https://github.com/ezhou89/cipher-party> (public).
+- `main`: reviewed Connected Classic baseline `fe264e38b47bac7fcd87517f0cdb84adf4f64226`.
+- `legacy/gemini-main`: preserved original creative history `128c0f79e8a4c7d0451443e22c8916822236f294`.
+- `feature/connected-classic`: published reviewed baseline branch at `fe264e38b47bac7fcd87517f0cdb84adf4f64226`.
+- `feature/creative-integration`: published reviewed source lineage; PR [#1](https://github.com/ezhou89/cipher-party/pull/1) targets `main` and is currently mergeable.
+- The runtime source in the PR is `4e138b64a191d6236445b1763d1128004b0fc5ac`; later branch commits are documentation-only handoff updates.
+
+## Verified staging deployment
+
+- URL: `https://staging.oddlyuseful.studio`; Worker: `cipher-party-staging`.
+- Deployed source: `290e8d05d847f2ba80e2625a13222134fe4927ba`.
+- Active version at 100%: `27df01fb-da1f-4e20-8944-a667dba560a4`.
+- Preserved `ROOMS` namespace: `f2766441dfa24d10bef55dd8ee4f5599`; class `RoomDurableObject`, SQLite migration `v1`, compatibility date `2026-08-30`.
+
+This snapshot's documentation-only commits are newer than the deployed runtime. Build matching source and pass explicit expectations for pre-session attestation; do not assume current Git HEAD is the deployed source:
+
+```sh
+pnpm run check:staging --expected-commit 290e8d05d847f2ba80e2625a13222134fe4927ba --expected-version 27df01fb-da1f-4e20-8944-a667dba560a4 --expected-rooms-namespace f2766441dfa24d10bef55dd8ee4f5599
+```
+
+## Historical reviewed baseline
+
+The original milestone plan and Git history retain detailed Task 1–13 implementation/review evidence. Reviewed source is `fe264e3`; its release gate passed 439 repository tests, 36 browser tests, and eight preflight rows before this integration.
+
+Historical staging version `bc8b1dc2-0e65-4748-bdc6-5a5e49ddbf94` is a continuity/rollback reference only. Current staging is the integrated version above at `https://staging.oddlyuseful.studio`. The apex was not changed.
 
 ## Decisions agents must preserve
 
-- Package manager: Use `pnpm` (v11 with pnpm workspaces, strict isolation, and build script allowlists) for supply chain security.
 - Working title and directory: Cipher Party / cipher-party.
 - Cloudflare-native hosting and realtime architecture.
+- pnpm 11 workspaces with portable local dependency resolution; subprocess tools launch through Node/local JS entrypoints, not bare command shims.
+- Board membership, grid order, and ownership use independent `/cards`, `/grid-order`, and `/ownership` seed streams; retain duplicate rejection, null-prototype card map, stable IDs, and starting-team distribution.
+- Arcade presentation uses local/system fonts, warm word cards, redundant Ruby/Red and Cobalt/Blue identity, and public-only scores. Keep committed 320px nomination/word geometry checks.
+- Staging rejects noncanonical hosts, redirects canonical HTTP app requests to HTTPS, and rejects insecure APIs without redirecting credentials. All-request Worker-first asset serving applies the response policy; successful WebSocket upgrades remain intact.
+- HTML responses use `Cache-Control: no-store, no-transform` to opt out of injected body content without changing zone settings. Keep API/credential no-store behavior, JS/CSS policy, and the restrictive same-origin CSP; never add unsafe-eval or external analytics scripts to silence violations.
+- Web's first side-effect import initializes the directly declared, already-bundled Zod with `jitless: true` before App/router/protocol schema evaluation. Preserve strict parsing and the Worker/protocol API; retain no-Function and real production-CSP regressions.
+- Staging admission uses nine stable Cloudflare rate bindings: create 10/min/IP, joins 60/min/IP and 120/min/room, tickets 120/min/IP and 240/min/room, valid connects 120/min/IP and 240/min/room, plus command frames 30/10s/seat and 120/10s/room. Keys are hashed and purpose-scoped; all applicable counters settle before room access or frame work. Counters are location-local/eventually consistent, not globally exact. Local HTTP tests omit these bindings; HTTPS missing/error/denial fails closed and local HTTP remains supported.
+- Use tracked `deploy:staging` and read-only `check:staging`; preserve the existing Worker, room namespace, class, and migration. Live attestation checks version/source/traffic/bindings and every built HTML/JS/CSS hash, with browser-navigation-like headers for HTML. No apex, paid-plan, R2, or AI change belongs to this integration.
 - The current Cloudflare Workers test integration is @cloudflare/vitest-plugin; do not restore the superseded pool configuration.
+- The shared TypeScript library is ES2022-only; only apps/web adds DOM and DOM.Iterable libraries.
 - Responsive website first, PWA-ready structure, no offline match behavior.
 - External voice chat.
 - Host-owned local/exported packs; temporary server copies expire after 24 hours.
 - AI generates text suggestions only; hosts provide permitted images.
 - Clue-givers rotate only between campaign boards.
-- Multi-team hazard behavior eliminates the team that revealed it.
+- The approved multi-team Classic slice uses host-selected 2/3/4 teams with canonical ordered slots `red`, `blue`, `green`, `yellow`; two teams remain the default.
+- Multi-team hazard behavior eliminates only the active team, converts its unrevealed targets to neutral, skips it in future turns, and awards the board only when one team remains; two-team hazard loss remains unchanged.
+- New room/projection contracts are v2; valid v1 two-team snapshots normalize to v2 defaults without a SQLite migration.
+- A multi-team hazard is one accepted command, one revision, and one public `card_revealed` history entry with optional `eliminatedTeam` metadata.
+- The multi-team increment stays React DOM/CSS and text-only; no Phaser/canvas, Blitz, campaigns, packs, picture/mixed cards, or licensed content is pulled forward.
+- Preserve the existing four-human two-team regression gate and add a separate eight-active-player four-team gate before claiming social validation.
 - Canonical invite URLs come from validated server configuration, never the incoming Host header.
-- Aesthetic theme: Neo 8-Bit Retro Arcade (Balatro + Celeste inspired).
-- Native iOS uses SwiftUI Observation on iOS 17+, Foundation URLSession WebSockets,
-  Network framework path hints, Core Image QR generation, AVFoundation scanning,
-  and Keychain; no third-party runtime dependency is required for the first slice.
-- iOS online rooms reuse protocol v1 and remain account-free; Universal Links,
-  QR/manual code entry, and redacted app-private projection cache are the join
-  and reconnect seams.
-- True no-signal peer-to-peer play is a separate future subsystem and is not
-  implemented or implied by the iOS online client.
-- The Balatro Rule: Pixel fonts (Press Start 2P) for arcade chrome/HUD/badges only; ultra-crisp bold modern sans (Plus Jakarta Sans) for card words.
-- 16 Collectible Monopoly-Style Arcade Tokens for player nomination stamps; team mascot crests for card reveals.
-- Quad-Indicator colorblind accessibility (Hue, Glyph, Texture, Semantic label).
-- Synthesized Web Audio API 8-bit sound effects (zero external sound files).
-- Gameplay board modes locked to 3 explicit host options: (1) Text-based only (25 words), (2) Image-based only (25 pictures), (3) Combination text and images (50/50 mixed board).
-- Board randomization & anti-memorization: 3-tier independent seed derivation (crypto.getRandomValues -> seed + '/cards', '/grid-order', '/ownership', '/starting-team') with decoupled keycard assignments (9/8/7/1) and a 50-image minimum starter pool for Pictures Only mode (yielding >1.26e14 unique 25-card boards).
+- The complete-`RoomState` initializer remains a trusted internal/test-only overload; browser routes accept only the strict Task 8 bootstrap DTO and never replacement state.
+- Room-code input must be six original ASCII alphanumeric characters before Crockford uppercasing and O/I/L alias mapping; Unicode case expansion is never accepted.
+- Connection tickets are hash-only, one-use, and exact-60-second credentials; issue and consume writes are public-revision-neutral but must persist before returning success.
+- WebSocket admission orders persisted ticket consumption before accept/attach, then persists `markConnected` before the first projection and 101 response; attachments contain only connectionId, playerId, and hostAuthority.
+- Every accepted socket receives a separately derived current-seat projection; disconnect marks a seat offline only after its last open socket and never extends lastActivity.
+- Durable credentials live only in IndexedDB and HTTP headers; reconnect attempts and callbacks are generation-guarded and retain the same idempotent in-flight envelope until authoritative resync.
+- Landing and invite flows persist server-canonical credentials before navigation; route/unmount generations guard every asynchronous join and credential-recovery continuation so stale work cannot reclaim current UI, navigation, or socket ownership.
+- The lobby renders authoritative projections only, maps command failures to exhaustive local public copy, disables commands while pending or reconnecting, and uses one restrained polite region for other-seat presence transitions.
+- Public game roles never read a clue-giver key or infer hidden target denominators; only the default-closed clue-giver branch can mount per-card key indicators, while revealed ownership remains public.
+- Reveal and End Turn confirmation use one identity-scoped, projection-validated modal owner. Local Cancel remains available during reconnect, with enabled-trigger focus return or an explicit Turn status fallback; destructive confirmation remains transport-gated.
+- Game announcements use allowlisted public data and compose simultaneous reveal, turn/phase, and board-result changes without making the 25-card grid live.
+- Every received room WebSocket frame in the E2E privacy harness receives a persistent value-free outcome before strict schema handling; public raw projections are recursively audited before parsing, and later valid frames cannot erase earlier violations.
+- The credential/hidden-data E2E spec disables automatic trace and screenshot capture. Explicit screenshots use public roles only, and clue-giver-derived target labels, IDs, and positions stay inside caught page-side interactions with fixed value-free diagnostics until the authoritative reveal makes them public.
+- Release preflight reads one immutable snapshot of all three Wrangler JSONC configs, rejects Milestone 2 bindings at root and `env.*` scopes, and requires seven exact real expiry-test identities; count-only or skipped-test substitution is not accepted.
+- The local human exit gate uses four real humans and four genuinely distinct host-local browser profiles named A–D, with exactly one assigned window each and Profile B at 320×780 CSS pixels. The authorized distributed-device gate may use one browser/device per participant at `https://staging.oddlyuseful.studio`; never use the apex or improvise LAN exposure.
+- The native iOS client is a protocol-v2 client of the same Worker, not a second game engine; it must preserve role-safe projections, server-authoritative revisions, account-free credentials, and host-selected 2/3/4-team metadata.
+- iOS staging uses `https://staging.oddlyuseful.studio`; Universal Link entitlements and AASA must use the configured environment host, and the Worker `APPLE_APP_ID` value must be configured before signed-link acceptance.
 
 ## Known risks
 
+- Non-blocking upstream notices remain: Node DEP0040 from Wrangler's bundled dependencies, its update notice, and Playwright's inherited NO_COLOR/FORCE_COLOR warning. One earlier Cloudflare test-runner startup timeout did not recur in unchanged or final full release reruns; its exact cause is unproven. No dependencies, timeout settings, or warning filters were changed to hide it.
+- Keep WebKit screenshot-tool stylesheet injection separate from application CSP diagnostics, as described in the current evidence; production/live zero-error gates must still catch genuine app violations.
 - Hidden-data leakage through overly broad serialization.
 - Reconnect races causing duplicate reveals or lost seats.
 - Durable Object alarm and hibernation behavior diverging between local and deployed environments.
 - Mobile readability for later 5×6 and 6×6 boards.
+- The current environment has CommandLineTools but no full Xcode/simulator; Swift syntax can be parsed here, but simulator, signing, Universal Link, and physical reconnect evidence must come from an Xcode-capable Mac/device.
 - AI and image-pack scope accidentally leaking into Milestone 1.
-- Staging deployment still needs the Cipher Party Worker routed at
-  `oddlyuseful.studio` with the matching `CANONICAL_ORIGIN`, dynamic/static AASA,
-  and registered Apple App ID/team before signed-device smoke.
-- A physical device is still needed for camera, Universal Links, share sheets,
-  background/foreground, Dynamic Type, dark mode, and VoiceOver visual evidence.
 
 ## Snapshot update protocol
 

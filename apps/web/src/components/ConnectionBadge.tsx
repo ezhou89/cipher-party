@@ -1,32 +1,27 @@
 import type { RoomConnectionState } from "../lib/room-socket";
 
-export interface ConnectionBadgeProps {
-  state: RoomConnectionState;
+const CONNECTION_LABELS: Record<RoomConnectionState, string> = {
+  idle: "Connection idle",
+  connecting: "Connecting to room",
+  open: "Connected",
+  reconnecting: "Reconnecting to room",
+  closed: "Connection closed",
+};
+
+interface ConnectionBadgeProps {
+  connection: RoomConnectionState;
 }
 
-export function ConnectionBadge({ state }: ConnectionBadgeProps) {
-  const labels: Record<
-    RoomConnectionState,
-    { text: string; className: string }
-  > = {
-    idle: { text: "Idle", className: "badge-idle" },
-    connecting: { text: "Connecting...", className: "badge-connecting" },
-    open: { text: "Connected", className: "badge-open" },
-    reconnecting: { text: "Reconnecting...", className: "badge-reconnecting" },
-    closed: { text: "Disconnected", className: "badge-closed" }
-  };
-
-  const current = labels[state] ?? { text: state, className: "" };
-
+export function ConnectionBadge({ connection }: ConnectionBadgeProps) {
   return (
-    <div className="connection-badge-container">
-      <span className={`connection-badge ${current.className}`}>
-        <span className="badge-dot" aria-hidden="true" />
-        {current.text}
-      </span>
-      <div role="status" aria-live="polite" className="sr-only">
-        Connection status: {current.text}
-      </div>
-    </div>
+    <span
+      className={`connection-badge connection-${connection}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span className="connection-dot" aria-hidden="true" />
+      {CONNECTION_LABELS[connection]}
+    </span>
   );
 }

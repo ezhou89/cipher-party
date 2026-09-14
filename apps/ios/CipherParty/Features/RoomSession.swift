@@ -287,6 +287,10 @@ final class RoomSession {
         try await send(.randomizeTeams, requiring: .configure)
     }
 
+    func setTeamCount(_ teamCount: TeamCount) async throws {
+        try await send(.setTeamCount(teamCount: teamCount), requiring: .configure)
+    }
+
     func assignSeat(playerId: String, teamId: TeamID?) async throws {
         try await send(.assignSeat(playerId: playerId, teamId: teamId), requiring: .configure)
     }
@@ -751,7 +755,7 @@ final class RoomSession {
 
     private func permission(for command: ClassicCommand) -> RoomCommandPermission {
         switch command {
-        case .randomizeTeams, .assignSeat, .setRole, .lockRoom, .startBoard:
+        case .randomizeTeams, .setTeamCount, .assignSeat, .setRole, .lockRoom, .startBoard:
             return .configure
         case .submitClue:
             return .submitClue

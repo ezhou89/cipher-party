@@ -53,7 +53,9 @@ it must never invent or apply an offline match state.
 - No new account, social graph, analytics, chat, or voice service.
 - No pack builder, AI theme generation, image-card pipeline, or public pack
   marketplace in the native client.
-- No changes to the Classic game rules or to the existing two-team protocol.
+- No changes to the Classic game rules or browser behavior beyond consuming the
+  current protocol v2 surface; the client supports host-selected two-, three-,
+  and four-team rooms.
 - No StoreKit products or paid unlocks before the free online client is proven.
 - No requirement that the web client be rewritten; existing web behavior remains
   a compatibility constraint.
@@ -122,7 +124,7 @@ APIClient             RoomSocket
               |
        Room Durable Object
               |
-       existing protocol v1
+       current protocol v2
 ```
 
 The iOS app is a new client of the current API, not a second game engine. The
@@ -146,7 +148,7 @@ such as room unavailable, locked, in progress, full, or unauthorized.
 
 ### WebSocket contract
 
-The app sends the existing `CommandEnvelope` with `protocolVersion: 1`, a fresh
+The app sends the existing `CommandEnvelope` with `protocolVersion: 2`, a fresh
 UUID `commandId`, the current `expectedRevision`, and one typed command. It
 decodes these server messages:
 
@@ -354,10 +356,10 @@ The first native client is ready for review when all of the following are true:
 
 - **Native stack:** SwiftUI, iOS 17+, Observation, Foundation URLSession,
   Network framework path monitoring, and Keychain.
-- **Transport:** reuse the existing Cloudflare HTTP/WebSocket protocol v1.
+- **Transport:** reuse the existing Cloudflare HTTP/WebSocket protocol v2.
 - **Deployment:** the first client targets the existing Cloudflare staging host
-  under `oddlyuseful.studio`; the release base URL remains configuration, not a
-  hard-coded protocol assumption.
+  at `https://staging.oddlyuseful.studio`; the release base URL remains
+  configuration, not a hard-coded protocol assumption.
 - **Offline:** explicitly deferred; online reconnect UX is the first slice.
 - **Scope discipline:** do not modify the active connected-browser plan except
   for protocol changes required by a demonstrated iOS interoperability gap.

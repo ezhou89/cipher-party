@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -14,17 +15,18 @@
     "idb": "^8.0.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.3"
+    "react-router-dom": "^7.18.3",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.7",
+    "@testing-library/user-event": "^14.6.6",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7",
-    "@vitejs/plugin-react": "^5.2.0",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
-    "vite": "^7.3.6"
+    "vite": "^8.2.2"
   }
 }

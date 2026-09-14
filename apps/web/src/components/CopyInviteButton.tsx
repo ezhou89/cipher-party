@@ -1,39 +1,34 @@
 import { useState } from "react";
 
-export interface CopyInviteButtonProps {
+interface CopyInviteButtonProps {
   inviteUrl: string;
 }
 
 export function CopyInviteButton({ inviteUrl }: CopyInviteButtonProps) {
-  const [copied, setCopied] = useState(false);
+  const [feedback, setFeedback] = useState("");
 
-  async function handleCopy() {
+  const copyInvite = async () => {
     try {
       await navigator.clipboard.writeText(inviteUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setFeedback("Invite copied");
     } catch {
-      // Fallback if clipboard API is restricted
-      const textarea = document.createElement("textarea");
-      textarea.value = inviteUrl;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setFeedback("Copy failed. Select the invite link instead.");
     }
-  }
+  };
 
   return (
-    <button
-      type="button"
-      className="btn btn-secondary btn-copy"
-      onClick={handleCopy}
-      aria-label="Copy invite link to clipboard"
-    >
-      <span aria-hidden="true">{copied ? "✓" : "📋"}</span>
-      <span>{copied ? "Copied!" : "Copy Invite"}</span>
-    </button>
+    <div className="invite-copy">
+      <span className="invite-url">{inviteUrl}</span>
+      <button
+        className="button-secondary"
+        type="button"
+        onClick={() => void copyInvite()}
+      >
+        Copy invite link
+      </button>
+      <span className="copy-feedback" role="status" aria-live="polite">
+        {feedback}
+      </span>
+    </div>
   );
 }

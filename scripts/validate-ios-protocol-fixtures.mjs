@@ -10,13 +10,13 @@ const result = spawnSync(
     "exec",
     "vitest",
     "run",
-    "src/ios-fixtures.test.ts"
+    "src/ios-fixtures.test.ts",
   ],
   {
     cwd: repositoryRoot,
     encoding: "utf8",
-    stdio: "inherit"
-  }
+    stdio: "inherit",
+  },
 );
 
 if (result.error) {

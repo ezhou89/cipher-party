@@ -37,13 +37,15 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 | Configuration | API base                                   | Signing                                           |
 | ------------- | ------------------------------------------ | ------------------------------------------------- |
 | Debug         | Local Worker at `http://127.0.0.1:8787`    | Simulator/local development                       |
-| Staging       | `https://oddlyuseful.studio`               | Supply `CIPHER_PARTY_APPLE_TEAM_ID` for devices   |
+| Staging       | `https://staging.oddlyuseful.studio`       | Supply `CIPHER_PARTY_APPLE_TEAM_ID` for devices   |
 | Release       | Supply `CIPHER_PARTY_RELEASE_API_BASE_URL` | Supply the registered bundle ID and Apple Team ID |
 
 Release builds require these user-defined Xcode build settings, supplied by the
 release environment or an uncommitted local configuration:
 
 - `CIPHER_PARTY_RELEASE_API_BASE_URL` — the HTTPS production Worker origin
+- `CIPHER_PARTY_RELEASE_UNIVERSAL_LINK_HOST` — the production host used for
+  Universal Links and Associated Domains
 - `CIPHER_PARTY_RELEASE_BUNDLE_IDENTIFIER` — the registered App ID's bundle ID
 - `CIPHER_PARTY_APPLE_TEAM_ID` — the Apple Developer team that signs the app
 
@@ -211,11 +213,10 @@ signed-device run is still required for camera capture, Universal Link
 association, share-sheet behavior, background/foreground transitions, and
 VoiceOver/dark-mode visual checks.
 Native `InviteRouter`, the Associated Domains entitlement, dynamic/static AASA,
-and the invite URL/QR origin are all bound to `oddlyuseful.studio`. Preferred
-staging is therefore to route the Cipher Party Worker at that host with
-`CANONICAL_ORIGIN=https://oddlyuseful.studio`. If an alternate Worker origin is
-used instead, update the Worker's `CANONICAL_ORIGIN`,
-`InviteRouter.universalLinkHost`, invite URL/QR origin, Associated Domains
-entitlement, and both dynamic and static AASA together, then validate Universal
-Links before running the smoke flow. Do not treat a 404 from the currently
-unrelated host as an iOS protocol failure.
+and the invite URL/QR origin must share the selected Worker host. Staging is
+currently `https://staging.oddlyuseful.studio`; configure the Worker's
+`APPLE_APP_ID` there before signed Universal Link testing. Release takes its
+host from `CIPHER_PARTY_RELEASE_UNIVERSAL_LINK_HOST`. If an alternate Worker
+origin is used, update `CANONICAL_ORIGIN`, the invite URL/QR origin, and both
+dynamic and static AASA together, then validate Universal Links before the
+smoke flow.

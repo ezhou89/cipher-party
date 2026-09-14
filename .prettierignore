@@ -1,8 +1,11 @@
 AGENTS.md
 docs/PROJECT_SNAPSHOT.md
 docs/superpowers/
-node_modules
-dist
-.wrangler
-package-lock.json
+node_modules/
+dist/
+coverage/
+.wrangler/
+playwright-report/
+test-results/
+creative/source/**
 pnpm-lock.yaml

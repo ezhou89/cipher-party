@@ -2,10 +2,25 @@ import SwiftUI
 
 struct CardGridView: View {
     let cards: [BoardCardPresentation]
+    let columnsCount: Int
     let onNominate: (String) -> Void
     let onClearNomination: () -> Void
 
-    private let columns = [GridItem(.adaptive(minimum: 92), spacing: 10)]
+    init(
+        cards: [BoardCardPresentation],
+        columnsCount: Int = 5,
+        onNominate: @escaping (String) -> Void,
+        onClearNomination: @escaping () -> Void
+    ) {
+        self.cards = cards
+        self.columnsCount = max(1, columnsCount)
+        self.onNominate = onNominate
+        self.onClearNomination = onClearNomination
+    }
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 10), count: columnsCount)
+    }
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 10) {

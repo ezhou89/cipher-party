@@ -166,7 +166,10 @@ struct EntryView: View {
         self.apiClient = apiClient
         let credentialStore = SeatCredentialStore(service: environment.keychainServiceName)
         self.credentialStore = credentialStore
-        inviteRouter = InviteRouter(customScheme: environment.urlScheme)
+        inviteRouter = InviteRouter(
+            universalLinkHost: environment.apiBaseURL.host ?? "oddlyuseful.studio",
+            customScheme: environment.urlScheme
+        )
         _flow = State(initialValue: RoomFlow { credentials in
             RoomSession(
                 code: credentials.code,

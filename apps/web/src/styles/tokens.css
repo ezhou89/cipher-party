@@ -1,204 +1,27 @@
-/**
- * Cipher Party — Neo 8-Bit Retro Arcade Design Tokens
- * Single source of truth for colors, typography, hard-edge elevation, and tactile physics.
- */
-
 :root {
   color-scheme: dark;
-  --color-ink: #081522;
-  --color-panel: #102638;
-  --color-paper: #f4ebd8;
-  --color-text: #f8f6ef;
-  --color-muted: #9fb2bf;
-  --color-red: #e75d5d;
-  --color-blue: #4f91e8;
-  --color-focus: #ffd66b;
-  --radius-card: 0.8rem;
-  --shadow-card: 0 0.65rem 1.4rem rgb(0 0 0 / 24%);
-
-  /* ==========================================================================
-     1. Canvas & Atmosphere (Arcade CRT Cabinet)
-     ========================================================================== */
-  --color-canvas: #0e0c1a;
-  --color-canvas-grid: #1a162d;
-  --color-surface: #181528;
-  --color-surface-high: #231e3b;
-  --color-surface-bright: #2e274c;
-  --color-surface-border: #3f3565;
-  --color-outline: #000000;
-
-  /* ==========================================================================
-     2. Card Cartridge Tokens
-     ========================================================================== */
-  --color-card-unrevealed-bg: #fbf6ec;
-  --color-card-unrevealed-border: #000000;
-  --color-card-unrevealed-text: #0e0c1a;
-  --color-card-revealed-overlay: rgba(0, 0, 0, 0.18);
-
-  /* ==========================================================================
-     3. Team & Role Identities (Quad-Indicator System)
-     ========================================================================== */
-  /* Team 1: Ruby / Crimson Flame */
-  --color-ruby: #ff2a5f;
-  --color-ruby-dark: #990026;
-  --color-ruby-container: #b30032;
-  --color-ruby-text: #ffffff;
-  --color-ruby-border: #000000;
-  --symbol-ruby: "♥";
-
-  /* Team 2: Cobalt / Cyber Azure */
-  --color-cobalt: #00f3ff;
-  --color-cobalt-dark: #005f7a;
-  --color-cobalt-container: #0088a3;
-  --color-cobalt-text: #041b2c;
-  --color-cobalt-border: #000000;
-  --symbol-cobalt: "✦";
-
-  /* Team 3: Emerald (3+ team variant) */
-  --color-emerald: #00f5a0;
-  --color-emerald-dark: #00663f;
-  --color-emerald-text: #002917;
-  --symbol-emerald: "▲";
-
-  /* Team 4: Amber (4 team variant) */
-  --color-amber: #ffbe0b;
-  --color-amber-dark: #8c6200;
-  --color-amber-text: #261a00;
-  --symbol-amber: "⬢";
-
-  /* Neutral Bystanders */
+  --color-ink: #0e0c1a;
+  --color-panel: #181528;
+  --color-panel-high: #211c36;
+  --color-panel-bright: #2e274c;
+  --color-border: #3f3565;
+  --color-paper: #fbf6ec;
+  --color-text: #fbf6ec;
+  --color-muted: #b9b1cd;
+  --color-red: #ff2a5f;
+  --color-blue: #00d2ff;
+  --color-green: #3ddc97;
+  --color-yellow: #ffd166;
+  --color-focus: #ffbe0b;
   --color-neutral: #8b85a3;
-  --color-neutral-bg: #2b2540;
-  --color-neutral-text: #fbf6ec;
-  --symbol-neutral: "—";
-
-  /* Hazard / Assassin */
-  --color-hazard-bg: #080611;
-  --color-hazard-border: #ff0055;
-  --color-hazard-text: #ff0055;
-  --symbol-hazard: "☠";
-
-  /* Gameplay State Highlights */
-  --color-nomination: #ffeb3b; /* 1UP Coin Gold */
-  --color-timer-warning: #ff0055; /* Urgent Low-Time Pulse */
-
-  /* ==========================================================================
-     4. Typography (The Balatro Hybrid Rule)
-     ========================================================================== */
-  /* Arcade Chrome, Scores, Timers & Banners */
-  --font-arcade: "Press Start 2P", "Silkscreen", monospace;
-  /* Card Words & High-Speed Scanning */
-  --font-wordface:
-    "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  /* Tabular Clue Counts & Monospace Codes */
-  --font-mono: "JetBrains Mono", "Space Mono", monospace;
-
-  /* Font Sizes */
-  --font-size-arcade-xs: 0.5rem; /* 8px */
-  --font-size-arcade-sm: 0.625rem; /* 10px */
-  --font-size-arcade-md: 0.75rem; /* 12px */
-  --font-size-arcade-lg: 0.875rem; /* 14px */
-  --font-size-arcade-xl: 1.125rem; /* 18px */
-
-  --font-size-word-sm: 0.6875rem; /* 11px */
-  --font-size-word-md: 0.8125rem; /* 13px */
-  --font-size-word-lg: 0.9375rem; /* 15px */
-
-  /* ==========================================================================
-     5. Hard-Edge Pixel Elevation & Shadows
-     ========================================================================== */
-  --shadow-pixel-sm: 2px 2px 0px 0px #000000;
-  --shadow-pixel-md: 3px 3px 0px 0px #000000;
-  --shadow-pixel-lg: 4px 4px 0px 0px #000000;
-  --shadow-pixel-xl: 6px 6px 0px 0px #000000;
-  --shadow-pixel-top: 0px -4px 0px 0px #000000;
-  --shadow-nomination:
-    0 0 14px rgba(255, 235, 59, 0.9), 4px 4px 0px 0px #000000;
-
-  /* Tactile Button Press Physics */
-  --press-translate: translate(2px, 2px);
-  --press-shadow: 1px 1px 0px 0px #000000;
-
-  /* ==========================================================================
-     6. Stepped Geometry & Borders
-     ========================================================================== */
-  --border-pixel-heavy: 4px solid #000000;
-  --border-pixel-med: 3px solid #000000;
-  --border-pixel-light: 2px solid #000000;
-  --radius-pixel-sm: 2px;
-  --radius-pixel-md: 4px;
-
-  /* Stepped 8-bit Corner Cutout Clip-Path */
-  --pixel-corners: polygon(
-    0px 4px,
-    4px 4px,
-    4px 0px,
-    calc(100% - 4px) 0px,
-    calc(100% - 4px) 4px,
-    100% 4px,
-    100% calc(100% - 4px),
-    calc(100% - 4px) calc(100% - 4px),
-    calc(100% - 4px) 100%,
-    4px 100%,
-    4px calc(100% - 4px),
-    0px calc(100% - 4px)
-  );
-
-  /* ==========================================================================
-     7. Layout, Spacing & Viewport Invariants
-     ========================================================================== */
-  --hitbox-min: 44px;
-  --card-aspect-ratio: 4 / 3;
-  --grid-gap: clamp(6px, 1.5vw, 12px);
-  --board-max-width: 48rem; /* 768px */
-
-  /* ==========================================================================
-     8. Animation Timings
-     ========================================================================== */
-  --transition-press: transform 0.08s ease, box-shadow 0.08s ease;
-  --transition-reveal: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* ==========================================================================
-   Utility Classes & Component Helpers
-   ========================================================================== */
-.pixel-box {
-  background-color: var(--color-surface);
-  border: var(--border-pixel-heavy);
-  box-shadow: var(--shadow-pixel-lg);
-  clip-path: var(--pixel-corners);
-}
-
-.pixel-btn {
-  font-family: var(--font-arcade);
-  border: var(--border-pixel-heavy);
-  box-shadow: var(--shadow-pixel-lg);
-  clip-path: var(--pixel-corners);
-  transition: var(--transition-press);
-}
-
-.pixel-btn:active {
-  transform: var(--press-translate);
-  box-shadow: var(--press-shadow);
-}
-
-.pixel-card {
-  aspect-ratio: var(--card-aspect-ratio);
-  background-color: var(--color-card-unrevealed-bg);
-  color: var(--color-card-unrevealed-text);
-  border: var(--border-pixel-heavy);
-  box-shadow: var(--shadow-pixel-md);
-  clip-path: var(--pixel-corners);
-  transition: var(--transition-press);
-}
-
-.pixel-card:active {
-  transform: var(--press-translate);
-  box-shadow: var(--press-shadow);
-}
-
-.pixel-card-nominated {
-  border-color: var(--color-nomination);
-  box-shadow: var(--shadow-nomination);
-  transform: translateY(-2px);
+  --color-hazard: #080611;
+  --font-chrome:
+    ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-display: "Arial Black", "Avenir Next", "Segoe UI", sans-serif;
+  --font-word: Arial, "Helvetica Neue", "Segoe UI", sans-serif;
+  --radius-control: 2px;
+  --radius-card: 4px;
+  --shadow-small: 2px 2px 0 #000;
+  --shadow-control: 0 3px 0 #000;
+  --shadow-card: 4px 4px 0 #000;
 }

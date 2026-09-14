@@ -1,44 +1,67 @@
+const TOKEN_BYTE_LENGTH = 32;
+const SHA_256_BYTE_LENGTH = 32;
+
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]!);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
   }
   return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+    .replace(/\+/gu, "-")
+    .replace(/\//gu, "_")
+    .replace(/=+$/gu, "");
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
+function decodeDigest(value: string): {
+  bytes: Uint8Array;
+  valid: number;
+} {
+  const bytes = new Uint8Array(SHA_256_BYTE_LENGTH);
+  let valid = value.length === SHA_256_BYTE_LENGTH * 2 ? 0 : 1;
+  for (let index = 0; index < SHA_256_BYTE_LENGTH; index += 1) {
+    const pair = value.slice(index * 2, index * 2 + 2);
+    const parsed = /^[0-9a-f]{2}$/u.test(pair) ? Number.parseInt(pair, 16) : 0;
+    if (!/^[0-9a-f]{2}$/u.test(pair)) {
+      valid |= 1;
+    }
+    bytes[index] = parsed;
+  }
+  return { bytes, valid };
 }
 
 export function randomToken(): string {
-  const bytes = new Uint8Array(32);
+  const bytes = new Uint8Array(TOKEN_BYTE_LENGTH);
   crypto.getRandomValues(bytes);
   return bytesToBase64Url(bytes);
 }
 
 export async function hashToken(token: string): Promise<string> {
-  const data = new TextEncoder().encode(token);
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  const bytes = new Uint8Array(hash);
-  return bytesToBase64Url(bytes);
-}
-
-export function timingSafeEqualString(a: string, b: string): boolean {
-  const aBytes = new TextEncoder().encode(a);
-  const bBytes = new TextEncoder().encode(b);
-  if (aBytes.byteLength !== bBytes.byteLength) {
-    return false;
-  }
-  let diff = 0;
-  for (let i = 0; i < aBytes.byteLength; i++) {
-    diff |= aBytes[i]! ^ bBytes[i]!;
-  }
-  return diff === 0;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token),
+  );
+  return bytesToHex(new Uint8Array(digest));
 }
 
 export async function verifyToken(
   token: string,
-  expectedDigest: string
+  expectedDigest: string,
 ): Promise<boolean> {
-  const digest = await hashToken(token);
-  return timingSafeEqualString(digest, expectedDigest);
+  const actual = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token),
+  );
+  const actualBytes = new Uint8Array(actual);
+  const expected = decodeDigest(expectedDigest);
+  let difference = expected.valid;
+  for (let index = 0; index < SHA_256_BYTE_LENGTH; index += 1) {
+    difference |= actualBytes[index]! ^ expected.bytes[index]!;
+  }
+  return difference === 0;
 }

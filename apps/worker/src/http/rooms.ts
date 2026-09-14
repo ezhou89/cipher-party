@@ -1,184 +1,190 @@
 import { hashToken, randomToken } from "../auth/token";
 import type { Env } from "../env";
-import { errorResponse, jsonResponse, parseJsonBody } from "./json";
+import { apiError, parseJson, tokenResponse } from "./json";
+import { rateLimitedResponse } from "./admission-limits";
 import {
   CreateRoomRequestSchema,
-  generateRoomCode,
   JoinRoomRequestSchema,
-  RoomCodeSchema
+  normalizeRoomCode,
+  randomRoomCode,
 } from "./schemas";
 
-export async function handleCreateRoom(
+const MAX_CODE_CLAIM_ATTEMPTS = 32;
+
+function canonicalOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function unavailable(): Response {
+  return apiError(404, "room_unavailable");
+}
+
+export async function createRoom(
   request: Request,
-  env: Env
+  env: Env,
 ): Promise<Response> {
-  const parsed = await parseJsonBody(request, CreateRoomRequestSchema);
+  const parsed = await parseJson(request, CreateRoomRequestSchema);
   if (!parsed.ok) {
     return parsed.response;
   }
+  const origin = canonicalOrigin(env.CANONICAL_ORIGIN);
+  if (origin === null) {
+    return apiError(500, "invalid_request");
+  }
 
-  const { displayName } = parsed.data;
+  const playerId = crypto.randomUUID();
+  const seatToken = randomToken();
+  const hostToken = randomToken();
+  const boardSeed = randomToken();
+  const [seatTokenHash, hostTokenHash] = await Promise.all([
+    hashToken(seatToken),
+    hashToken(hostToken),
+  ]);
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const code = generateRoomCode();
+  for (let attempt = 0; attempt < MAX_CODE_CLAIM_ATTEMPTS; attempt += 1) {
+    const code = randomRoomCode();
+    const inviteUrl = new URL(`/room/${code}`, origin).toString();
     const id = env.ROOMS.idFromName(code);
-    const stub = env.ROOMS.get(id);
-
-    const playerId = crypto.randomUUID();
-    const seatToken = randomToken();
-    const hostToken = randomToken();
-    const seatTokenHash = await hashToken(seatToken);
-    const hostTokenHash = await hashToken(hostToken);
-    const boardSeed = randomToken();
-    const inviteUrl = new URL(`/room/${code}`, env.CANONICAL_ORIGIN).toString();
-
-    const initResult = await stub.initialize({
+    const result = await env.ROOMS.get(id).initialize({
       code,
       hostPlayerId: playerId,
-      hostDisplayName: displayName,
+      hostDisplayName: parsed.data.displayName,
       inviteUrl,
       seatTokenHash,
       hostTokenHash,
-      boardSeed
+      boardSeed,
     });
-
-    if (initResult.ok) {
-      return jsonResponse(
-        {
-          code,
-          inviteUrl,
-          playerId,
-          seatToken,
-          hostToken
-        },
-        { status: 201 },
-        true
-      );
+    if (!result.ok) {
+      continue;
     }
+
+    return tokenResponse(
+      { code, inviteUrl, playerId, seatToken, hostToken },
+      { status: 201, headers: { Location: inviteUrl } },
+    );
   }
 
-  return errorResponse("invalid_request", "Failed to allocate room", 500);
+  return unavailable();
 }
 
-export async function handleJoinRoom(
+export async function joinRoom(
   request: Request,
   env: Env,
-  rawCode: string
+  untrustedCode: string,
 ): Promise<Response> {
-  const codeResult = RoomCodeSchema.safeParse(rawCode);
-  if (!codeResult.success) {
-    return errorResponse("room_unavailable", "Room not found or expired", 404);
-  }
-  const code = codeResult.data;
-
-  const parsed = await parseJsonBody(request, JoinRoomRequestSchema);
+  const parsed = await parseJson(request, JoinRoomRequestSchema);
   if (!parsed.ok) {
     return parsed.response;
   }
-
-  const id = env.ROOMS.idFromName(code);
-  const stub = env.ROOMS.get(id);
+  const code = normalizeRoomCode(untrustedCode);
+  if (code === null) {
+    return unavailable();
+  }
 
   const playerId = crypto.randomUUID();
   const seatToken = randomToken();
   const seatTokenHash = await hashToken(seatToken);
-
-  const joinResult = await stub.join({
+  const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
+  const result = await stub.join({
     playerId,
     displayName: parsed.data.displayName,
     seatTokenHash,
-    asSpectator: parsed.data.asSpectator
+    asSpectator: parsed.data.asSpectator,
   });
-
-  if (joinResult.ok) {
-    return jsonResponse(
-      {
-        code,
-        playerId,
-        seatToken
-      },
-      { status: 200 },
-      true
-    );
+  if (!result.ok) {
+    switch (result.code) {
+      case "room_unavailable":
+        return unavailable();
+      case "room_locked":
+        return apiError(409, "room_locked");
+      case "room_in_progress":
+        return apiError(409, "room_in_progress");
+      case "room_full":
+        return apiError(409, "room_full");
+    }
   }
 
-  switch (joinResult.code) {
-    case "room_unavailable":
-      return errorResponse(
-        "room_unavailable",
-        "Room not found or expired",
-        404
-      );
-    case "room_locked":
-      return errorResponse("room_locked", "Room is locked", 409);
-    case "room_in_progress":
-      return errorResponse(
-        "room_in_progress",
-        "Game is in progress; join as spectator",
-        409
-      );
-    case "room_full":
-      return errorResponse(
-        "room_full",
-        "Room has reached maximum capacity",
-        409
-      );
-  }
+  return tokenResponse({ code, playerId, seatToken });
 }
 
-export async function handleIssueTicket(
+function bearerToken(request: Request): string | null {
+  const authorization = request.headers.get("authorization");
+  if (authorization === null) {
+    return null;
+  }
+  let separator = 0;
+  while (
+    separator < authorization.length &&
+    authorization[separator] !== " " &&
+    authorization[separator] !== "\t"
+  ) {
+    separator += 1;
+  }
+  const scheme = authorization.slice(0, separator);
+  if (scheme.length !== 6) {
+    return null;
+  }
+  const expectedScheme = "bearer";
+  for (let index = 0; index < expectedScheme.length; index += 1) {
+    const code = scheme.charCodeAt(index);
+    const asciiLower = code >= 0x41 && code <= 0x5a ? code + 0x20 : code;
+    if (asciiLower !== expectedScheme.charCodeAt(index)) {
+      return null;
+    }
+  }
+  let tokenStart = separator;
+  while (
+    authorization[tokenStart] === " " ||
+    authorization[tokenStart] === "\t"
+  ) {
+    tokenStart += 1;
+  }
+  if (tokenStart === separator) {
+    return null;
+  }
+  const token = authorization.slice(tokenStart);
+  return /^[A-Za-z0-9_-]{43}$/u.test(token) ? token : null;
+}
+
+export async function issueRoomTicket(
   request: Request,
   env: Env,
-  rawCode: string
+  untrustedCode: string,
 ): Promise<Response> {
-  const codeResult = RoomCodeSchema.safeParse(rawCode);
-  if (!codeResult.success) {
-    return errorResponse("room_unavailable", "Room not found or expired", 404);
+  const code = normalizeRoomCode(untrustedCode);
+  if (code === null) {
+    return unavailable();
   }
-  const code = codeResult.data;
-
-  const authHeader = request.headers.get("authorization");
-  const match = authHeader?.match(/^Bearer\s+([A-Za-z0-9_-]+)$/i);
-  if (!match) {
-    return errorResponse(
-      "unauthorized",
-      "Missing or invalid authorization bearer token",
-      401
-    );
+  const seatToken = bearerToken(request);
+  if (seatToken === null) {
+    return apiError(401, "unauthorized");
   }
 
-  const seatToken = match[1]!;
-  const hostToken = request.headers.get("x-cipher-host-token");
-  const now = Date.now();
-
-  const id = env.ROOMS.idFromName(code);
-  const stub = env.ROOMS.get(id);
-
-  const ticketResult = await stub.issueTicket({
+  const result = await env.ROOMS.get(env.ROOMS.idFromName(code)).issueTicket({
     seatToken,
-    hostToken,
-    now
+    hostToken: request.headers.get("x-cipher-host-token"),
+    now: Date.now(),
   });
-
-  if (ticketResult.ok) {
-    return jsonResponse(
-      {
-        ticket: ticketResult.ticket,
-        expiresAt: ticketResult.expiresAt
-      },
-      { status: 200 },
-      true
-    );
+  if (!result.ok) {
+    if (result.code === "rate_limited") return rateLimitedResponse();
+    return result.code === "room_unavailable"
+      ? unavailable()
+      : apiError(401, "unauthorized");
   }
-
-  switch (ticketResult.code) {
-    case "room_unavailable":
-      return errorResponse(
-        "room_unavailable",
-        "Room not found or expired",
-        404
-      );
-    case "unauthorized":
-      return errorResponse("unauthorized", "Invalid authentication token", 401);
-  }
+  return tokenResponse({ ticket: result.ticket, expiresAt: result.expiresAt });
 }

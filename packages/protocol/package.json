@@ -3,16 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
-  },
+  "exports": "./src/index.ts",
   "scripts": {
     "build": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --config vitest.config.ts",
+    "test:coverage": "vitest run --config vitest.config.ts --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@cipher-party/game-core": "workspace:*",
     "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0"
   }
 }
