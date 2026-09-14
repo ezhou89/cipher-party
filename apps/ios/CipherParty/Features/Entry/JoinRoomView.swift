@@ -160,6 +160,38 @@ enum CameraInviteScannerFailure: Equatable, Sendable {
     case cameraUnavailable
 }
 
+struct CameraInviteScannerLifecycle: Sendable {
+    typealias Generation = UInt
+
+    private(set) var generation: Generation = 0
+    private(set) var isVisible = false
+    private var hasCompleted = false
+
+    mutating func activate() -> Generation {
+        generation &+= 1
+        isVisible = true
+        hasCompleted = false
+        return generation
+    }
+
+    mutating func invalidate() {
+        guard isVisible else { return }
+        isVisible = false
+        generation &+= 1
+    }
+
+    func isActive(_ candidate: Generation) -> Bool {
+        isVisible && !hasCompleted && generation == candidate
+    }
+
+    mutating func claimCompletion(_ candidate: Generation) -> Bool {
+        guard isActive(candidate) else { return false }
+        hasCompleted = true
+        isVisible = false
+        return true
+    }
+}
+
 private struct CameraInviteScannerView: UIViewControllerRepresentable {
     let inviteRouter: InviteRouter
     let onCode: (String) -> Void
@@ -176,16 +208,15 @@ private struct CameraInviteScannerView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: InviteScannerViewController, context: Context) {}
 }
 
-private final class InviteScannerViewController: UIViewController,
-    @preconcurrency AVCaptureMetadataOutputObjectsDelegate
-{
+private final class InviteScannerViewController: UIViewController {
     private let inviteRouter: InviteRouter
     private let onCode: (String) -> Void
     private let onFailure: (CameraInviteScannerFailure) -> Void
     private let captureSession = AVCaptureSession()
+    private var lifecycle = CameraInviteScannerLifecycle()
+    private var metadataOutput: AVCaptureMetadataOutput?
+    private var metadataDelegate: InviteScannerMetadataDelegate?
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private var hasCompleted = false
-    private var hasStarted = false
 
     init(
         inviteRouter: InviteRouter,
@@ -210,14 +241,18 @@ private final class InviteScannerViewController: UIViewController,
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard !hasStarted else { return }
-        hasStarted = true
-        requestCameraAccessAfterUserChoice()
+        let generation = lifecycle.activate()
+        requestCameraAccessAfterUserChoice(generation: generation)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        invalidateScanner()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        stopCapture()
+        invalidateScanner()
     }
 
     override func viewDidLayoutSubviews() {
@@ -225,71 +260,86 @@ private final class InviteScannerViewController: UIViewController,
         previewLayer?.frame = view.bounds
     }
 
-    private func requestCameraAccessAfterUserChoice() {
+    private func requestCameraAccessAfterUserChoice(
+        generation: CameraInviteScannerLifecycle.Generation
+    ) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            configureAndStartCapture()
+            configureAndStartCapture(generation: generation)
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 Task { @MainActor in
-                    guard let self else { return }
+                    guard let self, self.lifecycle.isActive(generation) else { return }
                     if granted {
-                        self.configureAndStartCapture()
+                        self.configureAndStartCapture(generation: generation)
                     } else {
-                        self.finish(with: .permissionDenied)
+                        self.finish(with: .permissionDenied, generation: generation)
                     }
                 }
             }
         case .denied, .restricted:
-            finish(with: .permissionDenied)
+            finish(with: .permissionDenied, generation: generation)
         @unknown default:
-            finish(with: .permissionDenied)
+            finish(with: .permissionDenied, generation: generation)
         }
     }
 
-    private func configureAndStartCapture() {
-        guard !captureSession.isRunning, !hasCompleted else { return }
+    private func configureAndStartCapture(
+        generation: CameraInviteScannerLifecycle.Generation
+    ) {
+        guard lifecycle.isActive(generation), !captureSession.isRunning else { return }
         guard
             let camera = AVCaptureDevice.default(for: .video),
             let input = try? AVCaptureDeviceInput(device: camera),
             captureSession.canAddInput(input)
         else {
-            finish(with: .cameraUnavailable)
+            finish(with: .cameraUnavailable, generation: generation)
             return
         }
 
         let output = AVCaptureMetadataOutput()
         guard captureSession.canAddOutput(output) else {
-            finish(with: .cameraUnavailable)
+            finish(with: .cameraUnavailable, generation: generation)
             return
         }
 
         captureSession.beginConfiguration()
         captureSession.addInput(input)
         captureSession.addOutput(output)
-        output.setMetadataObjectsDelegate(self, queue: .main)
+        let metadataDelegate = InviteScannerMetadataDelegate(
+            generation: generation,
+            onMetadata: { [weak self] metadataObjects, generation in
+                self?.handleMetadata(metadataObjects, generation: generation)
+            }
+        )
+        output.setMetadataObjectsDelegate(metadataDelegate, queue: .main)
         guard output.availableMetadataObjectTypes.contains(.qr) else {
             captureSession.commitConfiguration()
-            finish(with: .cameraUnavailable)
+            finish(with: .cameraUnavailable, generation: generation)
             return
         }
         output.metadataObjectTypes = [.qr]
         captureSession.commitConfiguration()
+        self.metadataOutput = output
+        self.metadataDelegate = metadataDelegate
 
         let previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
         previewLayer.videoGravity = .resizeAspectFill
         previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
         self.previewLayer = previewLayer
+        guard lifecycle.isActive(generation) else {
+            invalidateScanner()
+            return
+        }
         captureSession.startRunning()
     }
 
-    func metadataOutput(
-        _ output: AVCaptureMetadataOutput,
-        didOutput metadataObjects: [AVMetadataObject],
-        from connection: AVCaptureConnection
+    private func handleMetadata(
+        _ metadataObjects: [AVMetadataObject],
+        generation: CameraInviteScannerLifecycle.Generation
     ) {
-        guard !hasCompleted else { return }
+        guard lifecycle.isActive(generation) else { return }
         for case let codeObject as AVMetadataMachineReadableCodeObject in metadataObjects {
             guard
                 codeObject.type == .qr,
@@ -298,24 +348,70 @@ private final class InviteScannerViewController: UIViewController,
             else {
                 continue
             }
-            hasCompleted = true
-            stopCapture()
+            guard lifecycle.claimCompletion(generation) else { return }
+            tearDownCapture()
             onCode(code)
             return
         }
     }
 
-    private func finish(with failure: CameraInviteScannerFailure) {
-        guard !hasCompleted else { return }
-        hasCompleted = true
-        stopCapture()
+    private func finish(
+        with failure: CameraInviteScannerFailure,
+        generation: CameraInviteScannerLifecycle.Generation
+    ) {
+        guard lifecycle.claimCompletion(generation) else { return }
+        tearDownCapture()
         onFailure(failure)
+    }
+
+    private func invalidateScanner() {
+        lifecycle.invalidate()
+        tearDownCapture()
+    }
+
+    private func tearDownCapture() {
+        metadataOutput?.setMetadataObjectsDelegate(nil, queue: nil)
+        metadataOutput = nil
+        metadataDelegate = nil
+        previewLayer?.removeFromSuperlayer()
+        previewLayer = nil
+        stopCapture()
     }
 
     private func stopCapture() {
         if captureSession.isRunning {
             captureSession.stopRunning()
         }
+    }
+}
+
+private final class InviteScannerMetadataDelegate: NSObject,
+    AVCaptureMetadataOutputObjectsDelegate
+{
+    private let generation: CameraInviteScannerLifecycle.Generation
+    private let onMetadata: (
+        [AVMetadataObject],
+        CameraInviteScannerLifecycle.Generation
+    ) -> Void
+
+    init(
+        generation: CameraInviteScannerLifecycle.Generation,
+        onMetadata: @escaping (
+            [AVMetadataObject],
+            CameraInviteScannerLifecycle.Generation
+        ) -> Void
+    ) {
+        self.generation = generation
+        self.onMetadata = onMetadata
+        super.init()
+    }
+
+    func metadataOutput(
+        _ output: AVCaptureMetadataOutput,
+        didOutput metadataObjects: [AVMetadataObject],
+        from connection: AVCaptureConnection
+    ) {
+        onMetadata(metadataObjects, generation)
     }
 }
 

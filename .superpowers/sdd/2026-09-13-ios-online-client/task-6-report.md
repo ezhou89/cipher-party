@@ -145,8 +145,50 @@ Result: Prettier reported all matched files conform; `git diff --check` exited 0
 - Confirmed no lobby/board view or realtime protocol files changed.
 - Added `@MainActor` to the UI test class to avoid Swift concurrency warnings from actor-isolated XCUI APIs.
 
+## Lifecycle review fix
+
+A post-implementation review identified a cancellation race: dismissing the scanner while camera authorization was pending, or while metadata delivery was queued, did not prevent the old callback from starting capture or delivering a room code.
+
+The scanner now owns a visibility/generation lifecycle. Each appearance activates a new generation. `viewWillDisappear` invalidates it at the earliest disappearance callback, and `viewDidDisappear` repeats the idempotent invalidation as a teardown guarantee. Permission callbacks and capture startup require the generation to remain active. Metadata delivery uses a per-generation delegate and must atomically claim completion for that active generation. Dismissal and completion both clear the metadata delegate, remove the preview layer, and stop capture before any external callback.
+
+Deterministic regression coverage was added without accessing a physical camera:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj -scheme CipherParty \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/cipher-party-ios-task6-lifecycle-red \
+  -only-testing:CipherPartyTests/CameraInviteScannerLifecycleTests \
+  build-for-testing -quiet
+```
+
+RED result: exit 65 with three `cannot find 'CameraInviteScannerLifecycle' in scope` errors.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj -scheme CipherParty \
+  -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath /tmp/cipher-party-ios-task6-lifecycle-build \
+  build-for-testing -quiet
+```
+
+GREEN build result: exit 0 with no output or warnings.
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+  -project apps/ios/CipherParty.xcodeproj -scheme CipherParty \
+  -destination 'platform=iOS Simulator,id=61DB0B2D-74E1-4DB2-9910-73F8B1E970B1' \
+  -derivedDataPath /tmp/cipher-party-ios-task6-lifecycle-build \
+  -only-testing:CipherPartyTests/CameraInviteScannerLifecycleTests \
+  -only-testing:CipherPartyTests/InviteRouterTests \
+  test-without-building -quiet
+```
+
+GREEN test result: exit 0. The three lifecycle tests cover a pending permission generation after dismissal, queued metadata after dismissal, and rejection of an old generation after a new appearance; the eight existing routing/QR tests also remain green.
+
 ## Concerns / deployment follow-up
 
 - The registered Apple Team ID/App ID was not available in repository configuration. Production must set `APPLE_APP_ID` to the exact registered value (for example, `TEAMID.bundle.identifier`). Until then, the Worker intentionally returns 404 and the static web fallback advertises no app association.
 - A signed-device Universal Link validation against the deployed staging host remains necessary after the App ID and associated-domain entitlement are provisioned in Apple Developer signing.
 - Simulator verification covers parsing, generated QR decoding, UI fallback, configuration, and compilation. Actual camera metadata capture and the system permission prompt still require a physical-device smoke test.
+- Moving `AVCaptureSession.startRunning()` and `stopRunning()` off the main queue remains the previously accepted minor follow-up; this lifecycle fix intentionally does not broaden into that refactor.
