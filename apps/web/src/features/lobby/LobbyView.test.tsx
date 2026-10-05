@@ -1499,7 +1499,7 @@ describe("RoomPage invite and socket lifecycle", () => {
 
       const alert = await screen.findByRole("alert");
       expect(alert).toHaveTextContent(publicCopy);
-      expect(alert).toHaveFocus();
+      await waitFor(() => expect(alert).toHaveFocus());
       expect(document.body.textContent).not.toContain(serverCopy);
       expect(screen.getByRole("button", { name: "Lock room" })).toBeEnabled();
     },
